@@ -1,6 +1,6 @@
 {
   "name": "@deplens/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Core engine for inspecting installed package exports and types",
   "type": "module",
   "exports": {

@@ -14,3 +14,7 @@ All notable changes to this project will be documented in this file.
 ## 0.1.1 - 2025-12-27
 
 - Fix published CLI/MCP bins by shipping wrapper scripts under `bin/`.
+
+## 0.1.2 - 2025-12-27
+
+- Normalize `bin` entries for CLI/MCP packages and bump workspace versions.

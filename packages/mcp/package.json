@@ -1,10 +1,10 @@
 {
   "name": "@deplens/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "./src/server.mjs",
   "bin": {
-    "deplens-mcp": "./bin/deplens-mcp.js"
+    "deplens-mcp": "bin/deplens-mcp.js"
   },
   "files": [
     "src",
@@ -17,7 +17,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@deplens/core": "0.1.1",
+    "@deplens/core": "0.1.2",
     "@modelcontextprotocol/sdk": "^1.25.1"
   },
   "publishConfig": {

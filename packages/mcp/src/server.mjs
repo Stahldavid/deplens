@@ -2,7 +2,24 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { runInspect } from "@deplens/core";
+let corePromise = null;
+
+async function loadCore() {
+  if (!corePromise) {
+    corePromise = import("@deplens/core").catch(async (error) => {
+      try {
+        const fallbackUrl = new URL("./core/inspect.mjs", import.meta.url);
+        return await import(fallbackUrl.href);
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        const err = new Error(`Failed to load @deplens/core. Fallback also failed: ${message}`);
+        err.cause = error;
+        throw err;
+      }
+    });
+  }
+  return corePromise;
+}
 
 const tools = [
   {
@@ -80,6 +97,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const target = args?.subpath ? `${args.target}/${args.subpath}` : args?.target;
     if (!target) throw new Error("Missing required field: target");
 
+    const core = await loadCore();
+    const runInspect = core.runInspect || core.default?.runInspect;
+    if (!runInspect) {
+      throw new Error("Failed to load runInspect from @deplens/core");
+    }
     const output = await runInspect({
       target,
       filter: args?.filter,

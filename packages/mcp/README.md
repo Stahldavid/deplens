@@ -8,6 +8,34 @@ Model Context Protocol (MCP) server for DepLens.
 npx @deplens/mcp
 ```
 
+If your MCP host requires a command + args, use one of:
+
+```json
+{ "command": "npx", "args": ["--yes", "@deplens/mcp"] }
+```
+
+```json
+{ "command": "npm", "args": ["exec", "--", "@deplens/mcp"] }
+```
+
+If `npx`/`npm exec` is unreliable, install once and call the binary:
+
+```bash
+npm i -g @deplens/mcp
+```
+
+```json
+{ "command": "deplens-mcp" }
+```
+
+Or point directly to the local bin if installed in a project:
+
+```json
+{ "command": "node", "args": ["./node_modules/@deplens/mcp/bin/deplens-mcp.js"] }
+```
+
+Avoid: `npm @deplens/mcp` (npm will treat it as an unknown command).
+
 This starts an MCP server over stdio.
 
 ## Tool

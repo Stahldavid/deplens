@@ -18,3 +18,8 @@ All notable changes to this project will be documented in this file.
 ## 0.1.2 - 2025-12-27
 
 - Normalize `bin` entries for CLI/MCP packages and bump workspace versions.
+
+## 0.1.3 - 2025-12-27
+
+- Fix MCP core loading via lazy import + fallback to bundled core files.
+- Document correct MCP invocation for npx/npm exec.

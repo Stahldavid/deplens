@@ -85,6 +85,34 @@ JSDoc flags:
 npx @deplens/mcp
 ```
 
+If your MCP host expects a command + args, use one of:
+
+```json
+{ "command": "npx", "args": ["--yes", "@deplens/mcp"] }
+```
+
+```json
+{ "command": "npm", "args": ["exec", "--", "@deplens/mcp"] }
+```
+
+If your environment has issues with `npx`/`npm exec`, install once and call the binary directly:
+
+```bash
+npm i -g @deplens/mcp
+```
+
+```json
+{ "command": "deplens-mcp" }
+```
+
+Or point directly to the local bin if installed in a project:
+
+```json
+{ "command": "node", "args": ["./node_modules/@deplens/mcp/bin/deplens-mcp.js"] }
+```
+
+Note: `npm @deplens/mcp` is not a valid npm invocation and will print “Unknown command”.
+
 Tool: `deplens.inspect`
 
 Example tool call payload:

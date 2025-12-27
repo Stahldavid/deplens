@@ -21,64 +21,68 @@ async function loadCore() {
   return corePromise;
 }
 
+const inspectToolSchema = {
+  type: "object",
+  properties: {
+    target: { type: "string", description: "Package name or import path (e.g. react, next/server)" },
+    subpath: { type: "string", description: "Optional subpath (e.g. server for next/server)" },
+    filter: { type: "string", description: "Substring filter for exports" },
+    kind: {
+      type: "array",
+      items: { type: "string", enum: ["function", "class", "object", "constant", "interface", "type"] },
+      description: "Filter by export kind",
+    },
+    showTypes: { type: "boolean", description: "Show type signatures from .d.ts" },
+    depth: { type: "number", description: "Depth for object inspection (0-5)" },
+    resolveFrom: { type: "string", description: "Base directory for module resolution" },
+    rootDir: { type: "string", description: "Working directory for the inspection (default: cwd)" },
+    jsdoc: { type: "string", enum: ["off", "compact", "full"], description: "JSDoc mode" },
+    jsdocOutput: {
+      type: "string",
+      enum: ["off", "section", "inline", "only"],
+      description: "Where to print JSDoc",
+    },
+    jsdocQuery: {
+      type: "object",
+      properties: {
+        symbols: {
+          oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+        },
+        sections: {
+          type: "array",
+          items: { type: "string", enum: ["summary", "params", "returns", "tags"] },
+        },
+        tags: {
+          type: "object",
+          properties: {
+            include: { type: "array", items: { type: "string" } },
+            exclude: { type: "array", items: { type: "string" } },
+          },
+        },
+        mode: { type: "string", enum: ["compact", "full"] },
+        maxLen: { type: "number" },
+        truncate: { type: "string", enum: ["none", "sentence", "word"] },
+      },
+    },
+  },
+  required: ["target"],
+};
+
 const tools = [
   {
     name: "deplens.inspect",
     description: "Inspect exports and types for an installed npm package.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        target: { type: "string", description: "Package name or import path (e.g. react, next/server)" },
-        subpath: { type: "string", description: "Optional subpath (e.g. server for next/server)" },
-        filter: { type: "string", description: "Substring filter for exports" },
-        kind: {
-          type: "array",
-          items: { type: "string", enum: ["function", "class", "object", "constant", "interface", "type"] },
-          description: "Filter by export kind",
-        },
-        showTypes: { type: "boolean", description: "Show type signatures from .d.ts" },
-        depth: { type: "number", description: "Depth for object inspection (0-5)" },
-        resolveFrom: { type: "string", description: "Base directory for module resolution" },
-        rootDir: { type: "string", description: "Working directory for the inspection (default: cwd)" },
-        jsdoc: { type: "string", enum: ["off", "compact", "full"], description: "JSDoc mode" },
-        jsdocOutput: {
-          type: "string",
-          enum: ["off", "section", "inline", "only"],
-          description: "Where to print JSDoc",
-        },
-        jsdocQuery: {
-          type: "object",
-          properties: {
-            symbols: {
-              oneOf: [
-                { type: "string" },
-                { type: "array", items: { type: "string" } }
-              ]
-            },
-            sections: {
-              type: "array",
-              items: { type: "string", enum: ["summary", "params", "returns", "tags"] }
-            },
-            tags: {
-              type: "object",
-              properties: {
-                include: { type: "array", items: { type: "string" } },
-                exclude: { type: "array", items: { type: "string" } }
-              }
-            },
-            mode: { type: "string", enum: ["compact", "full"] },
-            maxLen: { type: "number" },
-            truncate: { type: "string", enum: ["none", "sentence", "word"] }
-          }
-        }
-      },
-      required: ["target"]
-    }
-  }
+    inputSchema: inspectToolSchema,
+  },
+  {
+    name: "deplens_inspect",
+    description: "Inspect exports and types for an installed npm package.",
+    inputSchema: inspectToolSchema,
+  },
 ];
 
 const server = new Server(
-  { name: "deplens", version: "0.1.0" },
+  { name: "deplens", version: "0.1.6" },
   { capabilities: { tools: {} } }
 );
 
@@ -89,7 +93,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   try {
-    if (name !== "deplens.inspect") {
+    if (name !== "deplens.inspect" && name !== "deplens_inspect") {
       throw new Error(`Unknown tool: ${name}`);
     }
 

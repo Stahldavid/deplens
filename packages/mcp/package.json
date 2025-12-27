@@ -1,0 +1,26 @@
+{
+  "name": "@deplens/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/server.mjs",
+  "bin": {
+    "deplens-mcp": "./src/server.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "echo 'no build'"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@deplens/core": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.25.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@deplens/core",
+  "version": "0.1.0",
+  "description": "Core engine for inspecting installed package exports and types",
+  "type": "module",
+  "exports": {
+    ".": "./src/inspect.mjs",
+    "./parse-dts": "./src/parse-dts.mjs"
+  },
+  "dependencies": {
+    "fast-glob": "^3.3.2",
+    "import-meta-resolve": "^4.2.0",
+    "typescript": "^5.8.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

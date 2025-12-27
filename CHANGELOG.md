@@ -10,3 +10,7 @@ All notable changes to this project will be documented in this file.
 - JSDoc extraction with compact/full modes and query filters.
 - Node-first CLI with optional Bun acceleration.
 - JSDoc query controls and output placement (section/inline/only).
+
+## 0.1.1 - 2025-12-27
+
+- Fix published CLI/MCP bins by shipping wrapper scripts under `bin/`.

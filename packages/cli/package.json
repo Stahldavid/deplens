@@ -1,13 +1,17 @@
 {
   "name": "@deplens/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Inspect exports and types of installed npm packages",
   "type": "module",
   "bin": {
-    "deplens": "./src/cli.mjs"
+    "deplens": "./bin/deplens.js"
   },
+  "files": [
+    "src",
+    "bin"
+  ],
   "dependencies": {
-    "@deplens/core": "0.1.0"
+    "@deplens/core": "0.1.1"
   },
   "publishConfig": {
     "access": "public"

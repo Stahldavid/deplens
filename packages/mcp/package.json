@@ -1,13 +1,14 @@
 {
   "name": "@deplens/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "./src/server.mjs",
   "bin": {
-    "deplens-mcp": "./src/server.mjs"
+    "deplens-mcp": "./bin/deplens-mcp.js"
   },
   "files": [
-    "src"
+    "src",
+    "bin"
   ],
   "scripts": {
     "build": "echo 'no build'"
@@ -16,7 +17,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@deplens/core": "0.1.0",
+    "@deplens/core": "0.1.1",
     "@modelcontextprotocol/sdk": "^1.25.1"
   },
   "publishConfig": {

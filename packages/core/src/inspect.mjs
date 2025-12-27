@@ -135,7 +135,34 @@ async function resolveTargetModule(target, cwd, resolveFrom) {
   return { resolved: null, resolveCwd: baseDir, resolver: null }
 }
 
-function resolvePackageInfo(basePkg, require) {
+function findPackageJsonFromPath(startPath) {
+  if (!startPath) return null
+  let dir = path.dirname(startPath)
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, "package.json")
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+function findPackageJsonInNodeModules(startDir, basePkg) {
+  if (!startDir || !basePkg) return null
+  const segments = basePkg.split("/")
+  let dir = path.resolve(startDir)
+  while (true) {
+    const candidate = path.join(dir, "node_modules", ...segments, "package.json")
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+function resolvePackageInfo(basePkg, require, resolveFrom, resolvedPath) {
   let pkgPath
   let pkgDir
   try {
@@ -155,6 +182,30 @@ function resolvePackageInfo(basePkg, require) {
         dir = path.dirname(dir)
       }
     } catch (err) {}
+  }
+
+  if (!pkgPath && resolveFrom && basePkg) {
+    const fallback = findPackageJsonInNodeModules(resolveFrom, basePkg)
+    if (fallback) {
+      pkgPath = fallback
+      pkgDir = path.dirname(fallback)
+    }
+  }
+
+  if (!pkgPath && resolvedPath) {
+    const fallback = findPackageJsonFromPath(resolvedPath)
+    if (fallback) {
+      pkgPath = fallback
+      pkgDir = path.dirname(fallback)
+    }
+  }
+
+  if (resolveFrom && basePkg) {
+    const rootCandidate = findPackageJsonInNodeModules(resolveFrom, basePkg)
+    if (rootCandidate && rootCandidate !== pkgPath) {
+      pkgPath = rootCandidate
+      pkgDir = path.dirname(rootCandidate)
+    }
   }
 
   if (!pkgPath || !fs.existsSync(pkgPath)) return null
@@ -263,6 +314,29 @@ function resolveTypesFile(pkg, pkgDir, subpath) {
         const mtsPath = dtsPath.replace(".d.ts", ".d.mts")
         if (fs.existsSync(ctsPath)) dtsPath = ctsPath
         else if (fs.existsSync(mtsPath)) dtsPath = mtsPath
+      }
+    }
+  }
+
+  if (!fs.existsSync(dtsPath)) {
+    const altDir = path.dirname(dtsPath)
+    const altCandidates = [
+      "types.d.ts",
+      "types.d.mts",
+      "types.d.cts",
+      "index.d.ts",
+      "index.d.mts",
+      "index.d.cts",
+    ]
+    for (const candidate of altCandidates) {
+      const altPath = path.join(altDir, candidate)
+      if (fs.existsSync(altPath)) {
+        dtsPath = altPath
+        typesFile = path.relative(pkgDir, altPath)
+        if (!source || source === "exports" || source === "package") {
+          source = "fallback"
+        }
+        break
       }
     }
   }
@@ -585,6 +659,12 @@ export async function runInspect(options) {
   const resolution = await resolveTargetModule(target, baseCwd, resolveFrom)
   const resolveCwd = resolution.resolveCwd || baseCwd
   const require = createRequire(resolveCwd ? path.join(resolveCwd, "noop.js") : import.meta.url)
+  const resolvedPath = resolution.resolved
+  const entrypointPath =
+    typeof resolvedPath === "string" && resolvedPath.startsWith("file://")
+      ? fileURLToPath(resolvedPath)
+      : resolvedPath
+  const entrypointExists = entrypointPath ? fs.existsSync(entrypointPath) : false
 
   const flags = []
   if (filter) flags.push(`Filtro: "${filter}"`)
@@ -606,7 +686,9 @@ export async function runInspect(options) {
 
     const basePkg = getPackageName(target)
     const subpath = getPackageSubpath(target)
-    const pkgInfo = basePkg ? resolvePackageInfo(basePkg, require) : null
+    const pkgInfo = basePkg
+      ? resolvePackageInfo(basePkg, require, resolveFrom || baseCwd || process.cwd(), entrypointPath)
+      : null
     const pkg = pkgInfo?.pkg
     const pkgDir = pkgInfo?.pkgDir
 
@@ -673,9 +755,18 @@ export async function runInspect(options) {
       typeInfoRaw = parseDtsFile(dtsPath, null)
     }
 
-    const { module: moduleNamespace } = await loadModuleExports(resolution.resolved, require, pkg)
-    const moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace)
-    const allExports = Object.keys(moduleDescriptors)
+    let moduleNamespace = {}
+    let moduleDescriptors = {}
+    let allExports = []
+    const runtimeAvailable = Boolean(entrypointExists)
+    if (!runtimeAvailable) {
+      log(`\n⚠️  Entrypoint not found on disk; runtime exports skipped.`)
+    } else {
+      const { module: loadedNamespace } = await loadModuleExports(entrypointPath, require, pkg)
+      moduleNamespace = loadedNamespace
+      moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace)
+      allExports = Object.keys(moduleDescriptors)
+    }
 
     // Lógica de Filtro
     let finalList = allExports
@@ -700,67 +791,74 @@ export async function runInspect(options) {
       constants: [],
     }
 
-    for (const key of finalList) {
-      const descriptor = moduleDescriptors[key]
-      if (!descriptor) continue
-      if (descriptor.get || descriptor.set) {
-        categorized.objects.push(key)
-        continue
-      }
-      const value = descriptor.value
-      const type = typeof value
+    if (runtimeAvailable) {
+      for (const key of finalList) {
+        const descriptor = moduleDescriptors[key]
+        if (!descriptor) continue
+        if (descriptor.get || descriptor.set) {
+          categorized.objects.push(key)
+          continue
+        }
+        const value = descriptor.value
+        const type = typeof value
 
-      if (type === "function") {
-        // Distinguir class vs function
-        if (isProbablyClass(value)) {
-          categorized.classes.push(key)
+        if (type === "function") {
+          // Distinguir class vs function
+          if (isProbablyClass(value)) {
+            categorized.classes.push(key)
+          } else {
+            categorized.functions.push(key)
+          }
+        } else if (type === "object" && value !== null) {
+          categorized.objects.push(key)
+        } else if (type === "string" || type === "number" || type === "boolean") {
+          categorized.constants.push(key)
         } else {
-          categorized.functions.push(key)
-        }
-      } else if (type === "object" && value !== null) {
-        categorized.objects.push(key)
-      } else if (type === "string" || type === "number" || type === "boolean") {
-        categorized.constants.push(key)
-      } else {
-        categorized.primitives.push(key)
-      }
-    }
-
-    // Prefer class from type info when available
-    if (typeInfoRaw && Object.keys(typeInfoRaw.classes).length > 0) {
-      const classNames = new Set(Object.keys(typeInfoRaw.classes))
-      categorized.functions = categorized.functions.filter((name) => {
-        if (classNames.has(name)) {
-          categorized.classes.push(name)
-          return false
-        }
-        return true
-      })
-    }
-
-    // Apply kind filter if specified
-    if (kindFilter && kindFilter.length > 0) {
-      const kindMap = {
-        function: "functions",
-        class: "classes",
-        object: "objects",
-        constant: "constants",
-      }
-
-      // Keep only the requested kinds
-      for (const [key, value] of Object.entries(categorized)) {
-        const shouldKeep = Object.entries(kindMap).some(([kind, catKey]) => kindFilter.includes(kind) && catKey === key)
-        if (!shouldKeep) {
-          categorized[key] = []
+          categorized.primitives.push(key)
         }
       }
 
-      // Update finalList to only include filtered kinds
-      finalList = [...categorized.functions, ...categorized.classes, ...categorized.objects, ...categorized.constants]
+      // Prefer class from type info when available
+      if (typeInfoRaw && Object.keys(typeInfoRaw.classes).length > 0) {
+        const classNames = new Set(Object.keys(typeInfoRaw.classes))
+        categorized.functions = categorized.functions.filter((name) => {
+          if (classNames.has(name)) {
+            categorized.classes.push(name)
+            return false
+          }
+          return true
+        })
+      }
+
+      // Apply kind filter if specified
+      if (kindFilter && kindFilter.length > 0) {
+        const kindMap = {
+          function: "functions",
+          class: "classes",
+          object: "objects",
+          constant: "constants",
+        }
+
+        // Keep only the requested kinds
+        for (const [key, value] of Object.entries(categorized)) {
+          const shouldKeep = Object.entries(kindMap).some(
+            ([kind, catKey]) => kindFilter.includes(kind) && catKey === key,
+          )
+          if (!shouldKeep) {
+            categorized[key] = []
+          }
+        }
+
+        // Update finalList to only include filtered kinds
+        finalList = [...categorized.functions, ...categorized.classes, ...categorized.objects, ...categorized.constants]
+      }
     }
 
     // Mostrar exports categorizados
     if (jsdocOutput !== "only") {
+      if (!runtimeAvailable) {
+        log(`\nℹ️  Runtime exports unavailable. Use --types to inspect type exports.`)
+      }
       log(`\n🔑 Exports Encontrados (${finalList.length} total):`)
 
       if (categorized.functions.length > 0) {
@@ -808,7 +906,9 @@ export async function runInspect(options) {
 
     // === MELHORIA 5: Mostrar assinaturas de funções ===
     if (jsdocOutput !== "only") {
-      if (!showTypes && categorized.functions.length > 0 && categorized.functions.length <= 15) {
+      if (!runtimeAvailable) {
+        // Skip runtime-only signature/default export hints when entrypoint is missing
+      } else if (!showTypes && categorized.functions.length > 0 && categorized.functions.length <= 15) {
         log(`\n✍️  Function Signatures:`)
         for (const fname of categorized.functions) {
           const descriptor = moduleDescriptors[fname]
@@ -822,13 +922,15 @@ export async function runInspect(options) {
       }
 
       // Default export handling
-      const defaultDescriptor = moduleDescriptors.default
-      if (defaultDescriptor && (!filter || "default".includes(filter))) {
-        const defaultValue = defaultDescriptor.get || defaultDescriptor.set ? undefined : defaultDescriptor.value
-        const defaultType = typeof defaultValue
-        log(`\n📦 Default Export: ${defaultType}`)
-        if (defaultType === "function" && defaultValue && defaultValue.length !== undefined) {
-          log(`   Parameters: ${defaultValue.length}`)
+      if (runtimeAvailable) {
+        const defaultDescriptor = moduleDescriptors.default
+        if (defaultDescriptor && (!filter || "default".includes(filter))) {
+          const defaultValue = defaultDescriptor.get || defaultDescriptor.set ? undefined : defaultDescriptor.value
+          const defaultType = typeof defaultValue
+          log(`\n📦 Default Export: ${defaultType}`)
+          if (defaultType === "function" && defaultValue && defaultValue.length !== undefined) {
+            log(`   Parameters: ${defaultValue.length}`)
+          }
         }
       }
     }
@@ -995,17 +1097,19 @@ export async function runInspect(options) {
               ...Object.keys(typeInfo.enums),
               ...Object.keys(typeInfo.namespaces),
             ])
-            const runtimeNames = new Set(allExports)
-            const runtimeOnly = [...runtimeNames].filter((name) => !typeExportNames.has(name))
-            const typesOnly = [...typeExportNames].filter((name) => !runtimeNames.has(name))
+            if (runtimeAvailable) {
+              const runtimeNames = new Set(allExports)
+              const runtimeOnly = [...runtimeNames].filter((name) => !typeExportNames.has(name))
+              const typesOnly = [...typeExportNames].filter((name) => !runtimeNames.has(name))
 
-            if (runtimeOnly.length > 0 || typesOnly.length > 0) {
-              log(`\n  ⚖️  Runtime/Types Mismatch:`)
-              if (runtimeOnly.length > 0) {
-                log(`     Runtime only: ${runtimeOnly.slice(0, 10).join(", ")}`)
-              }
-              if (typesOnly.length > 0) {
-                log(`     Types only: ${typesOnly.slice(0, 10).join(", ")}`)
+              if (runtimeOnly.length > 0 || typesOnly.length > 0) {
+                log(`\n  ⚖️  Runtime/Types Mismatch:`)
+                if (runtimeOnly.length > 0) {
+                  log(`     Runtime only: ${runtimeOnly.slice(0, 10).join(", ")}`)
+                }
+                if (typesOnly.length > 0) {
+                  log(`     Types only: ${typesOnly.slice(0, 10).join(", ")}`)
+                }
               }
             }
 

@@ -74,11 +74,6 @@ const tools = [
     description: "Inspect exports and types for an installed npm package.",
     inputSchema: inspectToolSchema,
   },
-  {
-    name: "deplens_inspect",
-    description: "Inspect exports and types for an installed npm package.",
-    inputSchema: inspectToolSchema,
-  },
 ];
 
 const server = new Server(

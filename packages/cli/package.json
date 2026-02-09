@@ -1,6 +1,6 @@
 {
   "name": "@deplens/cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Inspect exports and types of installed npm packages",
   "type": "module",
   "bin": {
@@ -11,7 +11,7 @@
     "bin"
   ],
   "dependencies": {
-    "@deplens/core": "0.1.5"
+    "@deplens/core": "0.1.6"
   },
   "publishConfig": {
     "access": "public"

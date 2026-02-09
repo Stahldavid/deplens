@@ -1,6 +1,6 @@
 {
   "name": "@deplens/mcp",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "main": "./src/server.mjs",
   "bin": {
@@ -17,7 +17,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@deplens/core": "0.1.5",
+    "@deplens/core": "0.1.6",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "fast-glob": "^3.3.2",
     "typescript": "^5.0.0",

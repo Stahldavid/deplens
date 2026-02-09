@@ -14,6 +14,8 @@ npx deplens --help
 
 ```bash
 deplens <package-or-import-path> [filter]
+deplens inspect <package-or-import-path> [filter]
+deplens diff <package> [options]
 ```
 
 ## Examples
@@ -37,15 +39,44 @@ deplens ai --types \
   --jsdoc-tags param,returns \
   --jsdoc-truncate sentence \
   --jsdoc-max-len 220
+
+# Diff package versions
+
+deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 ```
 
-## Flags
+## Flags (inspect)
 
 - `--types` — include type signatures from `.d.ts`
 - `--filter <text>` — substring filter for exports
+- `--search <query>` — semantic search (token match + JSDoc)
 - `--kind <k1,k2>` — `function`, `class`, `object`, `constant`
 - `--depth <0-5>` — object inspection depth
 - `--resolve-from <dir>` — base directory for module resolution
+- `--docs` — include README preview
+- `--examples` — include code examples
+- `--list-sections` — list README sections
+- `--docs-sections <s1,s2>` — extract README sections
+- `--remote` — download package to cache
+- `--remote-version <v>` — remote version override
+- `--max-exports <n>` — limit exports shown
+- `--max-props <n>` — limit object props shown
+- `--max-examples <n>` — limit examples shown
+- `--analyze-source` — analyze source complexity
+- `--source-max-files <n>` — max source files to analyze
+- `--source-include-body` — include function body snippets
+
+## Flags (diff)
+
+- `--from <version>` — base version (default: installed)
+- `--to <version>` — target version (default: latest)
+- `--filter <text>` — filter exports by name
+- `--format text|json` — output format
+- `--include-source` — compare source complexity
+- `--no-changelog` — skip changelog parsing
+- `--verbose` — show detailed changes
+- `--no-color` — disable ANSI colors
+- `--project-dir <dir>` — base directory for installed version
 
 JSDoc:
 

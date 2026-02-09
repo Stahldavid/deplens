@@ -11,16 +11,25 @@ npm i @deplens/core
 ## Usage
 
 ```js
-import { runInspect } from "@deplens/core";
+import { runInspect, runDiff } from "@deplens/core";
 
 const output = await runInspect({
   target: "ai",
   showTypes: true,
   filter: "generate",
-  resolveFrom: process.cwd()
+  resolveFrom: process.cwd(),
 });
 
 console.log(output);
+
+const diff = await runDiff({
+  package: "express",
+  from: "4.18.0",
+  to: "4.19.0",
+  format: "json",
+});
+
+console.log(diff.output);
 ```
 
 `runInspect` returns a string **when no custom writers are provided**. If you pass `write` or `writeError`, it will stream to those instead.
@@ -62,8 +71,8 @@ await runInspect({
     tags: { include: ["param", "returns"] },
     mode: "compact",
     truncate: "sentence",
-    maxLen: 220
-  }
+    maxLen: 220,
+  },
 });
 ```
 

@@ -53,33 +53,71 @@ Example output (truncated):
 ## CLI Usage
 
 ```bash
-deplens <package-or-import-path> [filter]
+deplens <package-or-import-path> [filter] [options]
 ```
 
-Common flags:
+### Common flags
 
 ```bash
 --types                 Include type signatures (.d.ts)
 --filter <text>         Substring filter
+--search <query>        Lightweight semantic search (token + JSDoc)
 --kind <k1,k2>          function,class,object,constant
 --depth <0-5>           Object inspection depth
 --resolve-from <dir>    Resolution base directory
+--remote                Download package to cache and inspect it
+--remote-version <v>    Version for remote download (default: latest)
+--docs                  Include README preview
+--list-sections         List README section names (for targeted extraction)
+--docs-sections <csv>   Extract specific README sections by name
+--examples              Include README/examples/@example snippets
+--format text|json      Output format
+--max-exports <n>       Max exports in output (default: 100)
+--max-props <n>         Max props per object (default: 10)
+--max-examples <n>      Max examples returned (default: 10)
 ```
 
-JSDoc flags:
+### JSDoc flags
 
 ```bash
 --jsdoc off|compact|full
 --jsdoc-output off|section|inline|only
 --jsdoc-symbol <name|glob|/re/>
 --jsdoc-sections summary,params,returns,tags
---jsdoc-tags param,returns
---jsdoc-tags-exclude internal,deprecated
+--jsdoc-tags t1,t2
+--jsdoc-tags-exclude t1,t2
 --jsdoc-truncate none|sentence|word
 --jsdoc-max-len <N>
 ```
 
+### Examples
+
+Inspect local package (types + search):
+
+```bash
+deplens zod --types --search validate --filter parse
+```
+
+Inspect remotely (no install) as JSON:
+
+```bash
+deplens zod --remote --remote-version latest --format json --filter parse
+```
+
+List README sections and extract specific ones:
+
+```bash
+deplens zod --docs --list-sections
+# then
+
+deplens zod --docs-sections "Getting Started,Usage" --format json
+```
+
 ## MCP
+
+DepLens ships an MCP server over **stdio** (`@deplens/mcp`) so agents can call `deplens.inspect` and receive structured output.
+
+### Run
 
 ```bash
 npx @deplens/mcp
@@ -108,12 +146,39 @@ npm i -g @deplens/mcp
 Or point directly to the local bin if installed in a project:
 
 ```json
-{ "command": "node", "args": ["./node_modules/@deplens/mcp/bin/deplens-mcp.js"] }
+{
+  "command": "node",
+  "args": ["./node_modules/@deplens/mcp/bin/deplens-mcp.js"]
+}
 ```
 
 Note: `npm @deplens/mcp` is not a valid npm invocation and will print “Unknown command”.
 
-Tool: `deplens.inspect`
+### Configure (Claude Desktop / MCP hosts)
+
+Most MCP hosts expect a JSON config with a server command.
+
+Example config snippet:
+
+```json
+{
+  "mcpServers": {
+    "deplens": {
+      "command": "npx",
+      "args": ["--yes", "@deplens/mcp"],
+      "env": {
+        "DEPLENS_ROOT": "."
+      }
+    }
+  }
+}
+```
+
+### Tools
+
+#### `deplens.inspect`
+
+Recommended for agents: use `format: "json"` to avoid parsing human text.
 
 Example tool call payload:
 
@@ -122,7 +187,39 @@ Example tool call payload:
   "target": "next/server",
   "showTypes": true,
   "filter": "NextResponse",
-  "resolveFrom": "."
+  "resolveFrom": ".",
+  "format": "json",
+  "docsSections": ["Usage", "API"],
+  "includeExamples": true
+}
+```
+
+The JSON response includes a `resolution` block to explain where DepLens resolved the module from:
+
+```json
+{
+  "package": "next",
+  "version": "14.2.0",
+  "resolution": {
+    "target": "next/server",
+    "resolveFrom": ".",
+    "resolveCwd": "C:\\path\\to\\project",
+    "resolved": "C:\\path\\to\\project\\node_modules\\next\\server.js",
+    "entrypointPath": "C:\\path\\to\\project\\node_modules\\next\\server.js",
+    "entrypointExists": true
+  }
+}
+```
+
+#### `deplens.diff`
+
+Compare two versions of a package. Useful for upgrade planning and identifying breaking changes.
+
+```json
+{
+  "package": "zod",
+  "from": "3.22.0",
+  "to": "latest"
 }
 ```
 
@@ -135,7 +232,7 @@ const output = await runInspect({
   target: "ai",
   showTypes: true,
   filter: "generate",
-  resolveFrom: process.cwd()
+  resolveFrom: process.cwd(),
 });
 
 console.log(output);

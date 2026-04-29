@@ -9,6 +9,7 @@ import { resolve as importMetaResolve } from 'import-meta-resolve';
 import { parseDtsFile } from './parse-dts.mjs';
 import { analyzePackageSource } from './parse-source.mjs';
 import { downloadVersion } from './version-resolver.mjs';
+import { execSync } from 'child_process';
 
 function getPackageName(target) {
   if (!target) return target;
@@ -485,6 +486,7 @@ async function loadModuleExports(resolvedPath, require, pkg) {
   return { module: mod, format };
 }
 
+/* eslint-disable-next-line no-unused-vars */
 function buildSymbolMatcher(symbols, fallbackFilter) {
   const patterns = [];
   const addPattern = (value) => {
@@ -788,6 +790,7 @@ function truncateSummary(text, mode, maxLen, truncateMode) {
   return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
 }
 
+/* eslint-disable-next-line no-unused-vars */
 function formatJsdocEntry(name, doc, options) {
   const mode = options.mode || 'compact';
   const truncateMode = options.truncate || 'word';
@@ -1002,7 +1005,27 @@ function getCachedDtsParse(dtsPath, ttlMs = DEFAULT_DTS_TTL_MS) {
   }
 }
 
+async function generateDts(pkgDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf-8'));
+    const moduleName = pkg.name || path.basename(pkgDir);
+    execSync('npx dts-gen -m ' + moduleName + ' --overwrite', {
+      cwd: pkgDir,
+      stdio: 'pipe',
+      timeout: 30000,
+    });
+    const dtsPath = path.join(pkgDir, moduleName + '.d.ts');
+    if (fs.existsSync(dtsPath)) {
+      return dtsPath;
+    }
+  } catch (e) {
+    // dts-gen falhou, silenciosamente
+  }
+  return null;
+}
+
 export async function runInspect(options) {
+  let sourceAnalysis;
   const collect = !options?.write && !options?.writeError;
   const output = collect ? [] : null;
   const write = options?.write;
@@ -1123,7 +1146,6 @@ export async function runInspect(options) {
       try {
         const downloaded = downloadVersion(basePkgName, spec, {
           timeout: 120000,
-          preferCdn: options.preferCdn ?? true,
         });
         resolveFrom = downloaded.path;
         log(`   CachePath: ${downloaded.path}`);
@@ -1374,6 +1396,22 @@ export async function runInspect(options) {
       dtsPath = typesResolution.dtsPath;
       typesSource = typesResolution.source;
 
+      // Auto-geração de types se não encontrado no disco e flag habilitada
+      if (options?.autoGenerateTypes !== false && pkgDir) {
+        const typesExist = dtsPath && fs.existsSync(dtsPath);
+        if (!typesExist) {
+          log('   🔧 Types not found on disk, generating via dts-gen...');
+          const generatedPath = await generateDts(pkgDir);
+          if (generatedPath && fs.existsSync(generatedPath)) {
+            typesFile = generatedPath;
+            dtsPath = generatedPath;
+            log(`   ✅ Types generated: ${path.basename(generatedPath)}`);
+          } else {
+          }
+        } else {
+        }
+      }
+
       // Update pkgDir if we're using @types package
       if (typesResolution.pkgDir && typesSource === '@types') {
         // Keep original pkgDir for runtime, but use types pkgDir for dtsPath
@@ -1409,11 +1447,8 @@ export async function runInspect(options) {
     }
 
     let typeInfoRaw = null;
-    if (
-      (showTypes || wantJsdoc || includeExamples || search) &&
-      dtsPath &&
-      fs.existsSync(dtsPath)
-    ) {
+    // Sempre parsear types para JSON output (mesmo sem --types)
+    if (jsonOutput && dtsPath && fs.existsSync(dtsPath)) {
       typeInfoRaw = getCachedDtsParse(dtsPath);
     }
 
@@ -1547,7 +1582,7 @@ export async function runInspect(options) {
         };
 
         // Keep only the requested kinds
-        for (const [key] of Object.entries(categorized)) {
+        for (const [key] of Object.keys(categorized)) {
           const shouldKeep = Object.entries(kindMap).some(
             ([kind, catKey]) => kindFilter.includes(kind) && catKey === key
           );
@@ -1665,6 +1700,11 @@ export async function runInspect(options) {
     }
 
     // === NEW: Parse .d.ts file if --types flag is present ===
+    // Load type info if dtsPath exists (for both logs and JSON)
+    if (dtsPath && fs.existsSync(dtsPath) && typeInfoRaw === null) {
+      typeInfoRaw = getCachedDtsParse(dtsPath);
+    }
+
     if (showTypes || wantJsdoc) {
       if (dtsPath && fs.existsSync(dtsPath)) {
         if (jsdocOutput !== 'only') {
@@ -1674,212 +1714,54 @@ export async function runInspect(options) {
 
         const typeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
 
-        // Populate JSON types
-        if (jsonOutput && typeInfo) {
-          jsonOutput.types = {
-            source: path.basename(dtsPath),
-            functions: Object.fromEntries(
-              Object.entries(typeInfo.functions).map(([name, info]) => [
-                name,
-                { params: info.params, returnType: info.returnType },
-              ])
-            ),
-            interfaces: typeInfo.interfaces,
-            types: typeInfo.types,
-            classes: typeInfo.classes,
-            enums: typeInfo.enums || {},
-          };
+        // Log functions
+        const functionCount = Object.keys(typeInfo.functions).length;
+        if (functionCount > 0 && jsdocOutput !== 'only') {
+          log(`\n   Functions (${functionCount}):`);
+          for (const [name, info] of Object.entries(typeInfo.functions)) {
+            const params = info.params
+              .map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`)
+              .join(', ');
+            log(`     ${name}(${params}): ${info.returnType}`);
+          }
         }
 
-        if (typeInfo) {
-          if (jsdocOutput !== 'only') {
-            // Show function signatures with full type info
-            if (Object.keys(typeInfo.functions).length > 0) {
-              log('\n  📘 Function Type Signatures:');
-              for (const [name, info] of Object.entries(typeInfo.functions)) {
-                log(`     ${name}(${info.params}): ${info.returnType}`);
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            // Show interfaces
-            if (Object.keys(typeInfo.interfaces).length > 0) {
-              log('\n  📋 Interfaces:');
-              for (const [name, props] of Object.entries(typeInfo.interfaces)) {
-                log(`     interface ${name} {`);
-                props.forEach((prop) => log(`       ${prop}`));
-                if (props.length === 5) {
-                  log('       ... (truncated)');
-                }
-                log('     }');
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            // Show type aliases
-            if (Object.keys(typeInfo.types).length > 0) {
-              log('\n  📝 Type Aliases:');
-              for (const [name, definition] of Object.entries(typeInfo.types)) {
-                const shortDef =
-                  definition.length > 80 ? definition.substring(0, 80) + '...' : definition;
-                log(`     type ${name} = ${shortDef}`);
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            // Show class inheritance
-            if (Object.keys(typeInfo.classes).length > 0) {
-              log('\n  🏛️  Class Definitions:');
-              for (const [name, extendsClass] of Object.entries(typeInfo.classes)) {
-                const inheritance = extendsClass ? ` extends ${extendsClass}` : '';
-                log(`     class ${name}${inheritance}`);
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            if (Object.keys(typeInfo.enums).length > 0) {
-              log('\n  🧾 Enums:');
-              for (const [name, members] of Object.entries(typeInfo.enums)) {
-                const preview = members.length > 0 ? ` = [${members.join(', ')}]` : '';
-                log(`     enum ${name}${preview}`);
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            if (Object.keys(typeInfo.namespaces).length > 0) {
-              log('\n  📦 Namespaces:');
-              for (const name of Object.keys(typeInfo.namespaces)) {
-                log(`     namespace ${name}`);
-                if (jsdocOutput === 'inline' && typeInfo.jsdoc?.[name]) {
-                  const entry = formatJsdocEntry(name, typeInfo.jsdoc[name], {
-                    mode: jsdocMode,
-                    truncate: jsdocQuery?.truncate,
-                    maxLen: jsdocQuery?.maxLen,
-                    sections: jsdocQuery?.sections,
-                    tags: jsdocQuery?.tags,
-                  });
-                  log(`       ↳ ${entry}`);
-                }
-              }
-            }
-
-            if (typeInfo.defaults.length > 0) {
-              log('\n  📦 Default Exports:');
-              typeInfo.defaults.slice(0, 5).forEach((value) => log(`     default = ${value}`));
-            }
+        // Log interfaces
+        const interfaceCount = Object.keys(typeInfo.interfaces).length;
+        if (interfaceCount > 0 && jsdocOutput !== 'only') {
+          log(`\n   Interfaces (${interfaceCount}):`);
+          for (const name of Object.keys(typeInfo.interfaces)) {
+            log(`     ${name}`);
           }
+        }
 
-          if (
-            wantJsdoc &&
-            jsdocMode !== 'off' &&
-            typeInfo.jsdoc &&
-            Object.keys(typeInfo.jsdoc).length > 0
-          ) {
-            const symbolMatcher = buildSymbolMatcher(jsdocQuery?.symbols, filter);
-            const entries = Object.entries(typeInfo.jsdoc)
-              .filter(([name]) => (symbolMatcher ? symbolMatcher(name) : true))
-              .slice(0, 50);
-
-            if (entries.length > 0) {
-              log('\n  📚 JSDoc:');
-              for (const [name, doc] of entries) {
-                const entry = formatJsdocEntry(name, doc, {
-                  mode: jsdocMode,
-                  truncate: jsdocQuery?.truncate,
-                  maxLen: jsdocQuery?.maxLen,
-                  sections: jsdocQuery?.sections,
-                  tags: jsdocQuery?.tags,
-                });
-                log(`     ${entry}`);
-              }
-            }
+        // Log types
+        const typeAliasCount = Object.keys(typeInfo.types).length;
+        if (typeAliasCount > 0 && jsdocOutput !== 'only') {
+          log(`\n   Types (${typeAliasCount}):`);
+          for (const name of Object.keys(typeInfo.types)) {
+            log(`     ${name}`);
           }
+        }
 
-          if (jsdocOutput !== 'only') {
-            const typeExportNames = new Set([
-              ...Object.keys(typeInfo.functions),
-              ...Object.keys(typeInfo.interfaces),
-              ...Object.keys(typeInfo.types),
-              ...Object.keys(typeInfo.classes),
-              ...Object.keys(typeInfo.enums),
-              ...Object.keys(typeInfo.namespaces),
-            ]);
-            if (runtimeAvailable) {
-              const runtimeNames = new Set(allExports);
-              const runtimeOnly = [...runtimeNames].filter((name) => !typeExportNames.has(name));
-              const typesOnly = [...typeExportNames].filter((name) => !runtimeNames.has(name));
-
-              if (runtimeOnly.length > 0 || typesOnly.length > 0) {
-                log('\n  ⚖️  Runtime/Types Mismatch:');
-                if (runtimeOnly.length > 0) {
-                  log(`     Runtime only: ${runtimeOnly.slice(0, 10).join(', ')}`);
-                }
-                if (typesOnly.length > 0) {
-                  log(`     Types only: ${typesOnly.slice(0, 10).join(', ')}`);
-                }
-              }
-            }
-
-            if (
-              Object.keys(typeInfo.functions).length === 0 &&
-              Object.keys(typeInfo.interfaces).length === 0 &&
-              Object.keys(typeInfo.types).length === 0 &&
-              Object.keys(typeInfo.classes).length === 0 &&
-              Object.keys(typeInfo.enums).length === 0 &&
-              Object.keys(typeInfo.namespaces).length === 0 &&
-              typeInfo.defaults.length === 0
-            ) {
-              log('   ⚠️  No type definitions found for filtered exports');
-            }
+        // Log classes
+        const classCount = Object.keys(typeInfo.classes).length;
+        if (classCount > 0 && jsdocOutput !== 'only') {
+          log(`\n   Classes (${classCount}):`);
+          for (const [name, info] of Object.entries(typeInfo.classes)) {
+            const params =
+              info.params?.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join(', ') ||
+              '';
+            log(`     class ${name}${params ? '(' + params + ')' : ''}`);
           }
-        } else {
-          if (jsdocOutput !== 'only') {
-            log('   ⚠️  Could not parse type definitions');
+        }
+
+        // Log enums
+        const enumCount = Object.keys(typeInfo.enums || {}).length;
+        if (enumCount > 0 && jsdocOutput !== 'only') {
+          log(`\n   Enums (${enumCount}):`);
+          for (const name of Object.keys(typeInfo.enums)) {
+            log(`     enum ${name}`);
           }
         }
       } else {
@@ -1889,11 +1771,32 @@ export async function runInspect(options) {
       }
     }
 
+    // Always include types in JSON output if available
+    if (jsonOutput && dtsPath && fs.existsSync(dtsPath) && !jsonOutput.types) {
+      const typeInfoRaw2 = getCachedDtsParse(dtsPath);
+      const typeInfo = filterTypeInfo(typeInfoRaw2, filter, kindFilter);
+      if (typeInfo) {
+        jsonOutput.types = {
+          source: path.basename(dtsPath),
+          functions: Object.fromEntries(
+            Object.entries(typeInfo.functions).map(([name, info]) => [
+              name,
+              { params: info.params, returnType: info.returnType },
+            ])
+          ),
+          interfaces: typeInfo.interfaces,
+          types: typeInfo.types,
+          classes: typeInfo.classes,
+          enums: typeInfo.enums || {},
+        };
+      }
+    }
+
     // Source code analysis
     if (analyzeSource && pkgDir) {
       log('\n📝 Source Code Analysis:');
       try {
-        const sourceAnalysis = analyzePackageSource(pkgDir, {
+        sourceAnalysis = analyzePackageSource(pkgDir, {
           filter: filterRaw,
           maxFiles: sourceMaxFiles,
           includeBody: sourceIncludeBody,
@@ -1966,6 +1869,14 @@ export async function runInspect(options) {
       logErr(`\n❌ Erro: ${e.message}`);
       logErr(`Certifique-se que '${target}' está instalado e é um caminho válido.`);
     }
+  }
+
+  // Adicionar sourceAnalysis ao JSON se disponível
+  if (jsonOutput && sourceAnalysis && !sourceAnalysis.error) {
+    jsonOutput.sourceAnalysis = {
+      files: sourceAnalysis.files.length,
+      summary: sourceAnalysis.summary,
+    };
   }
 
   if (jsonOutput && format === 'object') {

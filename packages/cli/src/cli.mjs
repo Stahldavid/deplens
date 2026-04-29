@@ -57,6 +57,8 @@ function parseInspectArgs(argv) {
   }
 
   const analyzeSource = argv.includes('--analyze-source');
+  const autoGenerateTypes = !argv.includes('--no-auto-generate-types');
+  const includeSourceBody = argv.includes('--include-source-body');
   let sourceMaxFiles = null;
   const sourceMaxFilesIndex = argv.indexOf('--source-max-files');
   if (sourceMaxFilesIndex !== -1 && argv[sourceMaxFilesIndex + 1]) {
@@ -220,6 +222,10 @@ function parseInspectArgs(argv) {
     sourceIncludeBody,
     preferCdn,
     preferCdnExplicit,
+    analyzeSource,
+    autoGenerateTypes,
+    includeSourceBody,
+    sourceMaxFiles,
   };
 }
 
@@ -420,6 +426,7 @@ if (command === 'diff') {
     maxExports: parsed.maxExports,
     maxProps: parsed.maxProps,
     maxExamples: parsed.maxExamples,
+    autoGenerateTypes: parsed.autoGenerateTypes,
     analyzeSource: parsed.analyzeSource,
     sourceMaxFiles: parsed.sourceMaxFiles,
     sourceIncludeBody: parsed.sourceIncludeBody,

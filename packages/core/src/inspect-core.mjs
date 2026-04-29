@@ -11,7 +11,7 @@ import { detectLanguage } from './language-detector.mjs';
 import { analyzePythonPackage } from './analyze-python.mjs';
 import { downloadVersion } from './version-resolver.mjs';
 import { execSync } from 'child_process';
-import { getCachedDtsParse, generateDts } from './inspect-types.mjs';
+import {getCachedDtsParse, generateDts, filterTypeInfo} from './inspect-types.mjs';
 
 function getPackageName(target) {
   if (!target) return target;
@@ -861,67 +861,7 @@ function formatJsdocEntry(name, doc, options) {
   return `${name}: ${parts.join(' | ')}`.trim();
 }
 
-function filterTypeInfo(typeInfo, filter, kindFilter) {
-  if (!typeInfo) return null;
-  const includeName = (name) => !filter || name.toLowerCase().includes(filter);
-  const allow = (kind) => !kindFilter || kindFilter.length === 0 || kindFilter.includes(kind);
-  const includeExtras = !kindFilter || kindFilter.length === 0;
 
-  const filtered = {
-    functions: {},
-    interfaces: {},
-    types: {},
-    classes: {},
-    enums: {},
-    namespaces: {},
-    defaults: [],
-    jsdoc: {},
-  };
-
-  if (allow('function')) {
-    for (const [name, info] of Object.entries(typeInfo.functions)) {
-      if (includeName(name)) filtered.functions[name] = info;
-    }
-  }
-
-  if (allow('interface')) {
-    for (const [name, props] of Object.entries(typeInfo.interfaces)) {
-      if (includeName(name)) filtered.interfaces[name] = props;
-    }
-  }
-
-  if (allow('type')) {
-    for (const [name, def] of Object.entries(typeInfo.types)) {
-      if (includeName(name)) filtered.types[name] = def;
-    }
-  }
-
-  if (allow('class')) {
-    for (const [name, info] of Object.entries(typeInfo.classes)) {
-      if (includeName(name)) filtered.classes[name] = info;
-    }
-  }
-
-  if (includeExtras) {
-    for (const [name, members] of Object.entries(typeInfo.enums || {})) {
-      if (includeName(name)) filtered.enums[name] = members;
-    }
-    for (const [name, value] of Object.entries(typeInfo.namespaces || {})) {
-      if (includeName(name)) filtered.namespaces[name] = value;
-    }
-    filtered.defaults = (typeInfo.defaults || []).filter(
-      (value) => includeName('default') || includeName(value)
-    );
-  }
-
-  if (typeInfo.jsdoc) {
-    for (const [name, doc] of Object.entries(typeInfo.jsdoc)) {
-      if (includeName(name)) filtered.jsdoc[name] = doc;
-    }
-  }
-
-  return filtered;
-}
 
 // Helper function to inspect object properties recursively
 function inspectObject(obj, currentDepth = 0, maxDepth = 1, maxPropsLimit = 10, indent = '  ') {
@@ -1349,6 +1289,7 @@ export async function runInspectCore(options) {
 
       const typesResolution = resolveTypesFile(pkg, pkgDir, subpath, basePkg, require);
       typesFile = typesResolution.typesFile;
+
       dtsPath = typesResolution.dtsPath;
       typesSource = typesResolution.source;
 
@@ -1405,7 +1346,9 @@ export async function runInspectCore(options) {
     let typeInfoRaw = null;
     // Sempre parsear types para JSON output (mesmo sem --types)
     if (jsonOutput && dtsPath && fs.existsSync(dtsPath)) {
-      typeInfoRaw = getCachedDtsParse(dtsPath);
+      typeInfoRaw = await getCachedDtsParse(dtsPath);
+
+
     }
 
     let moduleNamespace = {};
@@ -1415,10 +1358,15 @@ export async function runInspectCore(options) {
     if (!runtimeAvailable) {
       log('\n⚠️  Entrypoint not found on disk; runtime exports skipped.');
     } else {
-      const { module: loadedNamespace } = await loadModuleExports(entrypointPath, require, pkg);
-      moduleNamespace = loadedNamespace;
-      moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace);
-      allExports = Object.keys(moduleDescriptors);
+      try {
+        const { module: loadedNamespace } = await loadModuleExports(entrypointPath, require, pkg);
+        moduleNamespace = loadedNamespace;
+        moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace);
+        allExports = Object.keys(moduleDescriptors);
+      } catch (e) {
+        // Continue with empty runtime exports
+      }
+
     }
 
     // Lógica de Filtro (case-insensitive, supports regex)
@@ -1517,7 +1465,7 @@ export async function runInspectCore(options) {
       }
 
       // Prefer class from type info when available
-      if (typeInfoRaw && Object.keys(typeInfoRaw.classes).length > 0) {
+      if (typeInfoRaw && Object.keys(typeInfoRaw.classes || {}).length > 0) {
         const classNames = new Set(Object.keys(typeInfoRaw.classes));
         categorized.functions = categorized.functions.filter((name) => {
           if (classNames.has(name)) {
@@ -1661,6 +1609,8 @@ export async function runInspectCore(options) {
       typeInfoRaw = getCachedDtsParse(dtsPath);
     }
 
+
+
     if (showTypes || wantJsdoc) {
       if (dtsPath && fs.existsSync(dtsPath)) {
         if (jsdocOutput !== 'only') {
@@ -1668,16 +1618,17 @@ export async function runInspectCore(options) {
           log(`   Source: ${path.basename(dtsPath)}`);
         }
 
+
+
         const typeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
+
 
         // Log functions
         const functionCount = Object.keys(typeInfo.functions).length;
         if (functionCount > 0 && jsdocOutput !== 'only') {
           log(`\n   Functions (${functionCount}):`);
           for (const [name, info] of Object.entries(typeInfo.functions)) {
-            const params = info.params
-              .map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`)
-              .join(', ');
+            const params = info.params; // already formatted string from parseDtsFile
             log(`     ${name}(${params}): ${info.returnType}`);
           }
         }
@@ -1704,11 +1655,8 @@ export async function runInspectCore(options) {
         const classCount = Object.keys(typeInfo.classes).length;
         if (classCount > 0 && jsdocOutput !== 'only') {
           log(`\n   Classes (${classCount}):`);
-          for (const [name, info] of Object.entries(typeInfo.classes)) {
-            const params =
-              info.params?.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join(', ') ||
-              '';
-            log(`     class ${name}${params ? '(' + params + ')' : ''}`);
+          for (const [name, extendsClause] of Object.entries(typeInfo.classes)) {
+            log(`     class ${name}${extendsClause ? ' extends ' + extendsClause : ''}`);
           }
         }
 
@@ -1728,18 +1676,16 @@ export async function runInspectCore(options) {
     }
 
     // Always include types in JSON output if available
+
+
+
     if (jsonOutput && dtsPath && fs.existsSync(dtsPath) && !jsonOutput.types) {
-      const typeInfoRaw2 = getCachedDtsParse(dtsPath);
+      const typeInfoRaw2 = await getCachedDtsParse(dtsPath);
       const typeInfo = filterTypeInfo(typeInfoRaw2, filter, kindFilter);
       if (typeInfo) {
         jsonOutput.types = {
           source: path.basename(dtsPath),
-          functions: Object.fromEntries(
-            Object.entries(typeInfo.functions).map(([name, info]) => [
-              name,
-              { params: info.params, returnType: info.returnType },
-            ])
-          ),
+          functions: Object.fromEntries(Object.entries(typeInfo.functions).map(([name, info]) => [name, { params: info.params, returnType: info.returnType }])),
           interfaces: typeInfo.interfaces,
           types: typeInfo.types,
           classes: typeInfo.classes,
@@ -1751,7 +1697,8 @@ export async function runInspectCore(options) {
     // Source code analysis
 
   } catch (e) {
-    if (jsonOutput) {
+      console.error(e.stack);
+      if (jsonOutput) {
       jsonOutput.warnings.push(`Error: ${e.message}`);
     } else {
       logErr(`\n❌ Erro: ${e.message}`);

@@ -51,6 +51,7 @@ export async function runDiff(options = {}) {
     const versionPair = await downloadVersionPair(packageName, from, to, {
       projectDir,
       preferCdn,
+      timeout: 30000,
     });
 
     log(`   From: ${versionPair.from.version}${versionPair.from.cached ? ' (cached)' : ''}`);

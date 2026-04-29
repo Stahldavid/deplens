@@ -1,71 +1,119 @@
-// inspect-types.mjs — Type definition extraction + auto-generation
+// Unified type inspection + auto-generation orchestrator
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { execSync } from 'child_process';
-import { parseDtsFile } from './parse-dts.mjs';
-
-const DTS_CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'types');
-const DEFAULT_DTS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-function ensureDtsCacheDir() {
-  if (!fs.existsSync(DTS_CACHE_DIR)) {
-    fs.mkdirSync(DTS_CACHE_DIR, { recursive: true });
-  }
-  return DTS_CACHE_DIR;
-}
-
-function safeCacheKeyFromPath(dtsPath) {
-  return dtsPath.replace(/[:\\/]/g, '_');
-}
-
-function getDtsCacheEntryPath(dtsPath) {
-  const base = safeCacheKeyFromPath(dtsPath);
-  return path.join(ensureDtsCacheDir(), `${base}.json`);
-}
-
-export async function getCachedDtsParse(dtsPath, ttlMs = DEFAULT_DTS_TTL_MS) {
-  try {
-    const cachePath = getDtsCacheEntryPath(dtsPath);
-    const stat = fs.statSync(dtsPath);
-    const sourceMtimeMs = stat.mtimeMs;
-
-    if (fs.existsSync(cachePath)) {
-      const cacheStat = fs.statSync(cachePath);
-      const tooOld = Date.now() - cacheStat.mtimeMs > ttlMs;
-      if (!tooOld) {
-        const cached = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-        if (cached?.sourceMtimeMs === sourceMtimeMs && cached?.data) {
-          return cached.data;
-        }
-      }
-    }
-
-    const parsed = parseDtsFile(dtsPath, null);
-    fs.writeFileSync(cachePath, JSON.stringify({ sourceMtimeMs, data: parsed }), 'utf-8');
-    return parsed;
-  } catch {
-    return parseDtsFile(dtsPath, null);
-  }
-}
+import { fileURLToPath } from 'url';
+import { parseDtsFile, findReExports } from './parse-dts.mjs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 
 export async function generateDts(pkgDir) {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf-8'));
-    const moduleName = pkg.name || path.basename(pkgDir);
-    execSync('npx dts-gen -m ' + moduleName + ' --overwrite', {
-      cwd: pkgDir,
-      stdio: 'pipe',
-      timeout: 30000,
-    });
-    const dtsPath = path.join(pkgDir, moduleName + '.d.ts');
-    if (fs.existsSync(dtsPath)) {
-      return dtsPath;
-    }
-  } catch {
-    // silencioso
-  }
-  return null;
+    const needle = path.join(pkgDir, 'node_modules', '.bin', 'dts-gen');
+    if (!fs.existsSync(needle)) return null;
+    await execFileAsync(needle, ['--name','temp','--project',pkgDir,'--yes'], { cwd: pkgDir, timeout: 30000 });
+    const gen = path.join(pkgDir, 'index.d.ts');
+    return fs.existsSync(gen) ? gen : null;
+  } catch { return null; }
 }
 
-export { ensureDtsCacheDir, safeCacheKeyFromPath, getDtsCacheEntryPath };
+export function getCacheKey(dtsPath) {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const cacheRoot = path.join(home, '.deplens-cache');
+  if (dtsPath.startsWith(cacheRoot)) return dtsPath;
+  try { const real = fs.realpathSync(dtsPath); if (real.startsWith(cacheRoot)) return real; } catch {}
+  return dtsPath;
+}
+
+const memoryCache = new Map(); const MEMORY_CACHE_MAX = 20;
+function getMemory(key) { return memoryCache.get(key) ?? null; }
+function setMemory(key, value) {
+  if (memoryCache.size >= MEMORY_CACHE_MAX) memoryCache.delete(memoryCache.keys().next().value);
+  memoryCache.set(key, value);
+}
+
+export async function getCachedDtsParse(dtsPath) {
+  const cacheKey = getCacheKey(dtsPath);
+  const fromMem = getMemory(cacheKey);
+  if (fromMem) return fromMem;
+  const cacheDir = path.join(process.env.HOME || '~', '.deplens-cache', 'parse');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const safeName = cacheKey.replace(/[/:\\]/g, '_');
+  const cacheFile = path.join(cacheDir, safeName + '.json');
+  if (fs.existsSync(cacheFile)) {
+    try { const parsed = JSON.parse(fs.readFileSync(cacheFile,'utf8')); setMemory(cacheKey, parsed); return parsed; } catch {}
+  }
+
+  const result = await parseDtsFileRecursive(dtsPath, []);
+
+
+  fs.writeFileSync(cacheFile, JSON.stringify(result, null, 0));
+  setMemory(cacheKey, result);
+  return result;
+}
+
+async function parseDtsFileRecursive(dtsPath, visited) {
+  const real = fs.realpathSync(dtsPath);
+  if (visited.includes(real)) return null;
+  const nextVisited = [...visited, real];
+  const base = await parseDtsFile(dtsPath, null);
+  const reExportResult = findReExports(dtsPath, null);
+  const named = new Map(reExportResult.named);
+  const wildcards = reExportResult.wildcards;
+  const extraResults = [];
+  for (const [sym, targetPath] of named) {
+    try { if (fs.existsSync(targetPath)) { const sub = await parseDtsFileRecursive(targetPath, nextVisited); if (sub) extraResults.push(sub); } } catch {}
+  }
+  for (const basePath of wildcards) {
+    try { const resolved = resolveWildcardTarget(basePath); if (resolved && fs.existsSync(resolved)) { const sub = await parseDtsFileRecursive(resolved, nextVisited); if (sub) extraResults.push(sub); } } catch {}
+  }
+  const merged = { functions: { ...base.functions }, interfaces: { ...base.interfaces }, types: { ...base.types }, classes: { ...base.classes }, enums: { ...base.enums }, namespaces: { ...base.namespaces }, defaults: { ...base.defaults }, jsdoc: { ...base.jsdoc } };
+  for (const r of extraResults) {
+    Object.assign(merged.functions, r.functions);
+    Object.assign(merged.interfaces, r.interfaces);
+    Object.assign(merged.types, r.types);
+    Object.assign(merged.classes, r.classes);
+    Object.assign(merged.enums, r.enums);
+    Object.assign(merged.namespaces, r.namespaces);
+  }
+  return merged;
+}
+
+function resolveWildcardTarget(basePath) {
+  if (fs.existsSync(basePath)) return basePath;
+  const withIndex = path.join(basePath, 'index.d.ts');
+  if (fs.existsSync(withIndex)) return withIndex;
+  const withCts = path.join(basePath, 'index.d.cts');
+  if (fs.existsSync(withCts)) return withCts;
+  return basePath;
+}
+
+export function filterTypeInfo(typeInfoRaw, filterRaw, kindFilter = []) {
+  if (!typeInfoRaw) return { functions: {}, interfaces: {}, types: {}, classes: {}, enums: {}, namespaces: {} };
+  let functions = typeInfoRaw.functions || {};
+  let interfaces = typeInfoRaw.interfaces || {};
+  let types = typeInfoRaw.types || {};
+  let classes = typeInfoRaw.classes || {};
+  let enums = typeInfoRaw.enums || {};
+  let namespaces = typeInfoRaw.namespaces || {};
+  if (filterRaw) {
+    const isRegex = filterRaw.startsWith('/') && filterRaw.endsWith('/') && filterRaw.length > 2;
+    const regex = isRegex ? new RegExp(filterRaw.slice(1,-1), 'i') : null;
+    const lower = filterRaw.toLowerCase();
+    functions = Object.fromEntries(Object.entries(functions).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    interfaces = Object.fromEntries(Object.entries(interfaces).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    types = Object.fromEntries(Object.entries(types).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    classes = Object.fromEntries(Object.entries(classes).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    enums = Object.fromEntries(Object.entries(enums).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    namespaces = Object.fromEntries(Object.entries(namespaces).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+  }
+  if (kindFilter && kindFilter.length > 0) {
+    if (!kindFilter.includes('function')) functions = {};
+    if (!kindFilter.includes('interface')) interfaces = {};
+    if (!kindFilter.includes('type')) types = {};
+    if (!kindFilter.includes('class')) classes = {};
+    if (!kindFilter.includes('enum')) enums = {};
+    if (!kindFilter.includes('namespace')) namespaces = {};
+  }
+  return { functions, interfaces, types, classes, enums, namespaces };
+}

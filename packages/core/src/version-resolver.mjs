@@ -2,13 +2,13 @@
  * version-resolver.mjs - Download and manage npm package versions for comparison
  */
 
-import { execSync } from "child_process";
-import fs from "fs";
-import path from "path";
-import os from "os";
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 // Use user's home directory for more reliable caching
-const CACHE_DIR = path.join(os.homedir(), ".deplens-cache", "versions");
+const CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'versions');
 
 /**
  * Ensure cache directory exists
@@ -24,7 +24,7 @@ function ensureCacheDir() {
  * Get cache path for a specific package version
  */
 function getCachePath(packageName, version) {
-  const safeName = packageName.replace(/[/@]/g, "_");
+  const safeName = packageName.replace(/[/@]/g, '_');
   return path.join(ensureCacheDir(), `${safeName}@${version}`);
 }
 
@@ -33,10 +33,7 @@ function getCachePath(packageName, version) {
  */
 function isCached(packageName, version) {
   const cachePath = getCachePath(packageName, version);
-  return (
-    fs.existsSync(cachePath) &&
-    fs.existsSync(path.join(cachePath, "node_modules"))
-  );
+  return fs.existsSync(cachePath) && fs.existsSync(path.join(cachePath, 'node_modules'));
 }
 
 /**
@@ -45,14 +42,12 @@ function isCached(packageName, version) {
 export function getLatestVersion(packageName) {
   try {
     const result = execSync(`npm view ${packageName} version`, {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     return result.trim();
   } catch (e) {
-    throw new Error(
-      `Failed to get latest version for ${packageName}: ${e.message}`,
-    );
+    throw new Error(`Failed to get latest version for ${packageName}: ${e.message}`);
   }
 }
 
@@ -62,8 +57,8 @@ export function getLatestVersion(packageName) {
 export function getAllVersions(packageName) {
   try {
     const result = execSync(`npm view ${packageName} versions --json`, {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     return JSON.parse(result);
   } catch (e) {
@@ -76,14 +71,9 @@ export function getAllVersions(packageName) {
  */
 export function getInstalledVersion(packageName, projectDir) {
   try {
-    const pkgPath = path.join(
-      projectDir,
-      "node_modules",
-      packageName,
-      "package.json",
-    );
+    const pkgPath = path.join(projectDir, 'node_modules', packageName, 'package.json');
     if (fs.existsSync(pkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       return pkg.version;
     }
     return null;
@@ -114,12 +104,7 @@ async function fetchText(url, timeoutMs) {
   }
 }
 
-async function tryFetchPackageFromCdn(
-  packageName,
-  version,
-  cachePath,
-  timeoutMs,
-) {
+async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs) {
   // Strategy:
   // 1) Read package.json from CDN
   // 2) Determine types entry (types/typings) or fallback index.d.ts
@@ -136,22 +121,18 @@ async function tryFetchPackageFromCdn(
       const pkgJsonText = await fetchText(`${base}/package.json`, timeoutMs);
       const pkg = JSON.parse(pkgJsonText);
 
-      const packageDir = path.join(cachePath, "node_modules", packageName);
+      const packageDir = path.join(cachePath, 'node_modules', packageName);
       fs.mkdirSync(packageDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(packageDir, "package.json"),
-        pkgJsonText,
-        "utf-8",
-      );
+      fs.writeFileSync(path.join(packageDir, 'package.json'), pkgJsonText, 'utf-8');
 
-      const typesFile = pkg.types || pkg.typings || "index.d.ts";
+      const typesFile = pkg.types || pkg.typings || 'index.d.ts';
       const dtsUrl = `${base}/${typesFile}`;
 
       try {
         const dtsText = await fetchText(dtsUrl, timeoutMs);
         const dtsPath = path.join(packageDir, typesFile);
         fs.mkdirSync(path.dirname(dtsPath), { recursive: true });
-        fs.writeFileSync(dtsPath, dtsText, "utf-8");
+        fs.writeFileSync(dtsPath, dtsText, 'utf-8');
       } catch {
         // If types file missing, still allow inspecting package.json / exports only
       }
@@ -160,7 +141,7 @@ async function tryFetchPackageFromCdn(
       const entryCandidates = [
         pkg.module,
         pkg.main,
-        typeof pkg.exports === "string" ? pkg.exports : null,
+        typeof pkg.exports === 'string' ? pkg.exports : null,
       ].filter(Boolean);
 
       for (const entry of entryCandidates) {
@@ -168,7 +149,7 @@ async function tryFetchPackageFromCdn(
           const entryText = await fetchText(`${base}/${entry}`, timeoutMs);
           const entryPath = path.join(packageDir, entry);
           fs.mkdirSync(path.dirname(entryPath), { recursive: true });
-          fs.writeFileSync(entryPath, entryText, "utf-8");
+          fs.writeFileSync(entryPath, entryText, 'utf-8');
           break;
         } catch {
           // ignore
@@ -176,7 +157,7 @@ async function tryFetchPackageFromCdn(
       }
 
       // Minimal node_modules structure to satisfy resolution
-      fs.mkdirSync(path.join(cachePath, "node_modules"), { recursive: true });
+      fs.mkdirSync(path.join(cachePath, 'node_modules'), { recursive: true });
 
       return {
         path: cachePath,
@@ -201,7 +182,7 @@ export async function downloadVersion(packageName, version, options = {}) {
   if (!force && isCached(packageName, version)) {
     return {
       path: cachePath,
-      packageDir: path.join(cachePath, "node_modules", packageName),
+      packageDir: path.join(cachePath, 'node_modules', packageName),
       cached: true,
     };
   }
@@ -213,13 +194,8 @@ export async function downloadVersion(packageName, version, options = {}) {
   fs.mkdirSync(cachePath, { recursive: true });
 
   // Prefer CDN fetch (faster, no npm) when available
-  if (preferCdn && typeof fetch === "function") {
-    const fetched = await tryFetchPackageFromCdn(
-      packageName,
-      version,
-      cachePath,
-      timeout,
-    );
+  if (preferCdn && typeof fetch === 'function') {
+    const fetched = await tryFetchPackageFromCdn(packageName, version, cachePath, timeout);
     if (fetched) {
       return fetched;
     }
@@ -227,22 +203,27 @@ export async function downloadVersion(packageName, version, options = {}) {
 
   // Fallback: npm install to cache directory
   try {
-    execSync(
-      `npm install ${packageName}@${version} --prefix "${cachePath}" --ignore-scripts --no-audit --no-fund`,
-      {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout,
-        cwd: cachePath,
-      },
-    );
+    // Build command string to avoid array issues
+    const args = [
+      'install',
+      `${packageName}@${version}`,
+      '--prefix',
+      cachePath,
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+    ];
+    execSync('npm ' + args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' '), {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout,
+      cwd: cachePath,
+    });
   } catch (e) {
-    throw new Error(
-      `Failed to download ${packageName}@${version}: ${e.message}`,
-    );
+    throw new Error(`Failed to download ${packageName}@${version}: ${e.message}`);
   }
 
-  const packageDir = path.join(cachePath, "node_modules", packageName);
+  const packageDir = path.join(cachePath, 'node_modules', packageName);
 
   if (!fs.existsSync(packageDir)) {
     throw new Error(`Package directory not found after install: ${packageDir}`);
@@ -260,16 +241,12 @@ export async function downloadVersion(packageName, version, options = {}) {
  * Resolve version string to actual version
  * Supports: "latest", "installed", "^1.0.0", "1.2.3", etc.
  */
-export function resolveVersion(
-  packageName,
-  versionSpec,
-  projectDir = process.cwd(),
-) {
-  if (versionSpec === "latest") {
+export function resolveVersion(packageName, versionSpec, projectDir = process.cwd()) {
+  if (versionSpec === 'latest') {
     return getLatestVersion(packageName);
   }
 
-  if (versionSpec === "installed") {
+  if (versionSpec === 'installed') {
     const installed = getInstalledVersion(packageName, projectDir);
     if (!installed) {
       throw new Error(`${packageName} is not installed in ${projectDir}`);
@@ -278,23 +255,17 @@ export function resolveVersion(
   }
 
   // If it's a range, resolve to max satisfying
-  if (
-    versionSpec.startsWith("^") ||
-    versionSpec.startsWith("~") ||
-    versionSpec.includes("x")
-  ) {
+  if (versionSpec.startsWith('^') || versionSpec.startsWith('~') || versionSpec.includes('x')) {
     try {
-      const result = execSync(
-        `npm view ${packageName}@"${versionSpec}" version`,
-        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-      );
+      const result = execSync(`npm view ${packageName}@${versionSpec} version`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
       // npm may return multiple versions, take the last (highest)
-      const versions = result.trim().split("\n");
+      const versions = result.trim().split('\n');
       return versions[versions.length - 1].trim();
     } catch (e) {
-      throw new Error(
-        `Failed to resolve version ${versionSpec} for ${packageName}`,
-      );
+      throw new Error(`Failed to resolve version ${versionSpec} for ${packageName}`);
     }
   }
 
@@ -305,12 +276,7 @@ export function resolveVersion(
 /**
  * Download two versions for comparison
  */
-export async function downloadVersionPair(
-  packageName,
-  fromSpec,
-  toSpec,
-  options = {},
-) {
+export async function downloadVersionPair(packageName, fromSpec, toSpec, options = {}) {
   const { projectDir = process.cwd() } = options;
 
   // Resolve version specs to actual versions
@@ -318,9 +284,7 @@ export async function downloadVersionPair(
   const toVersion = resolveVersion(packageName, toSpec, projectDir);
 
   if (fromVersion === toVersion) {
-    throw new Error(
-      `Both versions resolve to the same version: ${fromVersion}`,
-    );
+    throw new Error(`Both versions resolve to the same version: ${fromVersion}`);
   }
 
   // Download both versions (can be parallelized)
@@ -347,10 +311,10 @@ export async function downloadVersionPair(
  */
 export function clearCache(packageName = null) {
   if (packageName) {
-    const safeName = packageName.replace(/[/@]/g, "_");
+    const safeName = packageName.replace(/[/@]/g, '_');
     const entries = fs.readdirSync(CACHE_DIR);
     for (const entry of entries) {
-      if (entry.startsWith(safeName + "@")) {
+      if (entry.startsWith(safeName + '@')) {
         fs.rmSync(path.join(CACHE_DIR, entry), {
           recursive: true,
           force: true,
@@ -409,11 +373,11 @@ function getDirSize(dirPath) {
 }
 
 function formatBytes(bytes) {
-  if (bytes === 0) return "0 B";
+  if (bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
+  const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export default {

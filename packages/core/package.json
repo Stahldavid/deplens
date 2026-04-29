@@ -4,7 +4,7 @@
   "description": "Core engine for inspecting installed package exports and types",
   "type": "module",
   "exports": {
-    ".": "./src/inspect.mjs",
+    ".": "./src/index.mjs",
     "./parse-dts": "./src/parse-dts.mjs"
   },
   "dependencies": {
@@ -15,5 +15,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run"
+  }
 }

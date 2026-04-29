@@ -2,25 +2,25 @@
  * changelog-parser.mjs - Parse CHANGELOG.md files to extract version notes
  */
 
-import fs from "fs";
-import path from "path";
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Common changelog file names
  */
 const CHANGELOG_NAMES = [
-  "CHANGELOG.md",
-  "CHANGELOG",
-  "changelog.md",
-  "Changelog.md",
-  "HISTORY.md",
-  "HISTORY",
-  "history.md",
-  "CHANGES.md",
-  "CHANGES",
-  "changes.md",
-  "NEWS.md",
-  "RELEASES.md",
+  'CHANGELOG.md',
+  'CHANGELOG',
+  'changelog.md',
+  'Changelog.md',
+  'HISTORY.md',
+  'HISTORY',
+  'history.md',
+  'CHANGES.md',
+  'CHANGES',
+  'changes.md',
+  'NEWS.md',
+  'RELEASES.md',
 ];
 
 /**
@@ -31,6 +31,35 @@ export function findChangelog(packageDir) {
     const fullPath = path.join(packageDir, name);
     if (fs.existsSync(fullPath)) {
       return fullPath;
+    }
+  }
+  return null;
+}
+
+/**
+ * Try to fetch changelog from CDN (unpkg/jsdelivr) if not found locally.
+ * Returns the changelog text or null.
+ */
+export async function findChangelogRemote(packageName, version, timeoutMs = 10000) {
+  if (typeof fetch !== 'function') return null;
+  const baseUrls = [
+    `https://unpkg.com/${packageName}@${version}`,
+    `https://cdn.jsdelivr.net/npm/${packageName}@${version}`,
+  ];
+  for (const base of baseUrls) {
+    for (const name of CHANGELOG_NAMES) {
+      try {
+        const url = `${base}/${name}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) {
+          return await res.text();
+        }
+      } catch {
+        // continue to next
+      }
     }
   }
   return null;
@@ -57,22 +86,22 @@ function categorizeEntry(line) {
   const lowerLine = line.toLowerCase();
 
   if (/breaking|removed|deprecated/i.test(lowerLine)) {
-    return "breaking";
+    return 'breaking';
   }
   if (/fix|bug|patch|resolved|corrected/i.test(lowerLine)) {
-    return "fixed";
+    return 'fixed';
   }
   if (/add|new|feature|implement/i.test(lowerLine)) {
-    return "added";
+    return 'added';
   }
   if (/change|update|improve|enhance|refactor/i.test(lowerLine)) {
-    return "changed";
+    return 'changed';
   }
   if (/security|vulnerability|cve/i.test(lowerLine)) {
-    return "security";
+    return 'security';
   }
 
-  return "other";
+  return 'other';
 }
 
 /**
@@ -81,10 +110,10 @@ function categorizeEntry(line) {
 function parseEntryLine(line) {
   // Remove bullet points and clean up
   const cleaned = line
-    .replace(/^[\s*\-•·]+/, "")
-    .replace(/\[#\d+\].*$/, "") // Remove issue links
-    .replace(/\(#\d+\)/, "")
-    .replace(/by @[\w-]+/i, "")
+    .replace(/^[\s*\-•·]+/, '')
+    .replace(/\[#\d+\].*$/, '') // Remove issue links
+    .replace(/\(#\d+\)/, '')
+    .replace(/by @[\w-]+/i, '')
     .trim();
 
   if (!cleaned || cleaned.length < 3) return null;
@@ -100,7 +129,7 @@ function parseEntryLine(line) {
  * Parse changelog content
  */
 export function parseChangelog(content) {
-  const lines = content.split("\n");
+  const lines = content.split('\n');
   const versions = {};
   let currentVersion = null;
   let currentSection = null;
@@ -141,12 +170,12 @@ export function parseChangelog(content) {
 
     // Check for section headers (### Added, ### Fixed, etc.)
     const sectionMatch = line.match(
-      /^###\s*(Added|Changed|Deprecated|Removed|Fixed|Security|Breaking)/i,
+      /^###\s*(Added|Changed|Deprecated|Removed|Fixed|Security|Breaking)/i
     );
     if (sectionMatch) {
       const section = sectionMatch[1].toLowerCase();
-      if (section === "removed" || section === "deprecated") {
-        currentSection = "breaking";
+      if (section === 'removed' || section === 'deprecated') {
+        currentSection = 'breaking';
       } else {
         currentSection = section;
       }
@@ -174,12 +203,24 @@ export function parseChangelog(content) {
 /**
  * Parse changelog file
  */
+/**
+ * Parse changelog from raw text string
+ */
+export function parseChangelogString(text) {
+  return {
+    versions: parseChangelog(text),
+  };
+}
+
+/**
+ * Parse changelog from file
+ */
 export function parseChangelogFile(filePath) {
   if (!fs.existsSync(filePath)) {
-    return { error: "Changelog not found", versions: {} };
+    return { error: 'Changelog not found', versions: {} };
   }
 
-  const content = fs.readFileSync(filePath, "utf-8");
+  const content = fs.readFileSync(filePath, 'utf-8');
   return {
     file: filePath,
     versions: parseChangelog(content),
@@ -195,8 +236,8 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
 
   // Sort versions (semver-like)
   versionList.sort((a, b) => {
-    const aParts = a.split(".").map(Number);
-    const bParts = b.split(".").map(Number);
+    const aParts = a.split('.').map(Number);
+    const bParts = b.split('.').map(Number);
     for (let i = 0; i < 3; i++) {
       if ((aParts[i] || 0) !== (bParts[i] || 0)) {
         return (aParts[i] || 0) - (bParts[i] || 0);
@@ -214,7 +255,7 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
     return {
       exact: false,
       versions: [],
-      note: `Could not find exact versions. Available: ${versionList.slice(-5).join(", ")}`,
+      note: `Could not find exact versions. Available: ${versionList.slice(-5).join(', ')}`,
     };
   }
 
@@ -238,7 +279,7 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
           ...entries.map((e) => ({
             ...e,
             version: v,
-          })),
+          }))
         );
       }
     }
@@ -269,21 +310,19 @@ export function formatChangelogDiff(changelogDiff, options = {}) {
 
   if (!changelogDiff.exact) {
     lines.push(`⚠️  ${changelogDiff.note}`);
-    return lines.join("\n");
+    return lines.join('\n');
   }
 
   lines.push(`📜 Changelog: ${changelogDiff.from} → ${changelogDiff.to}`);
-  lines.push(
-    `   Versions included: ${changelogDiff.versionsIncluded.join(", ")}`,
-  );
-  lines.push("");
+  lines.push(`   Versions included: ${changelogDiff.versionsIncluded.join(', ')}`);
+  lines.push('');
 
   const sections = [
-    { key: "breaking", icon: "🔴", title: "Breaking Changes" },
-    { key: "added", icon: "🟢", title: "Added" },
-    { key: "changed", icon: "🟡", title: "Changed" },
-    { key: "fixed", icon: "🔧", title: "Fixed" },
-    { key: "security", icon: "🔒", title: "Security" },
+    { key: 'breaking', icon: '🔴', title: 'Breaking Changes' },
+    { key: 'added', icon: '🟢', title: 'Added' },
+    { key: 'changed', icon: '🟡', title: 'Changed' },
+    { key: 'fixed', icon: '🔧', title: 'Fixed' },
+    { key: 'security', icon: '🔒', title: 'Security' },
   ];
 
   for (const { key, icon, title } of sections) {
@@ -298,10 +337,10 @@ export function formatChangelogDiff(changelogDiff, options = {}) {
     if (entries.length > maxPerSection) {
       lines.push(`   ... and ${entries.length - maxPerSection} more`);
     }
-    lines.push("");
+    lines.push('');
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 export default {

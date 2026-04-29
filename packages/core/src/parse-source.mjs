@@ -379,15 +379,27 @@ export function findSourceFiles(pkgDir, options = {}) {
   const sourceFiles = [];
 
   for (const pattern of include) {
+    let baseDir;
     const fullPattern = path.join(pkgDir, pattern);
-    // Simple glob-like matching
-    const baseDir = path.dirname(fullPattern.split('*')[0]);
+    if (!pattern.includes('/')) {
+      // Pattern simples (*.ext): busca apenas no próprio pkgDir
+      baseDir = pkgDir;
+    } else {
+      // Pattern com subdir (src/**/*.ts): baseDir = <subdir>
+      baseDir = path.dirname(fullPattern.split('*')[0]);
+    }
     if (!fs.existsSync(baseDir)) continue;
 
     function walkDir(dir, depth = 0) {
       if (depth > 5 || sourceFiles.length >= maxFiles) return;
 
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (e) {
+        // Ignora diretórios sem permissão
+        return;
+      }
       for (const entry of entries) {
         if (sourceFiles.length >= maxFiles) break;
 

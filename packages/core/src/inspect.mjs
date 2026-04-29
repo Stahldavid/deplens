@@ -8,6 +8,9 @@ import fg from 'fast-glob';
 import { resolve as importMetaResolve } from 'import-meta-resolve';
 import { parseDtsFile } from './parse-dts.mjs';
 import { analyzePackageSource } from './parse-source.mjs';
+import { saveHistoryEntry } from './history-manager.mjs';
+import { detectLanguage } from './language-detector.mjs';
+import { analyzePythonPackage } from './analyze-python.mjs';
 import { downloadVersion } from './version-resolver.mjs';
 import { execSync } from 'child_process';
 
@@ -99,6 +102,17 @@ async function listWorkspacePackageDirs(rootDir, workspaces, targetPackage) {
 
 async function resolveTargetModule(target, cwd, resolveFrom) {
   const baseDir = resolveFrom || cwd;
+
+  // Se resolveFrom é fornecido e contém package.json, usar diretamente
+  if (resolveFrom && fs.existsSync(path.join(resolveFrom, 'package.json'))) {
+    return {
+      success: true,
+      resolved: path.join(resolveFrom, 'package.json'),
+      resolvedDir: resolveFrom,
+      resolveCwd: resolveFrom,
+      resolver: 'direct-resolve-from',
+    };
+  }
   if (!baseDir) return { resolved: null, resolveCwd: baseDir, resolver: null };
 
   const tryResolve = async (dir) => {
@@ -1026,6 +1040,8 @@ async function generateDts(pkgDir) {
 
 export async function runInspect(options) {
   let sourceAnalysis;
+  let detectedLang;
+  let languageAnalysis;
   const collect = !options?.write && !options?.writeError;
   const output = collect ? [] : null;
   const write = options?.write;
@@ -1070,6 +1086,10 @@ export async function runInspect(options) {
   const analyzeSource = Boolean(options?.analyzeSource);
   const sourceMaxFiles = typeof options?.sourceMaxFiles === 'number' ? options.sourceMaxFiles : 5;
   const sourceIncludeBody = Boolean(options?.sourceIncludeBody);
+  const forcedLanguage = options?.language ? String(options.language).toLowerCase() : null;
+
+  const saveHistory = Boolean(options?.saveHistory);
+  const historyDir = options?.historyDir || null;
 
   // more new options below...
   const listSections = Boolean(options?.listSections);
@@ -1144,7 +1164,7 @@ export async function runInspect(options) {
       const spec = remoteVersion || 'latest';
       log(`\n🌐 Remote: downloading ${basePkgName}@${spec}...`);
       try {
-        const downloaded = downloadVersion(basePkgName, spec, {
+        const downloaded = await downloadVersion(basePkgName, spec, {
           timeout: 120000,
         });
         resolveFrom = downloaded.path;
@@ -1794,7 +1814,10 @@ export async function runInspect(options) {
 
     // Source code analysis
     if (analyzeSource && pkgDir) {
-      log('\n📝 Source Code Analysis:');
+      detectedLang = forcedLanguage || detectLanguage(pkgDir);
+      log(`\n📝 Source/Language Analysis (${detectedLang || 'any'}):`);
+
+      // JS/TS analysis
       try {
         sourceAnalysis = analyzePackageSource(pkgDir, {
           filter: filterRaw,
@@ -1802,65 +1825,37 @@ export async function runInspect(options) {
           includeBody: sourceIncludeBody,
           maxBodyLines: 10,
         });
-
         if (sourceAnalysis.error) {
-          log(`   ⚠️  ${sourceAnalysis.error}`);
+          log(`   ⚠️  JS Analysis: ${sourceAnalysis.error}`);
         } else {
-          log(`   Files analyzed: ${sourceAnalysis.summary.totalFiles}`);
-          log(`   Functions found: ${sourceAnalysis.summary.totalFunctions}`);
-          log(`   Avg complexity: ${sourceAnalysis.summary.avgComplexity}`);
-
-          if (sourceAnalysis.summary.highComplexityFunctions.length > 0) {
-            log('\n   ⚠️  High Complexity Functions (≥10):');
-            for (const fn of sourceAnalysis.summary.highComplexityFunctions.slice(0, 5)) {
-              log(`      ${fn.name} (${fn.complexity}) - ${fn.file}`);
-            }
-          }
-
-          for (const file of sourceAnalysis.files) {
-            const fnCount = Object.keys(file.functions).length;
-            if (fnCount === 0) continue;
-
-            log(`\n   📄 ${file.path} (${fnCount} functions):`);
-
-            for (const [name, info] of Object.entries(file.functions)) {
-              const asyncTag = info.async ? 'async ' : '';
-              const exportTag = info.exported ? 'export ' : '';
-              const params = info.params
-                .map(
-                  (p) =>
-                    `${p.name}${p.optional ? '?' : ''}: ${p.type}${p.default ? ` = ${p.default}` : ''}`
-                )
-                .join(', ');
-
-              log(`      ${exportTag}${asyncTag}${name}(${params}): ${info.returnType}`);
-              log(`         ├─ Complexity: ${info.complexity} | Lines: ${info.lines}`);
-
-              if (info.dependencies.length > 0) {
-                log(
-                  `         ├─ Uses: ${info.dependencies.slice(0, 5).join(', ')}${info.dependencies.length > 5 ? '...' : ''}`
-                );
-              }
-
-              if (info.patterns.length > 0) {
-                log(`         └─ Patterns: ${info.patterns.join(', ')}`);
-              }
-
-              if (info.body && sourceIncludeBody) {
-                log('         📋 Body:');
-                info.body
-                  .split('\n')
-                  .slice(0, 8)
-                  .forEach((line) => {
-                    log(`            ${line}`);
-                  });
-              }
-            }
-          }
+          log(
+            `   JS/TS: ${sourceAnalysis.summary.totalFiles} files, ${sourceAnalysis.summary.totalFunctions} functions`
+          );
         }
-      } catch (sourceErr) {
-        log(`   ❌ Source analysis error: ${sourceErr.message}`);
+      } catch (jsErr) {
+        log(`   ❌ JS Analysis error: ${jsErr.message}`);
       }
+
+      // Additional language analysis
+      if (detectedLang === 'python') {
+        try {
+          languageAnalysis = analyzePythonPackage(pkgDir, {
+            filter: filterRaw,
+            maxFiles: sourceMaxFiles,
+            includeBody: sourceIncludeBody,
+          });
+          if (languageAnalysis.error) {
+            log(`   ⚠️  Python Analysis: ${languageAnalysis.error}`);
+          } else {
+            log(
+              `   Python: ${languageAnalysis.summary.totalFiles} files, ${languageAnalysis.summary.totalFunctions} functions, ${languageAnalysis.summary.totalClasses} classes`
+            );
+          }
+        } catch (pyErr) {
+          log(`   ❌ Python Analysis error: ${pyErr.message}`);
+        }
+      }
+      // Future: add Rust, Go here
     }
   } catch (e) {
     if (jsonOutput) {
@@ -1877,6 +1872,36 @@ export async function runInspect(options) {
       files: sourceAnalysis.files.length,
       summary: sourceAnalysis.summary,
     };
+  }
+
+  if (jsonOutput && languageAnalysis && !languageAnalysis.error) {
+    jsonOutput.languageAnalysis = {
+      language: detectedLang || 'unknown',
+      files: languageAnalysis.summary.totalFiles,
+      summary: languageAnalysis.summary,
+    };
+  }
+
+  // Save to history if requested (fire-and-forget, non-blocking)
+  if (saveHistory && jsonOutput && format === 'json') {
+    try {
+      const historyResult = {
+        package: jsonOutput.package,
+        version: jsonOutput.version,
+        timestamp: Date.now(),
+        command: `deplens inspect ${jsonOutput.package}${jsonOutput.meta?.remote ? ' --remote' : ''}`,
+        result: jsonOutput,
+      };
+      // Salvar async, não bloquear output
+      if (historyDir) {
+        saveHistoryEntry(historyResult, historyDir);
+      } else {
+        saveHistoryEntry(historyResult);
+      }
+    } catch (e) {
+      // Silencioso: falha no histórico não deve quebrar a CLI
+      // Silencioso: falha no histórico não deve quebrar a CLI
+    }
   }
 
   if (jsonOutput && format === 'object') {

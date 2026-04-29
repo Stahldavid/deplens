@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runInspect, runDiff } from '@deplens/core';
 import { clearCache, getCacheStats } from '@deplens/core';
+import { listHistory, getHistoryEntry, clearHistory, compareHistoryEntries } from '@deplens/core';
 
 function parseInspectArgs(argv) {
   const target = argv[0];
@@ -66,6 +67,12 @@ function parseInspectArgs(argv) {
     if (!isNaN(parsed) && parsed > 0) sourceMaxFiles = parsed;
   }
   const sourceIncludeBody = argv.includes('--source-include-body');
+
+  let language = null;
+  const languageIndex = argv.indexOf('--language');
+  if (languageIndex !== -1 && argv[languageIndex + 1]) {
+    language = argv[languageIndex + 1].toLowerCase();
+  }
 
   let jsdoc = null;
   const jsdocIndex = argv.indexOf('--jsdoc');
@@ -136,6 +143,16 @@ function parseInspectArgs(argv) {
   // CDN vs npm preference (default: prefer CDN)
   const preferCdn = !argv.includes('--prefer-npm');
   const preferCdnExplicit = argv.includes('--prefer-cdn');
+
+  // History
+  const saveHistory = argv.includes('--save-history');
+  const noSaveHistory = argv.includes('--no-save-history');
+  const effectiveSaveHistory = saveHistory && !noSaveHistory;
+  let historyDir = null;
+  const historyDirIndex = argv.indexOf('--history-dir');
+  if (historyDirIndex !== -1 && argv[historyDirIndex + 1]) {
+    historyDir = argv[historyDirIndex + 1];
+  }
 
   let kindFilter = null;
   const kindIndex = argv.indexOf('--kind');
@@ -219,6 +236,7 @@ function parseInspectArgs(argv) {
     maxExamples,
     analyzeSource,
     sourceMaxFiles,
+    language,
     sourceIncludeBody,
     preferCdn,
     preferCdnExplicit,
@@ -226,6 +244,8 @@ function parseInspectArgs(argv) {
     autoGenerateTypes,
     includeSourceBody,
     sourceMaxFiles,
+    saveHistory: effectiveSaveHistory,
+    historyDir,
   };
 }
 
@@ -312,9 +332,13 @@ function usage() {
       '  --max-exports N        Max exports to show (default: 100)\n' +
       '  --max-props N          Max props per object (default: 10)\n' +
       '  --max-examples N       Max examples to show (default: 10)\n' +
-      '  --analyze-source       Analyze source for complexity\n' +
+      '  --analyze-source       Analyze source code (JS/Python/Rust/Go)\n' +
       '  --source-max-files N   Max source files to analyze\n' +
       '  --source-include-body  Include function body snippets\n' +
+      '  --save-history          Save analysis to local history (~/.deplens/history)\n' +
+      '  --no-save-history       Disable saving to history\n' +
+      '  --history-dir DIR       Custom history directory\n' +
+      '  --language LANG         Force language detection (python, javascript, rust, go)\n' +
       '  --kind f,c,...         Filter by kind (function,class,object,constant)\n' +
       '  --depth N              Object inspection depth (0-5)\n' +
       '  --resolve-from DIR     Base directory for module resolution\n' +
@@ -339,6 +363,7 @@ function usage() {
 const argv = process.argv.slice(2);
 let command = argv[0] === 'diff' || argv[0] === 'inspect' ? argv[0] : 'inspect';
 if (argv[0] === 'cache') command = 'cache';
+if (argv[0] === 'history') command = 'history';
 
 // Handle help flag (after argv is available)
 if (argv.includes('--help') || argv.includes('-h')) {
@@ -369,6 +394,85 @@ if (command === 'cache') {
     }
   } else {
     console.error('Usage: deplens cache [clear|stats] [package?]');
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// History commands
+if (command === 'history') {
+  const subcmd = argv[1] || 'list';
+
+  // Parse optional --history-dir
+  let historyDir = null;
+  const hdIdx = argv.indexOf('--history-dir');
+  if (hdIdx !== -1 && argv[hdIdx + 1]) {
+    historyDir = argv[hdIdx + 1];
+  }
+
+  if (subcmd === 'list') {
+    const filter = argv[2] || null;
+    const entries = listHistory(filter, historyDir);
+    if (entries.length === 0) {
+      console.log('📭 No history entries found.');
+    } else {
+      console.log(`📜 History (${entries.length} entries):\n`);
+      for (const e of entries) {
+        const date = new Date(e.timestamp).toISOString().split('T')[0];
+        console.log(`  ${e.package}@${e.version}  (${date})`);
+      }
+    }
+  } else if (subcmd === 'show') {
+    const spec = argv[2];
+    if (!spec) {
+      console.error('Usage: deplens history show <package[@version]>');
+      process.exit(1);
+    }
+    const [pkg, ver] = spec.includes('@') ? spec.split('@') : [spec, null];
+    let entry;
+    if (ver) {
+      entry = getHistoryEntry(pkg, ver, historyDir);
+    } else {
+      const entries = listHistory(pkg, historyDir);
+      entry =
+        entries.length > 0
+          ? getHistoryEntry(entries[0].package, entries[0].version, historyDir)
+          : null;
+    }
+    if (!entry) {
+      console.error(`❌ No history found for ${spec}`);
+      process.exit(1);
+    }
+    // Print full entry
+    console.log(JSON.stringify(entry, null, 2));
+  } else if (subcmd === 'compare') {
+    const pkg = argv[2];
+    const v1 = argv[3];
+    const v2 = argv[4];
+    if (!pkg || !v1 || !v2) {
+      console.error('Usage: deplens history compare <package> <version1> <version2>');
+      process.exit(1);
+    }
+    const e1 = getHistoryEntry(pkg, v1, historyDir);
+    const e2 = getHistoryEntry(pkg, v2, historyDir);
+    if (!e1 || !e2) {
+      console.error('❌ One or both versions not found in history.');
+      process.exit(1);
+    }
+    const diff = compareHistoryEntries(e1, e2);
+    console.log(JSON.stringify(diff, null, 2));
+  } else if (subcmd === 'clear') {
+    const pkg = argv[2] || null;
+    const { removed } = clearHistory(pkg, historyDir);
+    console.log(
+      `🗑️  Cleared ${removed} history entr${removed === 1 ? 'y' : 'ies'}${pkg ? ` for ${pkg}` : ''}.`
+    );
+  } else {
+    console.error('Usage: deplens history [list|show|compare|clear] [args...]');
+    console.error('  list [filter]');
+    console.error('  show <package[@version]>');
+    console.error('  compare <package> <v1> <v2>');
+    console.error('  clear [package]');
     process.exit(1);
   }
   process.exit(0);
@@ -430,6 +534,9 @@ if (command === 'diff') {
     analyzeSource: parsed.analyzeSource,
     sourceMaxFiles: parsed.sourceMaxFiles,
     sourceIncludeBody: parsed.sourceIncludeBody,
+    language: parsed.language,
+    saveHistory: parsed.saveHistory,
+    historyDir: parsed.historyDir,
     cwd: process.cwd(),
     write: console.log,
     writeError: console.error,

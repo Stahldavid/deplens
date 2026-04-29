@@ -11,22 +11,22 @@ npm i @deplens/core
 ## Usage
 
 ```js
-import { runInspect, runDiff } from "@deplens/core";
+import { runInspect, runDiff } from '@deplens/core';
 
 const output = await runInspect({
-  target: "ai",
+  target: 'ai',
   showTypes: true,
-  filter: "generate",
+  filter: 'generate',
   resolveFrom: process.cwd(),
 });
 
 console.log(output);
 
 const diff = await runDiff({
-  package: "express",
-  from: "4.18.0",
-  to: "4.19.0",
-  format: "json",
+  package: 'express',
+  from: '4.18.0',
+  to: '4.19.0',
+  format: 'json',
 });
 
 console.log(diff.output);
@@ -62,15 +62,15 @@ Example: JSDoc focused on params/returns
 
 ```js
 await runInspect({
-  target: "ai",
+  target: 'ai',
   showTypes: true,
-  jsdocOutput: "section",
+  jsdocOutput: 'section',
   jsdocQuery: {
-    symbols: "generateText",
-    sections: ["params", "returns"],
-    tags: { include: ["param", "returns"] },
-    mode: "compact",
-    truncate: "sentence",
+    symbols: 'generateText',
+    sections: ['params', 'returns'],
+    tags: { include: ['param', 'returns'] },
+    mode: 'compact',
+    truncate: 'sentence',
     maxLen: 220,
   },
 });

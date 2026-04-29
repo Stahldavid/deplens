@@ -226,12 +226,12 @@ Compare two versions of a package. Useful for upgrade planning and identifying b
 ## Programmatic API
 
 ```js
-import { runInspect } from "@deplens/core";
+import { runInspect } from '@deplens/core';
 
 const output = await runInspect({
-  target: "ai",
+  target: 'ai',
   showTypes: true,
-  filter: "generate",
+  filter: 'generate',
   resolveFrom: process.cwd(),
 });
 

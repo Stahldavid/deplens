@@ -1,5 +1,4 @@
-
-declare module "example" {
+declare module 'example' {
   export function greet(name: string): string;
   export interface User {
     id: number;

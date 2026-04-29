@@ -18,3 +18,16 @@ export {
   findChangelogRemote,
   parseChangelogString,
 } from './changelog-parser.mjs';
+export {
+  ensureHistoryDir,
+  getPackageHistoryDir,
+  getHistoryFilePath,
+  saveHistoryEntry,
+  listHistory,
+  getHistoryEntry,
+  clearHistory,
+  compareHistoryEntries,
+} from './history-manager.mjs';
+
+export { detectLanguage, getSourceFiles } from './language-detector.mjs';
+export { analyzePythonPackage } from './analyze-python.mjs';

@@ -376,32 +376,29 @@ export function findSourceFiles(pkgDir, options = {}) {
     ],
   } = options;
 
-  const sourceFiles = [];
+  const sourceFiles = new Set();
 
   for (const pattern of include) {
     let baseDir;
     const fullPattern = path.join(pkgDir, pattern);
     if (!pattern.includes('/')) {
-      // Pattern simples (*.ext): busca apenas no próprio pkgDir
       baseDir = pkgDir;
     } else {
-      // Pattern com subdir (src/**/*.ts): baseDir = <subdir>
       baseDir = path.dirname(fullPattern.split('*')[0]);
     }
     if (!fs.existsSync(baseDir)) continue;
 
-    function walkDir(dir, depth = 0) {
-      if (depth > 5 || sourceFiles.length >= maxFiles) return;
+    (function walkDir(dir, depth = 0) {
+      if (depth > 5 || sourceFiles.size >= maxFiles) return;
 
       let entries;
       try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
       } catch (e) {
-        // Ignora diretórios sem permissão
         return;
       }
       for (const entry of entries) {
-        if (sourceFiles.length >= maxFiles) break;
+        if (sourceFiles.size >= maxFiles) break;
 
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
@@ -413,20 +410,15 @@ export function findSourceFiles(pkgDir, options = {}) {
             entry.name.endsWith('.js') ||
             entry.name.endsWith('.jsx'))
         ) {
-          // Skip declaration files
           if (!entry.name.endsWith('.d.ts')) {
-            sourceFiles.push(fullPath);
+            sourceFiles.add(fullPath);
           }
         }
       }
-    }
-
-    if (fs.existsSync(baseDir)) {
-      walkDir(baseDir);
-    }
+    })(baseDir);
   }
 
-  return sourceFiles;
+  return Array.from(sourceFiles);
 }
 
 /**

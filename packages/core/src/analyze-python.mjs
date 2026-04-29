@@ -177,6 +177,10 @@ function analyzePythonFile(content, { filter, includeBody = false }) {
         const indent = funcMatch[1].length;
         if (indent === 0) {
           const funcName = funcMatch[2];
+          // Filter by name if provided
+          if (filter && !funcName.includes(filter)) {
+            continue;
+          }
           const params = funcMatch[3];
           const body = includeBody ? collectBody(lines, i) : null;
           functions.push({
@@ -214,4 +218,5 @@ function collectBody(lines, startIdx) {
 
 export default {
   analyzePythonPackage,
+  analyzePythonFile,
 };

@@ -54,40 +54,90 @@ Example output (truncated):
 
 ```bash
 deplens <package-or-import-path> [filter] [options]
+deplens inspect <package> [filter] [options]
+deplens diff <package> [options]
+deplens cache [stats|clear [package]]
+deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 ```
 
-### Common flags
+### Inspection flags
 
 ```bash
---types                 Include type signatures (.d.ts)
---filter <text>         Substring filter
---search <query>        Lightweight semantic search (token + JSDoc)
---kind <k1,k2>          function,class,object,constant
---depth <0-5>           Object inspection depth
---resolve-from <dir>    Resolution base directory
---remote                Download package to cache and inspect it
---remote-version <v>    Version for remote download (default: latest)
---docs                  Include README preview
---list-sections         List README section names (for targeted extraction)
---docs-sections <csv>   Extract specific README sections by name
---examples              Include README/examples/@example snippets
---format text|json      Output format
---max-exports <n>       Max exports in output (default: 100)
---max-props <n>         Max props per object (default: 10)
---max-examples <n>      Max examples returned (default: 10)
+--types                       Include type signatures (.d.ts)
+--filter <text>               Substring filter for export names
+--search <query>              Lightweight semantic search (token + JSDoc)
+--kind <k1,k2>                Filter by kind (function,class,object,constant)
+--depth <0-5>                 Object inspection depth (default: 3)
+--resolve-from <dir>          Base directory for module resolution (workspaces)
+--remote                      Download package to cache (no install required)
+--remote-version <v>          Version for remote download (default: latest)
+--prefer-cdn                  Prefer CDN download (esm.sh/jsdelivr) [default]
+--prefer-npm                  Force npm install (no CDN)
+--docs                        Include README preview
+--list-sections               List available README section names
+--docs-sections <s1,s2>       Extract specific README sections by name
+--examples                    Include code examples from README/@example tags
+--format text|json            Output format (default: text)
+--json                       Shorthand for --format json
+
+## Multi-language & source analysis
+--analyze-source              Analyze source code (JS/TS/Python/Rust/Go)
+--source-max-files <N>        Maximum source files to analyze (default: 10)
+--source-include-body         Include function body snippets in output
+--language <lang>             Force language detection: javascript|python|rust|go
+--auto-generate-types         Auto-generate .d.ts via dts-gen when missing [default]
+--no-auto-generate-types      Disable automatic type generation
+
+## History & caching
+--save-history                Save analysis snapshot to ~/.deplens/history/
+--history-dir <dir>           Custom history directory path
+--cache                       (separate command) view/clear cache
+
+## JSDoc flags
+--jsdoc off|compact|full      JSDoc verbosity mode
+--jsdoc-output off|section|inline|only  Where to place JSDoc in output
+--jsdoc-symbol <name|glob|regex>  Filter symbols for JSDoc extraction
+--jsdoc-sections <list>       Comma-separated: summary,params,returns,tags
+--jsdoc-tags <t1,t2>          Include only these JSDoc tags
+--jsdoc-tags-exclude <t1,t2>  Exclude these JSDoc tags
+--jsdoc-truncate none|sentence|word  Truncation for long summaries
+--jsdoc-max-len <N>           Maximum JSDoc length per symbol
 ```
 
-### JSDoc flags
+### Diff flags
 
 ```bash
---jsdoc off|compact|full
---jsdoc-output off|section|inline|only
---jsdoc-symbol <name|glob|/re/>
---jsdoc-sections summary,params,returns,tags
---jsdoc-tags t1,t2
---jsdoc-tags-exclude t1,t2
---jsdoc-truncate none|sentence|word
---jsdoc-max-len <N>
+deplens diff <package> [options]
+
+Flags:
+  --from VERSION          Base version (default: currently installed)
+  --to VERSION            Target version (default: latest)
+  --filter <text>         Filter export name changes
+  --format text|json      Output format
+  --json                  Shorthand for --format json
+  --prefer-cdn            Prefer CDN download (default)
+  --prefer-npm            Force npm install (no CDN)
+  --include-source        Include source complexity metrics in diff
+  --no-changelog          Skip remote changelog fetching
+  --verbose               Show detailed per-export changes
+  --no-color              Disable ANSI colors in text output
+  --project-dir DIR       Base directory for installed version lookup
+```
+
+### Cache management
+
+```bash
+deplens cache stats              # Show cache statistics
+deplens cache clear [package]    # Clear all or specific package cache
+```
+
+### History management
+
+```bash
+deplens history list             # List all saved analyses
+deplens history show <pkg[@v]>   # Show full JSON for one entry
+deplens history compare <pkg> <v1> <v2>  # Semantic diff between versions
+deplens history clear [pkg]      # Clear history (all or per-package)
 ```
 
 ### Examples

@@ -84,7 +84,7 @@ export async function runDiff(options = {}) {
           changelogText = await findChangelogRemote(
             versionPair.package,
             versionPair.to.version,
-            10000
+            30000
           );
           if (changelogText) {
             changelogSource = 'remote (CDN)';

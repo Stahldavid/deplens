@@ -15,20 +15,20 @@
     "test:core": "npm --workspace @deplens/core test",
     "test:cli": "node packages/cli/bin/deplens.js zod --types --filter ZodString",
     "test:mcp": "node packages/mcp/bin/deplens-mcp.js",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
     "publish:core": "npm --workspace @deplens/core publish --access public",
     "publish:cli": "npm --workspace @deplens/cli publish --access public",
     "publish:mcp": "npm --workspace @deplens/mcp publish --access public",
-    "publish:all": "npm --workspace @deplens/core publish --access public && npm --workspace @deplens/cli publish --access public && npm --workspace @deplens/mcp publish --access public",
-    "release:patch": "npm --workspace @deplens/core version patch --no-git-tag-version && npm --workspace @deplens/cli version patch --no-git-tag-version && npm --workspace @deplens/mcp version patch --no-git-tag-version",
-    "release:minor": "npm --workspace @deplens/core version minor --no-git-tag-version && npm --workspace @deplens/cli version minor --no-git-tag-version && npm --workspace @deplens/mcp version minor --no-git-tag-version",
-    "release:major": "npm --workspace @deplens/core version major --no-git-tag-version && npm --workspace @deplens/cli version major --no-git-tag-version && npm --workspace @deplens/mcp version major --no-git-tag-version",
-    "release:tag": "git tag v$(node -p \"require('./packages/core/package.json').version\")",
-    "release:all": "npm run release:patch && npm run publish:all"
+    "publish:all": "npm --workspace @deplens/core publish --access public && npm --workspace @deplens/cli publish --access public && npm --workspace @deplens/mcp publish --access public"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@eslint/js": "^10.0.1",
     "dts-gen": "^0.10.9",
     "eslint": "^10.2.1",

@@ -37,12 +37,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        # Node 22.14+ (npm 11.5.1+) is required by npm Trusted Publishers.
+        # Node 22 ships with npm 10; we upgrade npm to 11.5+ below
+        # because npm Trusted Publishers require that version.
         # See https://docs.npmjs.com/trusted-publishers
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm to >=11.5 (required by Trusted Publishers)
+        run: |
+          npm install -g npm@latest
+          node --version
+          npm --version
 
       - name: Install dependencies
         run: npm ci
@@ -87,9 +94,12 @@ jobs:
           fi
           echo "Version check OK: tag=$TAG_VERSION matches $WS_DIR/package.json"
 
-      - name: Show npm version (sanity)
-        run: node --version && npm --version
-
       - name: Publish (provenance is automatic via OIDC)
+        # Don't pass --provenance: per npm docs, provenance is generated
+        # automatically when publishing via Trusted Publisher OIDC.
+        # Don't set NODE_AUTH_TOKEN: when it's absent the npm CLI uses
+        # the OIDC token from $ACTIONS_ID_TOKEN_REQUEST_TOKEN.
+        env:
+          NODE_AUTH_TOKEN: ''
         run: |
           npm --workspace "${{ steps.pkg.outputs.name }}" publish --access public

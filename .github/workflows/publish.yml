@@ -37,9 +37,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        # Node 22.14+ (npm 11.5.1+) is required by npm Trusted Publishers.
+        # See https://docs.npmjs.com/trusted-publishers
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -85,8 +87,9 @@ jobs:
           fi
           echo "Version check OK: tag=$TAG_VERSION matches $WS_DIR/package.json"
 
-      - name: Publish with provenance
+      - name: Show npm version (sanity)
+        run: node --version && npm --version
+
+      - name: Publish (provenance is automatic via OIDC)
         run: |
-          npm --workspace "${{ steps.pkg.outputs.name }}" publish \
-            --access public \
-            --provenance
+          npm --workspace "${{ steps.pkg.outputs.name }}" publish --access public

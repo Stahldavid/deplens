@@ -11,6 +11,15 @@
     "src",
     "bin"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stahldavid/deplens.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Stahldavid/deplens#readme",
+  "bugs": {
+    "url": "https://github.com/Stahldavid/deplens/issues"
+  },
   "scripts": {
     "build": "echo 'no build'",
     "start": "node bin/deplens-mcp.js",

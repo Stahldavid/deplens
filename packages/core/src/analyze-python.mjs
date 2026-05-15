@@ -121,7 +121,7 @@ function analyzePythonFile(content, { filter, includeBody = false }) {
     }
   }
 
-  const funcRegex = /^(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*:/;
+  const funcRegex = /^(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*[^:]+)?\s*:/;
   const classRegex = /^(\s*)class\s+(\w+)(?:\(([^)]+)\))?\s*:/;
 
   let currentClass = null;
@@ -154,7 +154,7 @@ function analyzePythonFile(content, { filter, includeBody = false }) {
     }
 
     if (currentClass) {
-      const methodMatch = line.match(/^(\s+)def\s+(\w+)\s*\(([^)]*)\)\s*:/);
+      const methodMatch = line.match(/^(\s+)def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*[^:]+)?\s*:/);
       if (methodMatch) {
         const indent = methodMatch[1].length;
         if (indent > classIndent) {

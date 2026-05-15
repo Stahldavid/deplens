@@ -1,6 +1,7 @@
 // Unified type inspection + auto-generation orchestrator
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { parseDtsFile, findReExports } from './parse-dts.mjs';
 import { execFile } from 'child_process';
@@ -18,8 +19,7 @@ export async function generateDts(pkgDir) {
 }
 
 export function getCacheKey(dtsPath) {
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const cacheRoot = path.join(home, '.deplens-cache');
+  const cacheRoot = path.join(os.homedir(), '.deplens-cache');
   if (dtsPath.startsWith(cacheRoot)) return dtsPath;
   try { const real = fs.realpathSync(dtsPath); if (real.startsWith(cacheRoot)) return real; } catch {}
   return dtsPath;
@@ -36,7 +36,7 @@ export async function getCachedDtsParse(dtsPath) {
   const cacheKey = getCacheKey(dtsPath);
   const fromMem = getMemory(cacheKey);
   if (fromMem) return fromMem;
-  const cacheDir = path.join(process.env.HOME || '~', '.deplens-cache', 'parse');
+  const cacheDir = path.join(os.homedir(), '.deplens-cache', 'parse');
   fs.mkdirSync(cacheDir, { recursive: true });
   const safeName = cacheKey.replace(/[/:\\]/g, '_');
   const cacheFile = path.join(cacheDir, safeName + '.json');

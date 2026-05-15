@@ -99,19 +99,8 @@ async function listWorkspacePackageDirs(rootDir, workspaces, targetPackage) {
   return dirs;
 }
 
-async function resolveTargetModule(target, cwd, resolveFrom) {
+async function resolveTargetModule(target, cwd, resolveFrom, explicitResolveFrom) {
   const baseDir = resolveFrom || cwd;
-
-  // Se resolveFrom é fornecido e contém package.json, usar diretamente
-  if (resolveFrom && fs.existsSync(path.join(resolveFrom, 'package.json'))) {
-    return {
-      success: true,
-      resolved: path.join(resolveFrom, 'package.json'),
-      resolvedDir: resolveFrom,
-      resolveCwd: resolveFrom,
-      resolver: 'direct-resolve-from',
-    };
-  }
   if (!baseDir) return { resolved: null, resolveCwd: baseDir, resolver: null };
 
   const tryResolve = async (dir) => {
@@ -153,6 +142,17 @@ async function resolveTargetModule(target, cwd, resolveFrom) {
       const resolved = await tryResolve(dir);
       if (resolved) return resolved;
     }
+  }
+
+  // Fallback: when the user explicitly passed --resolve-from pointing at a directory
+  // that has a package.json (e.g. for non-JS language inspection or a local copy),
+  // surface that directory so downstream stages can still inspect it.
+  if (explicitResolveFrom && fs.existsSync(path.join(explicitResolveFrom, 'package.json'))) {
+    return {
+      resolved: path.join(explicitResolveFrom, 'package.json'),
+      resolveCwd: explicitResolveFrom,
+      resolver: 'direct-resolve-from',
+    };
   }
 
   return { resolved: null, resolveCwd: baseDir, resolver: null };
@@ -1029,9 +1029,11 @@ export async function runInspectCore(options) {
   }
 
   const baseCwd = options?.cwd;
-  let resolveFrom = options?.resolveFrom
+  const explicitResolveFromRaw = options?.resolveFrom
     ? path.resolve(baseCwd || process.cwd(), options.resolveFrom)
-    : baseCwd;
+    : null;
+  let resolveFrom = explicitResolveFromRaw || baseCwd;
+  let explicitResolveFrom = explicitResolveFromRaw;
 
   if (remote) {
     const basePkgName = getPackageName(target);
@@ -1043,6 +1045,7 @@ export async function runInspectCore(options) {
           timeout: 120000,
         });
         resolveFrom = downloaded.path;
+        explicitResolveFrom = downloaded.path;
         log(`   CachePath: ${downloaded.path}`);
         log(`   Cached: ${downloaded.cached ? 'yes' : 'no'}`);
       } catch (e) {
@@ -1057,7 +1060,7 @@ export async function runInspectCore(options) {
     } catch (e) {}
   }
 
-  const resolution = await resolveTargetModule(target, baseCwd, resolveFrom);
+  const resolution = await resolveTargetModule(target, baseCwd, resolveFrom, explicitResolveFrom);
   const resolveCwd = resolution.resolveCwd || resolveFrom || baseCwd;
   const require = createRequire(resolveCwd ? path.join(resolveCwd, 'noop.js') : import.meta.url);
   const resolvedPath = resolution.resolved;
@@ -1606,7 +1609,7 @@ export async function runInspectCore(options) {
     // === NEW: Parse .d.ts file if --types flag is present ===
     // Load type info if dtsPath exists (for both logs and JSON)
     if (dtsPath && fs.existsSync(dtsPath) && typeInfoRaw === null) {
-      typeInfoRaw = getCachedDtsParse(dtsPath);
+      typeInfoRaw = await getCachedDtsParse(dtsPath);
     }
 
 

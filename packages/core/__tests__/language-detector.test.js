@@ -3,14 +3,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { detectLanguage, getSourceFiles } from '../src/language-detector.mjs';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import path from 'path';
+import os from 'os';
 
-const TMP_DIR = '/tmp/deplens-lang-test';
+const TMP_PREFIX = path.join(os.tmpdir(), 'deplens-lang-test-');
 
 describe('language-detector', () => {
   let testRoot;
 
   beforeEach(() => {
-    testRoot = mkdtempSync(TMP_DIR);
+    testRoot = mkdtempSync(TMP_PREFIX);
   });
 
   afterEach(() => {
@@ -72,7 +73,7 @@ describe('language-detector', () => {
     });
 
     it('should not crash on non-existent directory', () => {
-      expect(detectLanguage('/nonexistent/path')).toBeNull();
+      expect(detectLanguage(path.join(os.tmpdir(), 'definitely-does-not-exist-deplens'))).toBeNull();
     });
   });
 
@@ -126,7 +127,7 @@ describe('language-detector', () => {
 
       const files = getSourceFiles(testRoot, 'python', 10);
       expect(files.length).toBe(1);
-      expect(files[0]).toContain('src/main.py');
+      expect(files[0]).toContain(path.join('src', 'main.py'));
     });
   });
 });

@@ -1,676 +1,630 @@
 #!/usr/bin/env node
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-let corePromise = null;
-let diffPromise = null;
+/**
+ * DepLens MCP Server
+ *
+ * Exposes DepLens' package inspection and version diff capabilities as MCP tools
+ * over stdio transport. Built on the modern `McpServer` + `registerTool` API
+ * (MCP SDK >= 1.18) with Zod input validation, structured output, and
+ * tool annotations per MCP best practices.
+ */
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
-async function loadCore() {
-  if (!corePromise) {
-    corePromise = import("@deplens/core").catch(async (error) => {
-      try {
-        const fallbackUrl = new URL("./core/inspect.mjs", import.meta.url);
-        return await import(fallbackUrl.href);
-      } catch (fallbackError) {
-        const message =
-          fallbackError instanceof Error
-            ? fallbackError.message
-            : String(fallbackError);
-        const err = new Error(
-          `Failed to load @deplens/core. Fallback also failed: ${message}`,
-        );
-        err.cause = error;
-        throw err;
-      }
-    });
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const PKG_VERSION = '0.2.0';
+const SERVER_NAME = 'deplens-mcp-server';
+
+/** Max characters to emit in a single text response before truncating. */
+const CHARACTER_LIMIT = 100_000;
+
+const DEBUG = process.env.DEPLENS_DEBUG === 'true';
+
+function debug(label, payload) {
+  if (!DEBUG) return;
+  try {
+    // stderr only — stdout is the MCP transport
+    console.error(
+      `[deplens-mcp] ${label}`,
+      typeof payload === 'string' ? payload : JSON.stringify(payload)
+    );
+  } catch {
+    /* ignore */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lazy core loader (keeps cold start tiny)
+// ---------------------------------------------------------------------------
+
+let corePromise = null;
+async function loadCore() {
+  if (!corePromise) corePromise = import('@deplens/core');
   return corePromise;
 }
 
-async function loadDiff() {
-  if (!diffPromise) {
-    diffPromise = (async () => {
-      // Try @deplens/core first
-      try {
-        const core = await import("@deplens/core");
-        if (core.runDiff) return core.runDiff;
-        if (core.default?.runDiff) return core.default.runDiff;
-      } catch {
-        // @deplens/core not available, try fallback
-      }
-
-      // Fallback to local module
-      try {
-        const fallbackUrl = new URL("./core/diff.mjs", import.meta.url);
-        const mod = await import(fallbackUrl.href);
-        return mod.runDiff || mod.default?.runDiff;
-      } catch (e) {
-        console.error("Failed to load diff module:", e);
-        return null;
-      }
-    })();
+async function loadRunInspect() {
+  const core = await loadCore();
+  const fn = core.runInspect || core.default?.runInspect;
+  if (typeof fn !== 'function') {
+    throw new Error('runInspect not exported by @deplens/core');
   }
-  return diffPromise;
+  return fn;
 }
 
-const inspectToolSchema = {
-  type: "object",
-  properties: {
-    target: {
-      type: "string",
-      description: "Package name or import path (e.g. react, next/server)",
+async function loadRunDiff() {
+  const core = await loadCore();
+  const fn = core.runDiff || core.default?.runDiff;
+  if (typeof fn !== 'function') {
+    throw new Error('runDiff not exported by @deplens/core');
+  }
+  return fn;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function truncateIfNeeded(text) {
+  if (typeof text !== 'string') return { text: String(text ?? ''), truncated: false };
+  if (text.length <= CHARACTER_LIMIT) return { text, truncated: false };
+  const head = text.slice(0, CHARACTER_LIMIT);
+  const suffix = `\n\n… (truncated ${text.length - CHARACTER_LIMIT} chars; use 'filter', 'search', 'maxExports' or 'docsSections' to narrow output, or request format='json' to receive the structured payload)`;
+  return { text: head + suffix, truncated: true };
+}
+
+function buildErrorResponse(error, fallbackStructured) {
+  const message = error instanceof Error ? error.message : String(error);
+  const stack =
+    DEBUG && error instanceof Error && error.stack ? `\n\n[stack]\n${error.stack}` : '';
+  debug('error', message);
+  return {
+    isError: true,
+    content: [{ type: 'text', text: `Error: ${message}${stack}` }],
+    structuredContent: {
+      ...fallbackStructured,
+      error: message,
+      warnings: [message],
     },
-    subpath: {
-      type: "string",
-      description: "Optional subpath (e.g. server for next/server)",
-    },
-    filter: { type: "string", description: "Substring filter for exports" },
-    kind: {
-      type: "array",
-      items: {
-        type: "string",
-        enum: ["function", "class", "object", "constant", "interface", "type"],
-      },
-      description: "Filter by export kind",
-    },
-    showTypes: {
-      type: "boolean",
-      description: "Show type signatures from .d.ts",
-    },
-    includeDocs: {
-      type: "boolean",
-      description: "Include README preview (docs)",
-    },
-    includeExamples: {
-      type: "boolean",
-      description: "Include README/examples/@example snippets",
-    },
-    remote: {
-      type: "boolean",
-      description: "Download package to cache and inspect that version",
-    },
-    remoteVersion: {
-      type: "string",
-      description: "Version for remote download (default: latest)",
-    },
-    format: {
-      type: "string",
-      enum: ["text", "json", "object"],
-      description: "Output format (default: text)",
-    },
-    listSections: {
-      type: "boolean",
-      description: "List available README sections",
-    },
-    docsSections: {
-      type: "array",
-      items: { type: "string" },
-      description: "Extract specific README sections by name",
-    },
-    search: {
-      type: "string",
-      description: "Semantic search query (token matching + JSDoc)",
-    },
-    maxExports: {
-      type: "number",
-      description: "Max exports to show (default: 100)",
-    },
-    maxProps: {
-      type: "number",
-      description: "Max props per object (default: 10)",
-    },
-    maxExamples: {
-      type: "number",
-      description: "Max examples to show (default: 10)",
-    },
-    depth: { type: "number", description: "Depth for object inspection (0-5)" },
-    resolveFrom: {
-      type: "string",
-      description: "Base directory for module resolution",
-    },
-    rootDir: {
-      type: "string",
-      description: "Working directory for the inspection (default: cwd)",
-    },
-    jsdoc: {
-      type: "string",
-      enum: ["off", "compact", "full"],
-      description: "JSDoc mode",
-    },
-    jsdocOutput: {
-      type: "string",
-      enum: ["off", "section", "inline", "only"],
-      description: "Where to print JSDoc",
-    },
-    jsdocQuery: {
-      type: "object",
-      properties: {
-        symbols: {
-          oneOf: [
-            { type: "string" },
-            { type: "array", items: { type: "string" } },
-          ],
-        },
-        sections: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["summary", "params", "returns", "tags"],
-          },
-        },
-        tags: {
-          type: "object",
-          properties: {
-            include: { type: "array", items: { type: "string" } },
-            exclude: { type: "array", items: { type: "string" } },
-          },
-        },
-        mode: { type: "string", enum: ["compact", "full"] },
-        maxLen: { type: "number" },
-        truncate: { type: "string", enum: ["none", "sentence", "word"] },
-      },
-    },
-    analyzeSource: {
-      type: "boolean",
-      description:
-        "Analyze source code (.ts/.js) for implementation details, complexity, patterns",
-    },
-    sourceMaxFiles: {
-      type: "number",
-      description: "Max source files to analyze (default: 5)",
-    },
-    sourceIncludeBody: {
-      type: "boolean",
-      description: "Include function body snippets in output",
-    },
-  },
-  required: ["target"],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tool: deplens_inspect
+// ---------------------------------------------------------------------------
+
+const KindEnum = z.enum(['function', 'class', 'object', 'constant', 'interface', 'type']);
+
+const FormatEnum = z.enum(['text', 'json', 'object']);
+
+const JsdocModeEnum = z.enum(['off', 'compact', 'full']);
+const JsdocOutputEnum = z.enum(['off', 'section', 'inline', 'only']);
+const JsdocSectionEnum = z.enum(['summary', 'params', 'returns', 'tags']);
+const JsdocTruncateEnum = z.enum(['none', 'sentence', 'word']);
+
+const JsdocQuerySchema = z
+  .object({
+    symbols: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe('Single symbol name or list of names to extract JSDoc for'),
+    sections: z
+      .array(JsdocSectionEnum)
+      .optional()
+      .describe('Which JSDoc sections to include'),
+    tags: z
+      .object({
+        include: z.array(z.string()).optional(),
+        exclude: z.array(z.string()).optional(),
+      })
+      .optional()
+      .describe('Filter JSDoc by tag name (include/exclude)'),
+    mode: z.enum(['compact', 'full']).optional(),
+    maxLen: z.number().int().nonnegative().optional(),
+    truncate: JsdocTruncateEnum.optional(),
+  })
+  .strict()
+  .describe('Fine-grained JSDoc extraction options');
+
+const inspectInputShape = {
+  target: z
+    .string()
+    .min(1, 'target must not be empty')
+    .describe('Package name or import path (e.g. "react", "next/server", "@scope/pkg")'),
+  subpath: z
+    .string()
+    .optional()
+    .describe('Optional subpath appended to target (e.g. "server" for next/server)'),
+  filter: z
+    .string()
+    .optional()
+    .describe('Case-insensitive substring filter for export names. Use /regex/ for regex.'),
+  kind: z
+    .array(KindEnum)
+    .optional()
+    .describe('Restrict exports to specific kinds'),
+  showTypes: z
+    .boolean()
+    .optional()
+    .describe('Parse .d.ts files and return type signatures, interfaces, classes, enums'),
+  includeDocs: z
+    .boolean()
+    .optional()
+    .describe('Include README preview in the response'),
+  includeExamples: z
+    .boolean()
+    .optional()
+    .describe('Include code examples from README, examples/ dir, and @example JSDoc'),
+  remote: z
+    .boolean()
+    .optional()
+    .describe('Download the package to local cache and inspect that version (no install needed)'),
+  remoteVersion: z
+    .string()
+    .optional()
+    .describe('Version to download when remote=true (default: "latest")'),
+  format: FormatEnum
+    .optional()
+    .describe(
+      "Output format for the text content. 'text' (default) returns pretty output; 'json' returns a JSON stringified payload; 'object' returns only structuredContent."
+    ),
+  listSections: z
+    .boolean()
+    .optional()
+    .describe('List available README section headers instead of returning content'),
+  docsSections: z
+    .array(z.string())
+    .optional()
+    .describe('Extract specific README sections by header name (case-insensitive partial match)'),
+  search: z
+    .string()
+    .optional()
+    .describe('Semantic search query (token matching + JSDoc) over export names'),
+  maxExports: z
+    .number()
+    .int()
+    .positive()
+    .max(10_000)
+    .optional()
+    .describe('Maximum exports to include (default: 100)'),
+  maxProps: z
+    .number()
+    .int()
+    .positive()
+    .max(1_000)
+    .optional()
+    .describe('Maximum props per object when depth > 0 (default: 10)'),
+  maxExamples: z
+    .number()
+    .int()
+    .positive()
+    .max(100)
+    .optional()
+    .describe('Maximum examples to show (default: 10)'),
+  depth: z
+    .number()
+    .int()
+    .min(0)
+    .max(5)
+    .optional()
+    .describe('Depth for object inspection (0-5, default: 1)'),
+  resolveFrom: z
+    .string()
+    .optional()
+    .describe('Base directory for module resolution. Defaults to rootDir/cwd.'),
+  rootDir: z
+    .string()
+    .optional()
+    .describe('Working directory for the inspection (default: $DEPLENS_ROOT or process.cwd())'),
+  jsdoc: JsdocModeEnum.optional().describe('JSDoc verbosity mode'),
+  jsdocOutput: JsdocOutputEnum.optional().describe('Where to render JSDoc in the output'),
+  jsdocQuery: JsdocQuerySchema.optional(),
+  analyzeSource: z
+    .boolean()
+    .optional()
+    .describe('Analyze source code (JS/TS/Python/Rust/Go) for implementation details + complexity'),
+  sourceMaxFiles: z
+    .number()
+    .int()
+    .positive()
+    .max(500)
+    .optional()
+    .describe('Max source files to analyze (default: 5)'),
+  sourceIncludeBody: z
+    .boolean()
+    .optional()
+    .describe('Include function body snippets in the source analysis'),
+  language: z
+    .enum(['javascript', 'typescript', 'python', 'rust', 'go'])
+    .optional()
+    .describe('Force language detection instead of auto-detecting from the package layout'),
 };
 
-const diffToolSchema = {
-  type: "object",
-  properties: {
-    package: {
-      type: "string",
-      description: "Package name to compare (e.g. react, zod)",
-    },
-    from: {
-      type: "string",
-      description:
-        "Source version (e.g. '3.22.0', 'installed'). Default: 'installed'",
-    },
-    to: {
-      type: "string",
-      description:
-        "Target version (e.g. '3.24.0', 'latest'). Default: 'latest'",
-    },
-    includeSource: {
-      type: "boolean",
-      description: "Include source code complexity analysis",
-    },
-    includeChangelog: {
-      type: "boolean",
-      description: "Parse and include CHANGELOG.md entries (default: true)",
-    },
-    filter: {
-      type: "string",
-      description: "Filter exports by name",
-    },
-    format: {
-      type: "string",
-      enum: ["text", "json", "object"],
-      description: "Output format: 'text' (default) or 'json'",
-    },
+const InspectInputSchema = z.object(inspectInputShape).strict();
 
-    verbose: {
-      type: "boolean",
-      description: "Show detailed changes",
-    },
-  },
-  required: ["package"],
+/** @typedef {z.infer<typeof InspectInputSchema>} InspectInput */
+
+const inspectOutputShape = {
+  schemaVersion: z.number(),
+  package: z.string().nullable(),
+  version: z.string().nullable(),
+  description: z.string().nullable(),
+  resolution: z
+    .object({
+      target: z.string().nullable(),
+      resolveFrom: z.string().nullable(),
+      resolveCwd: z.string().nullable(),
+      resolved: z.string().nullable(),
+      entrypointPath: z.string().nullable(),
+      entrypointExists: z.boolean(),
+    })
+    .nullable(),
+  exports: z
+    .object({
+      total: z.number(),
+      functions: z.array(z.string()),
+      classes: z.array(z.string()),
+      objects: z.array(z.string()),
+      constants: z.array(z.string()),
+    })
+    .nullable(),
+  types: z.record(z.any()).nullable(),
+  docs: z.record(z.any()).nullable(),
+  sections: z.array(z.record(z.any())).nullable(),
+  examples: z.record(z.any()).nullable(),
+  meta: z.record(z.any()).nullable(),
+  warnings: z.array(z.string()),
+  error: z.string().optional(),
 };
 
-const inspectToolOutputSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    schemaVersion: { type: "number" },
-    package: { type: ["string", "null"] },
-    version: { type: ["string", "null"] },
-    description: { type: ["string", "null"] },
-    resolution: {
-      type: ["object", "null"],
-      additionalProperties: false,
-      properties: {
-        target: { type: ["string", "null"] },
-        resolveFrom: { type: ["string", "null"] },
-        resolveCwd: { type: ["string", "null"] },
-        resolved: { type: ["string", "null"] },
-        entrypointPath: { type: ["string", "null"] },
-        entrypointExists: { type: "boolean" },
-      },
-      required: [
-        "target",
-        "resolveFrom",
-        "resolveCwd",
-        "resolved",
-        "entrypointPath",
-        "entrypointExists",
-      ],
-    },
-    exports: {
-      type: ["object", "null"],
-      additionalProperties: false,
-      properties: {
-        total: { type: "number" },
-        functions: { type: "array", items: { type: "string" } },
-        classes: { type: "array", items: { type: "string" } },
-        objects: { type: "array", items: { type: "string" } },
-        constants: { type: "array", items: { type: "string" } },
-      },
-      required: ["total", "functions", "classes", "objects", "constants"],
-    },
-    types: {
-      type: ["object", "null"],
-      additionalProperties: true,
-    },
-    docs: {
-      type: ["object", "null"],
-      additionalProperties: true,
-    },
-    sections: {
-      type: ["array", "null"],
-      items: { type: "object" },
-    },
-    examples: {
-      type: ["object", "null"],
-      additionalProperties: true,
-    },
-    meta: {
-      type: ["object", "null"],
-      additionalProperties: true,
-    },
-    warnings: { type: "array", items: { type: "string" } },
-  },
-  required: [
-    "schemaVersion",
-    "package",
-    "version",
-    "description",
-    "exports",
-    "types",
-    "docs",
-    "sections",
-    "examples",
-    "resolution",
-    "meta",
-    "warnings",
-  ],
-};
+// Note: the SDK serializes `inspectOutputShape` into JSON Schema for clients
+// and validates handler output against it automatically. We expose the shape
+// (not a built z.object) because that's what `registerTool` expects.
 
-const diffToolOutputSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    schemaVersion: { type: "number" },
-    package: { type: "string" },
-    from: { type: "string" },
-    to: { type: "string" },
-    output: { type: ["string", "null"] },
-    summary: { type: ["object", "null"], additionalProperties: true },
-    changes: { type: ["array", "null"], items: { type: "object" } },
-  },
-  required: [
-    "schemaVersion",
-    "package",
-    "from",
-    "to",
-    "output",
-    "summary",
-    "changes",
-  ],
-};
+const emptyInspectStructured = () => ({
+  schemaVersion: 1,
+  package: null,
+  version: null,
+  description: null,
+  resolution: null,
+  exports: null,
+  types: null,
+  docs: null,
+  sections: null,
+  examples: null,
+  meta: null,
+  warnings: [],
+});
 
-function formatInspectSummary(result) {
-  if (!result) return "No results";
+async function handleInspect(params) {
+  debug('inspect args', params);
+  const runInspect = await loadRunInspect();
 
-  const lines = [];
+  const rootDir = params.rootDir || process.env.DEPLENS_ROOT || process.cwd();
+  const target = params.subpath ? `${params.target}/${params.subpath}` : params.target;
 
-  if (result.package) {
-    lines.push(
-      `📦 ${result.package}${result.version ? ` v${result.version}` : ""}`,
+  // Step 1: always produce a structured (object) payload — this is the
+  // canonical result and is included as structuredContent.
+  const sharedOpts = {
+    target,
+    filter: params.filter,
+    showTypes: params.showTypes,
+    includeDocs: params.includeDocs,
+    includeExamples: params.includeExamples,
+    remote: params.remote,
+    remoteVersion: params.remoteVersion,
+    jsdoc: params.jsdoc,
+    jsdocOutput: params.jsdocOutput,
+    jsdocQuery: params.jsdocQuery,
+    kind: params.kind,
+    depth: params.depth,
+    resolveFrom: params.resolveFrom,
+    cwd: rootDir,
+    analyzeSource: params.analyzeSource,
+    sourceMaxFiles: params.sourceMaxFiles,
+    sourceIncludeBody: params.sourceIncludeBody,
+    language: params.language,
+    listSections: params.listSections,
+    docsSections: params.docsSections,
+    search: params.search,
+    maxExports: params.maxExports,
+    maxProps: params.maxProps,
+    maxExamples: params.maxExamples,
+  };
+
+  const structured = await runInspect({ ...sharedOpts, format: 'object' });
+
+  // Defensive: runInspect should always return an object in 'object' mode.
+  const finalStructured =
+    structured && typeof structured === 'object'
+      ? structured
+      : {
+          ...emptyInspectStructured(),
+          meta: { target },
+          warnings: ['runInspect did not return an object payload'],
+        };
+
+  // Step 2: produce the text representation, depending on requested format.
+  const requestedFormat = params.format || 'text';
+  let textOut;
+  if (requestedFormat === 'json') {
+    textOut = JSON.stringify(finalStructured, null, 2);
+  } else if (requestedFormat === 'object') {
+    // No human-readable text — return a short hint pointing to structuredContent.
+    textOut = `Structured payload returned for ${target} (${finalStructured.package ?? 'unknown'}@${finalStructured.version ?? '?'}). See structuredContent.`;
+  } else {
+    textOut = await runInspect({ ...sharedOpts, format: 'text' });
+  }
+
+  const { text, truncated } = truncateIfNeeded(textOut);
+  if (truncated && Array.isArray(finalStructured.warnings)) {
+    finalStructured.warnings.push(
+      `Text output truncated at ${CHARACTER_LIMIT} chars; full payload is in structuredContent or use format='json'.`
     );
   }
 
-  if (result.description) {
-    lines.push(`   ${result.description}`);
-  }
-
-  if (result.exports) {
-    const parts = [];
-    if (result.exports.functions?.length)
-      parts.push(`${result.exports.functions.length} functions`);
-    if (result.exports.classes?.length)
-      parts.push(`${result.exports.classes.length} classes`);
-    if (result.exports.objects?.length)
-      parts.push(`${result.exports.objects.length} objects`);
-    if (result.exports.constants?.length)
-      parts.push(`${result.exports.constants.length} constants`);
-    if (parts.length) {
-      lines.push(`   🔑 ${result.exports.total} exports: ${parts.join(", ")}`);
-    }
-  }
-
-  if (result.types) {
-    const hasTypes = Object.values(result.types).some(
-      (v) => v && Object.keys(v).length > 0,
-    );
-    if (hasTypes) {
-      lines.push(`   🔬 Type definitions available`);
-    }
-  }
-
-  if (result.warnings?.length) {
-    lines.push(`   ⚠️  ${result.warnings.length} warning(s)`);
-  }
-
-  return lines.join("\n") || "Inspection complete";
+  return {
+    content: [{ type: 'text', text }],
+    structuredContent: finalStructured,
+  };
 }
 
-function formatDiffSummary(summary, packageName) {
-  const lines = [];
+// ---------------------------------------------------------------------------
+// Tool: deplens_diff
+// ---------------------------------------------------------------------------
 
-  if (packageName) {
-    lines.push(`📦 ${packageName}`);
+const diffInputShape = {
+  package: z
+    .string()
+    .min(1, 'package must not be empty')
+    .describe('Package name to compare (e.g. "react", "zod", "@scope/pkg")'),
+  from: z
+    .string()
+    .optional()
+    .describe(
+      "Source version. Accepts a concrete semver ('3.22.0'), 'installed' (default) for the currently installed version, or 'latest'."
+    ),
+  to: z
+    .string()
+    .optional()
+    .describe(
+      "Target version. Accepts a concrete semver ('3.24.0'), 'latest' (default), or 'installed'."
+    ),
+  filter: z
+    .string()
+    .optional()
+    .describe('Filter exports by name (substring or /regex/)'),
+  format: FormatEnum
+    .optional()
+    .describe("Output format: 'text' (default) or 'json'"),
+  includeSource: z
+    .boolean()
+    .optional()
+    .describe('Include source code complexity comparison between versions'),
+  includeChangelog: z
+    .boolean()
+    .optional()
+    .describe('Parse and include CHANGELOG.md entries (default: true)'),
+  verbose: z
+    .boolean()
+    .optional()
+    .describe('Show detailed per-symbol changes'),
+  rootDir: z
+    .string()
+    .optional()
+    .describe('Working directory for the inspection (default: $DEPLENS_ROOT or process.cwd())'),
+};
+
+const DiffInputSchema = z.object(diffInputShape).strict();
+
+const diffOutputShape = {
+  schemaVersion: z.number(),
+  package: z.string(),
+  from: z.string(),
+  to: z.string(),
+  output: z.string().nullable(),
+  summary: z.record(z.any()).nullable(),
+  changes: z.array(z.record(z.any())).nullable(),
+  error: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+};
+
+// (See note above on inspectOutputShape — same applies here.)
+
+async function handleDiff(params) {
+  debug('diff args', params);
+  const runDiff = await loadRunDiff();
+
+  const rootDir = params.rootDir || process.env.DEPLENS_ROOT || process.cwd();
+  const from = params.from || 'installed';
+  const to = params.to || 'latest';
+  const requestedFormat = params.format || 'text';
+
+  const result = await runDiff({
+    package: params.package,
+    from,
+    to,
+    projectDir: rootDir,
+    includeSource: Boolean(params.includeSource),
+    includeChangelog: params.includeChangelog !== false,
+    filter: params.filter,
+    format: requestedFormat,
+    verbose: Boolean(params.verbose),
+    colors: false, // never emit ANSI codes through MCP
+  });
+
+  const summary = result?.diff?.summary ?? result?.summary ?? null;
+  const changes = result?.changes
+    ? result.changes
+    : result?.diff
+      ? [
+          ...(result.diff.breaking || []),
+          ...(result.diff.warnings || []),
+          ...(result.diff.additions || []),
+          ...(result.diff.info || []),
+        ]
+      : null;
+
+  const structured = {
+    schemaVersion: 1,
+    package: result?.package || params.package,
+    from: result?.from || from,
+    to: result?.to || to,
+    output: result?.output ?? null,
+    summary,
+    changes,
+    warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+  };
+
+  let textOut;
+  if (requestedFormat === 'json') {
+    textOut = JSON.stringify(structured, null, 2);
+  } else if (requestedFormat === 'object') {
+    textOut = `Diff payload returned for ${structured.package} (${from} → ${to}). See structuredContent.`;
+  } else {
+    textOut =
+      typeof result?.output === 'string' && result.output.length > 0
+        ? result.output
+        : JSON.stringify(structured, null, 2);
   }
 
-  if (summary) {
-    const parts = [];
-    if (summary.breaking) parts.push(`${summary.breaking} breaking`);
-    if (summary.warnings) parts.push(`${summary.warnings} warnings`);
-    if (summary.additions) parts.push(`${summary.additions} additions`);
-    if (summary.removals) parts.push(`${summary.removals} removals`);
-    if (parts.length) {
-      lines.push(`   📊 ${parts.join(", ")}`);
-    } else {
-      lines.push(`   📊 No changes detected`);
-    }
+  const { text, truncated } = truncateIfNeeded(textOut);
+  if (truncated) {
+    structured.warnings = [
+      ...(structured.warnings || []),
+      `Text output truncated at ${CHARACTER_LIMIT} chars; full payload is in structuredContent or use format='json'.`,
+    ];
   }
 
-  return lines.join("\n") || "Diff complete";
+  return {
+    content: [{ type: 'text', text }],
+    structuredContent: structured,
+  };
 }
 
-const tools = [
-  {
-    name: "deplens.inspect",
-    description:
-      "Inspect a package to get types, exports, docs, examples, and resolution info.",
-    inputSchema: inspectToolSchema,
-    outputSchema: inspectToolOutputSchema,
-  },
-  {
-    name: "deplens.diff",
-    description:
-      "Compare two versions of an npm package. Detects breaking changes, additions, and modifications. Parses CHANGELOG.md when available.",
-    inputSchema: diffToolSchema,
-    outputSchema: diffToolOutputSchema,
-  },
-];
+// ---------------------------------------------------------------------------
+// Server registration
+// ---------------------------------------------------------------------------
 
-const server = new Server(
-  { name: "deplens", version: "0.1.6" },
-  { capabilities: { tools: {} } },
+const server = new McpServer(
+  {
+    name: SERVER_NAME,
+    version: PKG_VERSION,
+  },
+  {
+    capabilities: { tools: {} },
+    instructions:
+      'DepLens exposes two read-only tools for inspecting npm packages already resolvable from the working directory:\n' +
+      '  • deplens_inspect — package exports, types (.d.ts), README docs/sections, examples, JSDoc, source analysis\n' +
+      '  • deplens_diff   — semver diff between two versions (uses CHANGELOG.md when available)\n' +
+      'Both honor a working directory via the `rootDir` parameter or the DEPLENS_ROOT env var. ' +
+      'For ad-hoc inspection of a non-installed package, pass `remote: true` to download it into a local cache.',
+  }
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
+const inspectToolConfig = {
+  title: 'Inspect npm package',
+  description: [
+    'Inspect an installed (or remotely downloaded) npm package and return its exports, type signatures, README docs/sections, examples, and resolution metadata.',
+    '',
+    'Read-only. Resolves the package from `rootDir` (or DEPLENS_ROOT, or process.cwd()) using Node\'s ESM/CJS resolver. Set `remote: true` to download a specific version into a local cache instead.',
+    '',
+    'Common parameter shapes:',
+    '  - target: "react", "next/server", "@scope/pkg" (use `subpath` to append a subpath separately)',
+    '  - filter: substring (case-insensitive) or "/regex/" pattern over export names',
+    '  - kind: ["function","class","object","constant","interface","type"]',
+    '  - showTypes: true to parse .d.ts (functions/interfaces/classes/types/enums)',
+    '  - includeDocs / docsSections / listSections: control README extraction',
+    '  - format: "text" (default human-readable), "json" (stringified payload), or "object" (only structuredContent)',
+    '',
+    'The structured payload is ALWAYS returned in `structuredContent` regardless of `format`. Use `format: "json"` when you want the structured payload duplicated in the text channel.',
+  ].join('\n'),
+  inputSchema: inspectInputShape,
+  outputSchema: inspectOutputShape,
+  annotations: {
+    title: 'Inspect npm package',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+const diffToolConfig = {
+  title: 'Diff npm package versions',
+  description: [
+    'Compare two versions of an npm package and detect breaking changes, additions, removals, and modifications. Parses CHANGELOG.md when available.',
+    '',
+    'Read-only. Both versions are resolved from the public npm registry/CDN cache; the source version may also be the one currently installed in `rootDir` via from="installed" (the default).',
+    '',
+    'Common parameter shapes:',
+    '  - package: "react", "zod", "@scope/pkg"',
+    '  - from: "installed" (default), a concrete semver ("3.22.0"), or "latest"',
+    '  - to: "latest" (default), a concrete semver ("3.24.0"), or "installed"',
+    '  - filter: substring (case-insensitive) or "/regex/" pattern',
+    '  - includeSource: include source-code complexity comparison',
+    '  - includeChangelog: parse CHANGELOG.md entries (default: true)',
+    '  - format: "text" (default), "json", or "object"',
+    '',
+    'The structured payload is ALWAYS returned in `structuredContent` regardless of `format`.',
+  ].join('\n'),
+  inputSchema: diffInputShape,
+  outputSchema: diffOutputShape,
+  annotations: {
+    title: 'Diff npm package versions',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
+// Primary, spec-compliant snake_case names.
+server.registerTool('deplens_inspect', inspectToolConfig, async (rawArgs) => {
   try {
-    // Handle inspect tool
-    if (name === "deplens.inspect" || name === "deplens_inspect") {
-      const DEBUG = process.env.DEPLENS_DEBUG === "true";
-      if (DEBUG) {
-        console.error("[DEPLENS DEBUG] inspect args:", JSON.stringify(args, null, 2));
-      }
-      const rootDir =
-        args?.rootDir || process.env.DEPLENS_ROOT || process.cwd();
-      const target = args?.subpath
-        ? `${args.target}/${args.subpath}`
-        : args?.target;
-      if (!target) throw new Error("Missing required field: target");
-
-      const core = await loadCore();
-      const runInspect = core.runInspect || core.default?.runInspect;
-      if (!runInspect) {
-        throw new Error("Failed to load runInspect from @deplens/core");
-      }
-      // Always get structured output first
-      const structuredOutput = await runInspect({
-        target,
-        filter: args?.filter,
-        showTypes: args?.showTypes,
-        includeDocs: args?.includeDocs,
-        includeExamples: args?.includeExamples,
-        remote: args?.remote,
-        remoteVersion: args?.remoteVersion,
-        jsdoc: args?.jsdoc,
-        jsdocOutput: args?.jsdocOutput,
-        jsdocQuery: args?.jsdocQuery,
-        kind: args?.kind,
-        depth: args?.depth,
-        resolveFrom: args?.resolveFrom,
-        cwd: rootDir,
-        analyzeSource: args?.analyzeSource,
-        sourceMaxFiles: args?.sourceMaxFiles,
-        sourceIncludeBody: args?.sourceIncludeBody,
-        // It's always safe to return object in MCP
-        format: "object",
-        listSections: args?.listSections,
-        docsSections: args?.docsSections,
-        search: args?.search,
-        maxExports: args?.maxExports,
-        maxProps: args?.maxProps,
-        maxExamples: args?.maxExamples,
-      });
-
-      // Generate text output based on requested format
-      let text;
-      if (args?.format === "json") {
-        // Return JSON string
-        text = JSON.stringify(structuredOutput, null, 2);
-      } else if (args?.format === "text" || !args?.format) {
-        // Return pretty formatted text
-        text = await runInspect({
-          target,
-          filter: args?.filter,
-          showTypes: args?.showTypes,
-          includeDocs: args?.includeDocs,
-          includeExamples: args?.includeExamples,
-          remote: args?.remote,
-          remoteVersion: args?.remoteVersion,
-          jsdoc: args?.jsdoc,
-          jsdocOutput: args?.jsdocOutput,
-          jsdocQuery: args?.jsdocQuery,
-          kind: args?.kind,
-          depth: args?.depth,
-          resolveFrom: args?.resolveFrom,
-          cwd: rootDir,
-          analyzeSource: args?.analyzeSource,
-          sourceMaxFiles: args?.sourceMaxFiles,
-          sourceIncludeBody: args?.sourceIncludeBody,
-          format: "text",
-          listSections: args?.listSections,
-          docsSections: args?.docsSections,
-          search: args?.search,
-          maxExports: args?.maxExports,
-          maxProps: args?.maxProps,
-          maxExamples: args?.maxExamples,
-        });
-      } else {
-        // Default: summary
-        text = formatInspectSummary(structuredOutput);
-      }
-
-      // MCP best practice: ensure text is always a valid string
-      const validText = typeof text === "string" ? text : String(text || "");
-
-      // MCP best practice: ensure structuredContent is always an object, never a string
-      const validStructured =
-        typeof structuredOutput === "object" && structuredOutput !== null
-          ? structuredOutput
-          : {
-              schemaVersion: 1,
-              package: null,
-              version: null,
-              description: null,
-              exports: null,
-              types: null,
-              docs: null,
-              sections: null,
-              examples: null,
-              resolution: null,
-              meta: { target: target || null },
-              warnings: [
-                "Invalid output format received from runInspect",
-              ],
-            };
-
-      // Final validation before returning (critical for MCP spec compliance)
-      if (typeof validStructured !== "object" || validStructured === null) {
-        throw new Error(
-          `CRITICAL: structuredContent is not an object (type: ${typeof validStructured})`
-        );
-      }
-
-      if (DEBUG) {
-        console.error("[DEPLENS DEBUG] Response:", {
-          textType: typeof validText,
-          textLength: validText.length,
-          structuredType: typeof validStructured,
-          structuredKeys: Object.keys(validStructured),
-        });
-      }
-
-      return {
-        content: [{ type: "text", text: validText }],
-        structuredContent: validStructured,
-        isError: false,
-      };
-    }
-
-    // Handle diff tool
-    if (name === "deplens.diff" || name === "deplens_diff") {
-      const packageName = args?.package;
-      if (!packageName) throw new Error("Missing required field: package");
-
-      const runDiff = await loadDiff();
-      if (!runDiff) {
-        throw new Error(
-          "Diff functionality not available. Missing diff.mjs module.",
-        );
-      }
-
-      const rootDir =
-        args?.rootDir || process.env.DEPLENS_ROOT || process.cwd();
-      const result = await runDiff({
-        package: packageName,
-        from: args?.from || "installed",
-        to: args?.to || "latest",
-        projectDir: rootDir,
-        includeSource: args?.includeSource || false,
-        includeChangelog: args?.includeChangelog !== false,
-        filter: args?.filter,
-        format: args?.format || "text",
-        verbose: args?.verbose || false,
-        colors: false, // No ANSI colors in MCP output
-      });
-
-      const diffSummary = result?.diff?.summary ?? result?.summary ?? null;
-      const diffChanges = result?.changes
-        ? result.changes
-        : result?.diff
-          ? [
-              ...(result.diff.breaking || []),
-              ...(result.diff.warnings || []),
-              ...(result.diff.additions || []),
-              ...(result.diff.info || []),
-            ]
-          : null;
-
-      const textOutput =
-        args?.format === "text" || !args?.format
-          ? result?.output || ""
-          : formatDiffSummary(diffSummary, packageName);
-
-      const structured =
-        typeof result === "object" && result
-          ? {
-              schemaVersion: 1,
-              package: result.package || packageName,
-              from: result.from || args?.from || "installed",
-              to: result.to || args?.to || "latest",
-              output: result.output || null,
-              summary: diffSummary,
-              changes: diffChanges,
-            }
-          : {
-              schemaVersion: 1,
-              package: packageName,
-              from: args?.from || "installed",
-              to: args?.to || "latest",
-              output: result?.output || String(result),
-              summary: null,
-              changes: null,
-            };
-
-      return {
-        content: [{ type: "text", text: textOutput }],
-        structuredContent: structured,
-        isError: false,
-      };
-    }
-
-    throw new Error(`Unknown tool: ${name}`);
+    const parsed = InspectInputSchema.parse(rawArgs ?? {});
+    return await handleInspect(parsed);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    // MCP best practice: always return structuredContent as an object
-    const errorStructured = {
-      schemaVersion: 1,
-      error: message,
-      package: null,
-      version: null,
-      description: null,
-      exports: null,
-      types: null,
-      docs: null,
-      sections: null,
-      examples: null,
-      resolution: null,
-      meta: null,
-      warnings: [message],
-    };
-
-    return {
-      content: [{ type: "text", text: `Error: ${message}` }],
-      structuredContent: errorStructured,
-      isError: true,
-    };
+    return buildErrorResponse(error, {
+      ...emptyInspectStructured(),
+      meta: { target: rawArgs?.target ?? null },
+    });
   }
 });
+
+server.registerTool('deplens_diff', diffToolConfig, async (rawArgs) => {
+  try {
+    const parsed = DiffInputSchema.parse(rawArgs ?? {});
+    return await handleDiff(parsed);
+  } catch (error) {
+    return buildErrorResponse(error, {
+      schemaVersion: 1,
+      package: rawArgs?.package ?? '',
+      from: rawArgs?.from ?? 'installed',
+      to: rawArgs?.to ?? 'latest',
+      output: null,
+      summary: null,
+      changes: null,
+      warnings: [],
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  debug('startup', { name: SERVER_NAME, version: PKG_VERSION, pid: process.pid });
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  // stderr only — never write protocol noise to stdout
+  console.error('[deplens-mcp] fatal:', error?.stack || error);
   process.exit(1);
 });

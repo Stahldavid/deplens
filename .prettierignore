@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+*.log
+.DS_Store
+*.min.js
+bun.lock
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.git/
+.env
+.env.*

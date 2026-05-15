@@ -4,36 +4,36 @@
  * Self-contained: no dependencies on inspect.mjs or fast-glob
  */
 
-import ts from "typescript";
-import fs from "fs";
-import path from "path";
+import ts from 'typescript';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Change types and their severity
  */
 export const ChangeType = {
-  REMOVED: "removed", // BREAKING
-  SIGNATURE_CHANGED: "changed", // Potentially BREAKING
-  ADDED: "added", // Safe
-  DEPRECATED: "deprecated", // Warning
-  COMPLEXITY_INCREASED: "complexity", // Info
+  REMOVED: 'removed', // BREAKING
+  SIGNATURE_CHANGED: 'changed', // Potentially BREAKING
+  ADDED: 'added', // Safe
+  DEPRECATED: 'deprecated', // Warning
+  COMPLEXITY_INCREASED: 'complexity', // Info
 };
 
 export const Severity = {
-  BREAKING: "breaking",
-  WARNING: "warning",
-  INFO: "info",
-  SAFE: "safe",
+  BREAKING: 'breaking',
+  WARNING: 'warning',
+  INFO: 'info',
+  SAFE: 'safe',
 };
 
 /**
  * Normalize type string for comparison
  */
 function normalizeType(type) {
-  if (!type) return "";
+  if (!type) return '';
   return type
-    .replace(/\s+/g, " ")
-    .replace(/\s*([,:<>{}()[\]|&])\s*/g, "$1")
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([,:<>{}()[\]|&])\s*/g, '$1')
     .trim();
 }
 
@@ -56,14 +56,14 @@ function compareFunctionSignatures(from, to) {
       // Parameter removed
       if (!fromParam.optional) {
         changes.push({
-          type: "param_removed",
+          type: 'param_removed',
           severity: Severity.BREAKING,
           detail: `Required parameter '${fromParam.name}' removed`,
         });
       }
     } else if (normalizeType(fromParam.type) !== normalizeType(toParam.type)) {
       changes.push({
-        type: "param_type_changed",
+        type: 'param_type_changed',
         severity: Severity.WARNING,
         detail: `Parameter '${fromParam.name}' type: ${fromParam.type} → ${toParam.type}`,
       });
@@ -75,13 +75,13 @@ function compareFunctionSignatures(from, to) {
     const toParam = toParams[i];
     if (!toParam.optional && !toParam.default) {
       changes.push({
-        type: "param_added_required",
+        type: 'param_added_required',
         severity: Severity.BREAKING,
         detail: `New required parameter '${toParam.name}: ${toParam.type}'`,
       });
     } else {
       changes.push({
-        type: "param_added_optional",
+        type: 'param_added_optional',
         severity: Severity.SAFE,
         detail: `New optional parameter '${toParam.name}?: ${toParam.type}'`,
       });
@@ -95,7 +95,7 @@ function compareFunctionSignatures(from, to) {
   if (fromReturn && toReturn && fromReturn !== toReturn) {
     // Check if return type was narrowed (safe) or widened (potentially breaking)
     changes.push({
-      type: "return_type_changed",
+      type: 'return_type_changed',
       severity: Severity.WARNING,
       detail: `Return type: ${fromReturn} → ${toReturn}`,
     });
@@ -116,7 +116,7 @@ function compareProperties(fromProps, toProps) {
   for (const [name, prop] of fromMap) {
     if (!toMap.has(name)) {
       changes.push({
-        type: "property_removed",
+        type: 'property_removed',
         severity: prop.optional ? Severity.SAFE : Severity.BREAKING,
         detail: `Property '${name}' removed`,
       });
@@ -128,13 +128,13 @@ function compareProperties(fromProps, toProps) {
     const fromProp = fromMap.get(name);
     if (!fromProp) {
       changes.push({
-        type: "property_added",
+        type: 'property_added',
         severity: toProp.optional ? Severity.SAFE : Severity.BREAKING,
-        detail: `Property '${name}${toProp.optional ? "?" : ""}: ${toProp.type}' added`,
+        detail: `Property '${name}${toProp.optional ? '?' : ''}: ${toProp.type}' added`,
       });
     } else if (normalizeType(fromProp.type) !== normalizeType(toProp.type)) {
       changes.push({
-        type: "property_type_changed",
+        type: 'property_type_changed',
         severity: Severity.WARNING,
         detail: `Property '${name}' type: ${fromProp.type} → ${toProp.type}`,
       });
@@ -148,12 +148,12 @@ function compareProperties(fromProps, toProps) {
  * Analyze types from a package directory - self-contained implementation
  */
 async function analyzePackageTypes(packageDir, options = {}) {
-  const pkgJsonPath = path.join(packageDir, "package.json");
+  const pkgJsonPath = path.join(packageDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
-    return { error: "package.json not found", exports: {} };
+    return { error: 'package.json not found', exports: {} };
   }
 
-  const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+  const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
 
   const result = {
     version: pkg.version,
@@ -181,9 +181,9 @@ async function analyzePackageTypes(packageDir, options = {}) {
   const entryPoints = [
     pkg.types,
     pkg.typings,
-    "index.d.ts",
-    "lib/index.d.ts",
-    "dist/index.d.ts",
+    'index.d.ts',
+    'lib/index.d.ts',
+    'dist/index.d.ts',
   ].filter(Boolean);
 
   for (const entry of entryPoints) {
@@ -205,12 +205,12 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
   if (visited.has(filePath) || !fs.existsSync(filePath)) return;
   visited.add(filePath);
 
-  const content = fs.readFileSync(filePath, "utf-8");
+  const content = fs.readFileSync(filePath, 'utf-8');
   const sourceFile = ts.createSourceFile(
     path.basename(filePath),
     content,
     ts.ScriptTarget.Latest,
-    true,
+    true
   );
 
   const fileDir = path.dirname(filePath);
@@ -233,10 +233,10 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
       const params =
         node.parameters?.map((p) => ({
           name: p.name.getText(sourceFile),
-          type: p.type ? p.type.getText(sourceFile) : "any",
+          type: p.type ? p.type.getText(sourceFile) : 'any',
           optional: !!p.questionToken,
         })) || [];
-      const returnType = node.type ? node.type.getText(sourceFile) : "void";
+      const returnType = node.type ? node.type.getText(sourceFile) : 'void';
       allExports.functions[name] = { params, returnType };
     }
 
@@ -250,12 +250,10 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
           const params =
             member.parameters?.map((p) => ({
               name: p.name.getText(sourceFile),
-              type: p.type ? p.type.getText(sourceFile) : "any",
+              type: p.type ? p.type.getText(sourceFile) : 'any',
               optional: !!p.questionToken,
             })) || [];
-          const returnType = member.type
-            ? member.type.getText(sourceFile)
-            : "void";
+          const returnType = member.type ? member.type.getText(sourceFile) : 'void';
           methods[methodName] = { params, returnType };
         }
       });
@@ -270,7 +268,7 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText(sourceFile);
           properties[propName] = {
-            type: member.type ? member.type.getText(sourceFile) : "any",
+            type: member.type ? member.type.getText(sourceFile) : 'any',
             optional: !!member.questionToken,
           };
         }
@@ -282,15 +280,14 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
     if (ts.isTypeAliasDeclaration(node) && node.name) {
       const name = node.name.text;
       allExports.types[name] = {
-        type: node.type ? node.type.getText(sourceFile) : "unknown",
+        type: node.type ? node.type.getText(sourceFile) : 'unknown',
       };
     }
 
     // Handle enum declarations
     if (ts.isEnumDeclaration(node) && node.name) {
       const name = node.name.text;
-      const members =
-        node.members?.map((m) => m.name.getText(sourceFile)) || [];
+      const members = node.members?.map((m) => m.name.getText(sourceFile)) || [];
       allExports.enums[name] = { members };
     }
   });
@@ -301,15 +298,17 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
  */
 function resolveModulePath(modulePath, fromDir, baseDir) {
   // Handle relative paths
-  if (modulePath.startsWith(".")) {
+  if (modulePath.startsWith('.')) {
     const candidates = [
-      path.join(fromDir, modulePath + ".d.ts"),
-      path.join(fromDir, modulePath, "index.d.ts"),
-      path.join(fromDir, modulePath + ".ts"),
+      path.join(fromDir, modulePath + '.d.ts'),
+      path.join(fromDir, modulePath, 'index.d.ts'),
+      path.join(fromDir, modulePath + '.ts'),
       path.join(fromDir, modulePath),
     ];
     for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) return candidate;
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
     }
   }
   return null;
@@ -349,7 +348,7 @@ export async function compareVersions(fromDir, toDir, options = {}) {
   };
 
   // Compare each export category
-  const categories = ["functions", "classes", "interfaces", "types", "enums"];
+  const categories = ['functions', 'classes', 'interfaces', 'types', 'enums'];
 
   for (const category of categories) {
     const fromExports = fromAnalysis.exports[category] || {};
@@ -395,35 +394,30 @@ export async function compareVersions(fromDir, toDir, options = {}) {
 
       let changes = [];
 
-      if (category === "functions") {
+      if (category === 'functions') {
         changes = compareFunctionSignatures(fromItem, toItem);
-      } else if (category === "interfaces" || category === "types") {
+      } else if (category === 'interfaces' || category === 'types') {
         if (fromItem.properties && toItem.properties) {
           changes = compareProperties(fromItem.properties, toItem.properties);
         }
-      } else if (category === "classes") {
+      } else if (category === 'classes') {
         // Compare class methods and properties
         if (fromItem.methods && toItem.methods) {
-          for (const [methodName, fromMethod] of Object.entries(
-            fromItem.methods,
-          )) {
+          for (const [methodName, fromMethod] of Object.entries(fromItem.methods)) {
             const toMethod = toItem.methods[methodName];
             if (!toMethod) {
               changes.push({
-                type: "method_removed",
+                type: 'method_removed',
                 severity: Severity.BREAKING,
                 detail: `Method '${methodName}' removed from class '${name}'`,
               });
             } else {
-              const methodChanges = compareFunctionSignatures(
-                fromMethod,
-                toMethod,
-              );
+              const methodChanges = compareFunctionSignatures(fromMethod, toMethod);
               changes.push(
                 ...methodChanges.map((c) => ({
                   ...c,
                   detail: `${name}.${methodName}: ${c.detail}`,
-                })),
+                }))
               );
             }
           }
@@ -431,7 +425,7 @@ export async function compareVersions(fromDir, toDir, options = {}) {
           for (const methodName of Object.keys(toItem.methods || {})) {
             if (!fromItem.methods?.[methodName]) {
               changes.push({
-                type: "method_added",
+                type: 'method_added',
                 severity: Severity.SAFE,
                 detail: `Method '${methodName}' added to class '${name}'`,
               });
@@ -464,19 +458,15 @@ export async function compareVersions(fromDir, toDir, options = {}) {
   }
 
   // Compare source complexity if available
-  if (
-    includeSource &&
-    fromAnalysis.sourceAnalysis &&
-    toAnalysis.sourceAnalysis
-  ) {
+  if (includeSource && fromAnalysis.sourceAnalysis && toAnalysis.sourceAnalysis) {
     const fromAvg = fromAnalysis.sourceAnalysis.summary?.avgComplexity || 0;
     const toAvg = toAnalysis.sourceAnalysis.summary?.avgComplexity || 0;
 
     if (toAvg > fromAvg * 1.5) {
       // 50% increase
       diff.warnings.push({
-        category: "source",
-        name: "complexity",
+        category: 'source',
+        name: 'complexity',
         type: ChangeType.COMPLEXITY_INCREASED,
         severity: Severity.WARNING,
         detail: `Average complexity increased significantly: ${fromAvg} → ${toAvg}`,
@@ -499,48 +489,40 @@ export function formatDiffAsText(diff, options = {}) {
   const { colors = true, verbose = false } = options;
 
   const lines = [];
-  const red = colors ? "\x1b[31m" : "";
-  const green = colors ? "\x1b[32m" : "";
-  const yellow = colors ? "\x1b[33m" : "";
-  const reset = colors ? "\x1b[0m" : "";
-  const bold = colors ? "\x1b[1m" : "";
+  const red = colors ? '\x1b[31m' : '';
+  const green = colors ? '\x1b[32m' : '';
+  const yellow = colors ? '\x1b[33m' : '';
+  const reset = colors ? '\x1b[0m' : '';
+  const bold = colors ? '\x1b[1m' : '';
 
-  lines.push(
-    `${bold}📦 ${diff.from.name}: ${diff.from.version} → ${diff.to.version}${reset}`,
-  );
-  lines.push("");
+  lines.push(`${bold}📦 ${diff.from.name}: ${diff.from.version} → ${diff.to.version}${reset}`);
+  lines.push('');
 
   // Breaking changes
   if (diff.breaking.length > 0) {
-    lines.push(
-      `${red}${bold}🔴 BREAKING CHANGES (${diff.breaking.length}):${reset}`,
-    );
+    lines.push(`${red}${bold}🔴 BREAKING CHANGES (${diff.breaking.length}):${reset}`);
     for (const change of diff.breaking) {
       lines.push(`${red}   - ${change.detail}${reset}`);
     }
-    lines.push("");
+    lines.push('');
   }
 
   // Warnings
   if (diff.warnings.length > 0) {
-    lines.push(
-      `${yellow}${bold}🟡 WARNINGS (${diff.warnings.length}):${reset}`,
-    );
+    lines.push(`${yellow}${bold}🟡 WARNINGS (${diff.warnings.length}):${reset}`);
     for (const change of diff.warnings) {
       lines.push(`${yellow}   ~ ${change.detail}${reset}`);
     }
-    lines.push("");
+    lines.push('');
   }
 
   // Additions
   if (diff.additions.length > 0) {
     lines.push(`${green}${bold}🟢 ADDED (${diff.additions.length}):${reset}`);
     for (const change of diff.additions) {
-      lines.push(
-        `${green}   + ${change.name} (${change.category.slice(0, -1)})${reset}`,
-      );
+      lines.push(`${green}   + ${change.name} (${change.category.slice(0, -1)})${reset}`);
     }
-    lines.push("");
+    lines.push('');
   }
 
   // Info (only in verbose mode)
@@ -549,7 +531,7 @@ export function formatDiffAsText(diff, options = {}) {
     for (const change of diff.info) {
       lines.push(`   · ${change.detail}`);
     }
-    lines.push("");
+    lines.push('');
   }
 
   // Summary
@@ -561,17 +543,17 @@ export function formatDiffAsText(diff, options = {}) {
 
   // Source comparison if available
   if (diff.sourceComparison) {
-    lines.push("");
+    lines.push('');
     lines.push(`${bold}📝 Source Analysis:${reset}`);
     lines.push(
-      `   Functions: ${diff.sourceComparison.from?.totalFunctions || 0} → ${diff.sourceComparison.to?.totalFunctions || 0}`,
+      `   Functions: ${diff.sourceComparison.from?.totalFunctions || 0} → ${diff.sourceComparison.to?.totalFunctions || 0}`
     );
     lines.push(
-      `   Avg Complexity: ${diff.sourceComparison.from?.avgComplexity || 0} → ${diff.sourceComparison.to?.avgComplexity || 0}`,
+      `   Avg Complexity: ${diff.sourceComparison.from?.avgComplexity || 0} → ${diff.sourceComparison.to?.avgComplexity || 0}`
     );
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 /**

@@ -37,17 +37,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        # Node 22 ships with npm 10; we upgrade npm to 11.5+ below
-        # because npm Trusted Publishers require that version.
-        # See https://docs.npmjs.com/trusted-publishers
+        # Node 24 ships with npm 11.x, which is required by npm Trusted
+        # Publishers (>= 11.5.1). See https://docs.npmjs.com/trusted-publishers
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Upgrade npm to >=11.5 (required by Trusted Publishers)
+      - name: Verify toolchain versions
         run: |
-          npm install -g npm@latest
           node --version
           npm --version
 

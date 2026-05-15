@@ -1,0 +1,92 @@
+name: Publish to npm
+
+# Trigger on package-specific release tags. Tag naming convention:
+#   core-v<x.y.z>  → publishes @deplens/core
+#   cli-v<x.y.z>   → publishes @deplens/cli
+#   mcp-v<x.y.z>   → publishes @deplens/mcp
+#
+# Also supports manual dispatch (useful for the first run or retries).
+on:
+  push:
+    tags:
+      - 'core-v*'
+      - 'cli-v*'
+      - 'mcp-v*'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Which package to publish'
+        required: true
+        type: choice
+        options:
+          - '@deplens/core'
+          - '@deplens/cli'
+          - '@deplens/mcp'
+
+permissions:
+  contents: read
+  id-token: write   # required for npm OIDC trusted publishing + provenance
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Determine package from tag or input
+        id: pkg
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.package }}" ]]; then
+            NAME="${{ github.event.inputs.package }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            case "$TAG" in
+              core-v*) NAME="@deplens/core" ;;
+              cli-v*)  NAME="@deplens/cli"  ;;
+              mcp-v*)  NAME="@deplens/mcp"  ;;
+              *)
+                echo "::error::Tag '$TAG' does not match a known pattern (core-v*, cli-v*, mcp-v*)."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Publishing $NAME"
+
+      - name: Verify local version matches tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#*-v}"
+          PKG="${{ steps.pkg.outputs.name }}"
+          # Derive workspace dir from scoped name: @deplens/core → packages/core
+          WS_DIR="packages/${PKG##*/}"
+          PKG_VERSION="$(node -p "require('./${WS_DIR}/package.json').version")"
+          if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
+            echo "::error::Tag version '$TAG_VERSION' does not match ${WS_DIR}/package.json version '$PKG_VERSION'."
+            exit 1
+          fi
+          echo "Version check OK: tag=$TAG_VERSION matches $WS_DIR/package.json"
+
+      - name: Publish with provenance
+        run: |
+          npm --workspace "${{ steps.pkg.outputs.name }}" publish \
+            --access public \
+            --provenance

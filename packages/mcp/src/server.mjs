@@ -225,7 +225,7 @@ const inspectInputShape = {
   analyzeSource: z
     .boolean()
     .optional()
-    .describe('Analyze source code (JS/TS/Python/Rust/Go) for implementation details + complexity'),
+    .describe('Analyze source code (JS/TS/Python/Java/Rust/Go) for implementation details + complexity'),
   sourceMaxFiles: z
     .number()
     .int()
@@ -238,7 +238,7 @@ const inspectInputShape = {
     .optional()
     .describe('Include function body snippets in the source analysis'),
   language: z
-    .enum(['javascript', 'typescript', 'python', 'rust', 'go'])
+    .enum(['javascript', 'typescript', 'python', 'java', 'rust', 'go'])
     .optional()
     .describe('Force language detection instead of auto-detecting from the package layout'),
 };

@@ -69,9 +69,11 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 | Flag                              | Type   | Default | Effect                                                                                          |
 | --------------------------------- | ------ | ------- | ----------------------------------------------------------------------------------------------- |
 | `--analyze-source`                | flag   | off     | Walk source files, report function/class counts, approximate cyclomatic complexity, imports.    |
-| `--language js\|ts\|python\|rust\|go` | enum | auto  | Force the language detector instead of auto-detecting from package layout.                      |
+| `--language js\|ts\|python\|java\|rust\|go` | enum | auto | Force the language detector instead of auto-detecting from package layout.                      |
 | `--source-max-files N`            | int    | 5       | Max source files to analyze.                                                                    |
 | `--source-include-body`           | flag   | off     | Include function body snippets in source analysis.                                              |
+
+Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then the system Python runtime. Java source analysis uses structural parsing via `java-parser`.
 
 ### Resolution
 
@@ -215,7 +217,7 @@ History entries store a full `runInspect` JSON payload. Useful for time-travel d
 
 Optional extension fields (only when relevant flags are passed):
 - `sourceAnalysis: { files: number, summary: { totalFunctions, totalClasses, avgComplexity, … } }`
-- `languageAnalysis: { language: 'javascript'|'python'|'rust'|'go', files: number, summary: { … } }`
+- `languageAnalysis: { language: 'javascript'|'typescript'|'python'|'java'|'rust'|'go', files: number, summary: { … } }`
 - `pkgDir: "/abs/path/to/package/root"` (always populated for chaining with other tooling)
 
 ### `diff` payload

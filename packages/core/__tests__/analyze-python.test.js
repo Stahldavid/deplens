@@ -4,7 +4,7 @@ import analyzer from '../src/analyze-python.mjs';
 import path from 'path';
 import fs from 'fs';
 
-const { analyzePythonPackage, analyzePythonFile } = analyzer;
+const { analyzePythonPackage, analyzePythonFile, resolvePythonPackage } = analyzer;
 
 describe('analyzePythonPackage', () => {
   const fixturesDir = path.join(process.cwd(), '__tests__', 'fixtures');
@@ -134,5 +134,18 @@ describe('analyzePythonFile', () => {
     const result = analyzePythonFile(code, {});
     expect(result.imports.some(i => i.type === 'module' && i.name === 'os')).toBe(true);
     expect(result.imports.some(i => i.type === 'from' && i.module === 'typing')).toBe(true);
+  });
+});
+
+describe('resolvePythonPackage', () => {
+  const fixturesDir = path.join(process.cwd(), '__tests__', 'fixtures', 'python_project');
+
+  it('should resolve a local Python project path without relying on installation', () => {
+    const result = resolvePythonPackage(fixturesDir);
+    expect(result.error).toBeUndefined();
+    expect(result.package).toBe('demo-pkg');
+    expect(result.version).toBe('0.1.0');
+    expect(result.pkgDir.replace(/\\/g, '/')).toContain('/python_project/src/demo_pkg');
+    expect(result.source).toBe('local-path');
   });
 });

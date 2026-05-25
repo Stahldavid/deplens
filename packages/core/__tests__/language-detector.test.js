@@ -51,6 +51,21 @@ describe('language-detector', () => {
       expect(detectLanguage(testRoot)).toBe('go');
     });
 
+    it('should detect Java from pom.xml', () => {
+      writeFile('pom.xml', '<project />');
+      expect(detectLanguage(testRoot)).toBe('java');
+    });
+
+    it('should detect Java from Gradle build files', () => {
+      writeFile('build.gradle.kts', 'plugins { java }');
+      expect(detectLanguage(testRoot)).toBe('java');
+    });
+
+    it('should detect Java from .java files', () => {
+      writeFile('src/main/java/App.java', 'class App {}');
+      expect(detectLanguage(testRoot)).toBe('java');
+    });
+
     it('should detect JavaScript from package.json', () => {
       writeFile('package.json', '{"name": "test"}');
       expect(detectLanguage(testRoot)).toBe('javascript');
@@ -110,6 +125,15 @@ describe('language-detector', () => {
       expect(files.length).toBe(2);
     });
 
+    it('should find Java files', () => {
+      writeFile('src/main/java/App.java', 'class App {}');
+      writeFile('src/test/java/AppTest.java', 'class AppTest {}');
+      writeFile('README.md', '# docs');
+      const files = getSourceFiles(testRoot, 'java', 10);
+      expect(files.length).toBe(2);
+      expect(files.every((f) => f.endsWith('.java'))).toBe(true);
+    });
+
     it('should find JS/TS files', () => {
       writeFile('index.js', '');
       writeFile('index.ts', '');
@@ -128,6 +152,16 @@ describe('language-detector', () => {
       const files = getSourceFiles(testRoot, 'python', 10);
       expect(files.length).toBe(1);
       expect(files[0]).toContain(path.join('src', 'main.py'));
+    });
+
+    it('should skip Java build output directories', () => {
+      writeFile('src/main/java/App.java', 'class App {}');
+      writeFile('build/generated/Generated.java', 'class Generated {}');
+      writeFile('out/production/Output.java', 'class Output {}');
+
+      const files = getSourceFiles(testRoot, 'java', 10);
+      expect(files).toHaveLength(1);
+      expect(files[0]).toContain(path.join('src', 'main', 'java', 'App.java'));
     });
   });
 });

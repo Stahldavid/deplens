@@ -81,10 +81,10 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --json                       Shorthand for --format json
 
 ## Multi-language & source analysis
---analyze-source              Analyze source code (JS/TS/Python/Rust/Go)
+--analyze-source              Analyze source code (JS/TS/Python/Java/Rust/Go)
 --source-max-files <N>        Maximum source files to analyze (default: 10)
 --source-include-body         Include function body snippets in output
---language <lang>             Force language detection: javascript|python|rust|go
+--language <lang>             Force language detection: javascript|typescript|python|java|rust|go
 --auto-generate-types         Auto-generate .d.ts via dts-gen when missing [default]
 --no-auto-generate-types      Disable automatic type generation
 

@@ -1,222 +1,165 @@
-// analyze-python.mjs
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { fileURLToPath } from 'url';
 
-/**
- * Analisa código Python em um diretório de pacote
- */
-export function analyzePythonPackage(pkgDir, options = {}) {
-  const { filter, maxFiles = 5, includeBody = false } = options;
+const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/python_ast_tools.py');
 
-  const files = [];
-  function walk(dir, depth = 0) {
-    if (depth > 10 || files.length >= maxFiles) return;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (files.length >= maxFiles) break;
-      const full = path.join(dir, entry.name);
-      if (
-        entry.isDirectory() &&
-        !entry.name.startsWith('.') &&
-        entry.name !== '__pycache__' &&
-        entry.name !== 'node_modules' &&
-        entry.name !== 'target' &&
-        entry.name !== 'dist' &&
-        entry.name !== '.git'
-      ) {
-        walk(full, depth + 1);
-      } else if (entry.isFile() && entry.name.endsWith('.py')) {
-        files.push(full);
-      }
+const PYTHON_PROJECT_MARKERS = ['pyproject.toml', 'uv.lock', 'requirements.txt', '.venv', 'venv'];
+
+function findPythonProjectRoot(startDir) {
+  if (!startDir || !fs.existsSync(startDir)) return null;
+  let current = path.resolve(startDir);
+  const stat = fs.statSync(current);
+  if (stat.isFile()) current = path.dirname(current);
+
+  while (true) {
+    if (PYTHON_PROJECT_MARKERS.some((marker) => fs.existsSync(path.join(current, marker)))) {
+      return current;
     }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
   }
-  walk(pkgDir);
-
-  if (files.length === 0) {
-    return { error: 'No Python files found', files: [] };
-  }
-
-  const results = {
-    files: [],
-    summary: {
-      totalFiles: files.length,
-      totalFunctions: 0,
-      totalClasses: 0,
-      totalMethods: 0,
-      avgComplexity: 0,
-    },
-  };
-
-  let totalComplexity = 0;
-
-  for (const file of files) {
-    try {
-      const content = fs.readFileSync(file, 'utf-8');
-      const relPath = path.relative(pkgDir, file);
-      const analysis = analyzePythonFile(content, { filter, includeBody });
-      results.files.push({
-        path: relPath,
-        functions: analysis.functions,
-        classes: analysis.classes,
-        imports: analysis.imports,
-      });
-
-      results.summary.totalFunctions += analysis.functions.length;
-      results.summary.totalClasses += analysis.classes.length;
-      results.summary.totalMethods += (analysis.methods || []).length;
-
-      for (const fn of analysis.functions) {
-        let complexity = 1;
-        if (fn.body) {
-          const keywords = (
-            fn.body.match(/\b(if|elif|else|for|while|try|except|finally|with|match|case)\b/g) || []
-          ).length;
-          complexity += keywords;
-        }
-        totalComplexity += complexity;
-      }
-      for (const cls of analysis.classes) {
-        for (const meth of cls.methods || []) {
-          let complexity = 1;
-          if (meth.body) {
-            const keywords = (
-              meth.body.match(/\b(if|elif|else|for|while|try|except|finally|with|match|case)\b/g) ||
-              []
-            ).length;
-            complexity += keywords;
-          }
-          totalComplexity += complexity;
-        }
-      }
-    } catch (e) {}
-  }
-
-  const totalItems =
-    results.summary.totalFunctions + results.summary.totalClasses + results.summary.totalMethods;
-  results.summary.avgComplexity =
-    totalItems > 0 ? Math.round((totalComplexity / totalItems) * 10) / 10 : 0;
-
-  return results;
 }
 
-function analyzePythonFile(content, { filter, includeBody = false }) {
-  const functions = [];
-  const classes = [];
-  const imports = [];
-  const lines = content.split('\n');
+function findVenvPython(projectRoot) {
+  if (!projectRoot) return null;
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          path.join(projectRoot, '.venv', 'Scripts', 'python.exe'),
+          path.join(projectRoot, 'venv', 'Scripts', 'python.exe'),
+        ]
+      : [
+          path.join(projectRoot, '.venv', 'bin', 'python'),
+          path.join(projectRoot, 'venv', 'bin', 'python'),
+        ];
 
-  // Collect imports
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let m = line.match(/^import\s+([\w\.]+)/);
-    if (m) imports.push({ type: 'module', name: m[1], line: i + 1 });
-    m = line.match(/^from\s+([\w\.]+)\s+import\s+([\w\.\*, ]+)/);
-    if (m) {
-      const names = m[2].split(',').map((s) => s.trim());
-      for (const name of names) {
-        if (name && name !== '*') {
-          imports.push({ type: 'from', module: m[1], name, line: i + 1 });
-        }
-      }
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function commandExists(command, args = ['--version']) {
+  const result = spawnSync(command, args, { encoding: 'utf-8' });
+  if (result.error && result.error.code === 'ENOENT') return false;
+  return result.status === 0 || Boolean(result.stdout || result.stderr);
+}
+
+function buildPythonCommands(cwd) {
+  const projectRoot = findPythonProjectRoot(cwd);
+  const venvPython = findVenvPython(projectRoot);
+  const hasUvProject =
+    projectRoot &&
+    (fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
+      fs.existsSync(path.join(projectRoot, 'uv.lock')));
+
+  const commands = [];
+
+  if (venvPython) {
+    commands.push({
+      command: venvPython,
+      argsPrefix: [],
+      cwd: projectRoot || cwd,
+    });
+  }
+
+  if (hasUvProject && commandExists('uv')) {
+    commands.push({
+      command: 'uv',
+      argsPrefix: ['run', '--project', projectRoot, 'python'],
+      cwd: projectRoot || cwd,
+    });
+  }
+
+  if (process.platform === 'win32') {
+    if (commandExists('py', ['-3', '--version'])) {
+      commands.push({ command: 'py', argsPrefix: ['-3'], cwd: cwd || projectRoot || process.cwd() });
     }
   }
 
-  const funcRegex = /^(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*[^:]+)?\s*:/;
-  const classRegex = /^(\s*)class\s+(\w+)(?:\(([^)]+)\))?\s*:/;
+  if (commandExists('python3')) {
+    commands.push({ command: 'python3', argsPrefix: [], cwd: cwd || projectRoot || process.cwd() });
+  }
+  if (commandExists('python')) {
+    commands.push({ command: 'python', argsPrefix: [], cwd: cwd || projectRoot || process.cwd() });
+  }
 
-  let currentClass = null;
-  let classIndent = null;
+  return commands;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const baseIndent = line.match(/^\s*/)[0].length;
+function runPythonTool(toolArgs, { cwd } = {}) {
+  const commands = buildPythonCommands(cwd || process.cwd());
+  if (commands.length === 0) {
+    return { error: 'No Python runtime found (.venv, uv, py, python3, or python).' };
+  }
 
-    const classMatch = line.match(classRegex);
-    if (classMatch) {
-      const indent = classMatch[1].length;
-      if (currentClass) {
-        classes.push(currentClass);
-      }
-      currentClass = {
-        name: classMatch[2],
-        bases: classMatch[3] ? classMatch[3].split(',').map((s) => s.trim()) : [],
-        line: i + 1,
-        methods: [],
-      };
-      classIndent = indent;
+  let lastFailure = null;
+
+  for (const candidate of commands) {
+    const args = [...candidate.argsPrefix, SCRIPT_PATH, ...toolArgs];
+    const result = spawnSync(candidate.command, args, {
+      cwd: candidate.cwd,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    if (result.error && result.error.code === 'ENOENT') {
+      lastFailure = result.error.message;
       continue;
     }
 
-    if (currentClass && baseIndent <= classIndent) {
-      classes.push(currentClass);
-      currentClass = null;
-      classIndent = null;
+    if (result.status !== 0) {
+      lastFailure = (result.stderr || result.stdout || '').trim() || `Python tool failed with exit code ${result.status}`;
+      continue;
     }
 
-    if (currentClass) {
-      const methodMatch = line.match(/^(\s+)def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*[^:]+)?\s*:/);
-      if (methodMatch) {
-        const indent = methodMatch[1].length;
-        if (indent > classIndent) {
-          const methodName = methodMatch[2];
-          const params = methodMatch[3];
-          const body = includeBody ? collectBody(lines, i) : null;
-          currentClass.methods.push({
-            name: methodName,
-            params: params || '',
-            line: i + 1,
-            body: body ? body.substring(0, 200) : null,
-          });
-        }
-      }
-    }
-
-    if (!currentClass) {
-      const funcMatch = line.match(funcRegex);
-      if (funcMatch) {
-        const indent = funcMatch[1].length;
-        if (indent === 0) {
-          const funcName = funcMatch[2];
-          // Filter by name if provided
-          if (filter && !funcName.includes(filter)) {
-            continue;
-          }
-          const params = funcMatch[3];
-          const body = includeBody ? collectBody(lines, i) : null;
-          functions.push({
-            name: funcName,
-            params: params || '',
-            line: i + 1,
-            body: body ? body.substring(0, 200) : null,
-          });
-        }
-      }
+    try {
+      return JSON.parse(result.stdout || '{}');
+    } catch (error) {
+      return {
+        error: `Failed to parse Python tool output: ${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   }
 
-  if (currentClass) classes.push(currentClass);
-
-  return { functions, classes, imports };
+  return { error: lastFailure || 'Python tool execution failed.' };
 }
 
-function collectBody(lines, startIdx) {
-  if (startIdx >= lines.length) return '';
-  const first = lines[startIdx];
-  const baseIndent = first.match(/^\s*/)[0].length;
-  const bodyLines = [];
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const indent = line.match(/^\s*/)[0].length;
-    if (indent <= baseIndent && trimmed !== '' && !trimmed.startsWith('#')) {
-      break;
-    }
-    bodyLines.push(line);
+export function analyzePythonPackage(pkgDir, options = {}) {
+  const { filter, maxFiles = 5, includeBody = false, maxBodyLines = 10 } = options;
+  const args = ['analyze-package', '--pkg-dir', path.resolve(pkgDir), '--max-files', String(maxFiles)];
+  if (filter) args.push('--filter', String(filter));
+  if (includeBody) args.push('--include-body');
+  if (maxBodyLines) args.push('--max-body-lines', String(maxBodyLines));
+  return runPythonTool(args, { cwd: pkgDir });
+}
+
+export function analyzePythonFile(content, options = {}) {
+  const { filter, includeBody = false, maxBodyLines = 10 } = options;
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'deplens-python-analyze-'));
+  const tempFile = path.join(tempDir, 'snippet.py');
+  writeFileSync(tempFile, content, 'utf-8');
+
+  try {
+    const args = ['analyze-file', '--file', tempFile];
+    if (filter) args.push('--filter', String(filter));
+    if (includeBody) args.push('--include-body');
+    if (maxBodyLines) args.push('--max-body-lines', String(maxBodyLines));
+    return runPythonTool(args, { cwd: process.cwd() });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
-  return bodyLines.join('\n');
+}
+
+export function resolvePythonPackage(target, options = {}) {
+  const args = ['resolve-package', '--target', String(target)];
+  return runPythonTool(args, { cwd: options.resolveFrom || options.cwd || process.cwd() });
 }
 
 export default {
   analyzePythonPackage,
   analyzePythonFile,
+  resolvePythonPackage,
 };

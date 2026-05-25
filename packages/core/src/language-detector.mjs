@@ -5,7 +5,7 @@ import path from 'path';
 /**
  * Detecta o ecossistema/linguagem de um pacote
  * @param {string} pkgDir - diretório raiz do pacote
- * @returns {string|null} 'javascript' | 'python' | 'rust' | 'go' | null
+ * @returns {string|null} 'javascript' | 'python' | 'rust' | 'go' | 'java' | null
  */
 export function detectLanguage(pkgDir) {
   if (!fs.existsSync(pkgDir)) return null;
@@ -18,7 +18,9 @@ export function detectLanguage(pkgDir) {
   );
   if (hasPythonConfig) return 'python';
 
-  const hasPyFiles = entries.some((e) => e.isFile() && e.name.endsWith('.py'));
+  const hasPyFiles =
+    entries.some((e) => e.isFile() && e.name.endsWith('.py')) ||
+    getSourceFiles(pkgDir, 'python', 1).length > 0;
   if (hasPyFiles) return 'python';
 
   // Rust: Cargo.toml
@@ -30,6 +32,19 @@ export function detectLanguage(pkgDir) {
   if (entries.some((e) => e.isFile() && e.name === 'go.mod')) {
     return 'go';
   }
+
+  // Java: pom.xml, build.gradle(.kts), ou arquivos .java
+  const hasJavaConfig = entries.some(
+    (e) =>
+      e.isFile() &&
+      (e.name === 'pom.xml' || e.name === 'build.gradle' || e.name === 'build.gradle.kts')
+  );
+  if (hasJavaConfig) return 'java';
+
+  const hasJavaFiles =
+    entries.some((e) => e.isFile() && e.name.endsWith('.java')) ||
+    getSourceFiles(pkgDir, 'java', 1).length > 0;
+  if (hasJavaFiles) return 'java';
 
   // Default: assume JavaScript/TypeScript se tiver package.json
   if (entries.some((e) => e.isFile() && e.name === 'package.json')) {
@@ -58,6 +73,8 @@ export function getSourceFiles(pkgDir, language, maxFiles = 50) {
         entry.name !== 'node_modules' &&
         entry.name !== '__pycache__' &&
         entry.name !== 'target' &&
+        entry.name !== 'build' &&
+        entry.name !== 'out' &&
         entry.name !== 'dist'
       ) {
         walk(full, depth + 1);
@@ -72,6 +89,9 @@ export function getSourceFiles(pkgDir, language, maxFiles = 50) {
             break;
           case 'go':
             ok = entry.name.endsWith('.go');
+            break;
+          case 'java':
+            ok = entry.name.endsWith('.java');
             break;
           case 'javascript':
             ok =

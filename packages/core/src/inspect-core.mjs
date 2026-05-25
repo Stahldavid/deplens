@@ -8,7 +8,7 @@ import fg from 'fast-glob';
 import { resolve as importMetaResolve } from 'import-meta-resolve';
 import { analyzePackageSource } from './parse-source.mjs';
 import { detectLanguage } from './language-detector.mjs';
-import { analyzePythonPackage } from './analyze-python.mjs';
+import { analyzePythonPackage, resolvePythonPackage } from './analyze-python.mjs';
 import { downloadVersion } from './version-resolver.mjs';
 import { execSync } from 'child_process';
 import {getCachedDtsParse, generateDts, filterTypeInfo} from './inspect-types.mjs';
@@ -959,6 +959,7 @@ export async function runInspectCore(options) {
   const jsdocOutput = jsdocOutputRaw || (jsdocQuery ? 'section' : 'off');
   const wantJsdoc = jsdocOutput !== 'off';
   const jsdocMode = showTypes || wantJsdoc ? jsdocQuery?.mode || jsdocModeRaw || 'compact' : 'off';
+  const forcedLanguage = options?.language ? String(options.language).toLowerCase() : null;
   const kindFilter = Array.isArray(options?.kind)
     ? options.kind.map((k) => String(k).trim().toLowerCase())
     : null;
@@ -1034,6 +1035,9 @@ export async function runInspectCore(options) {
     : null;
   let resolveFrom = explicitResolveFromRaw || baseCwd;
   let explicitResolveFrom = explicitResolveFromRaw;
+  const inferredProjectLanguage = detectLanguage(resolveFrom || baseCwd || process.cwd());
+  const shouldTryPythonResolution =
+    forcedLanguage === 'python' || (!forcedLanguage && inferredProjectLanguage === 'python');
 
   if (remote) {
     const basePkgName = getPackageName(target);
@@ -1096,6 +1100,76 @@ export async function runInspectCore(options) {
 
   try {
     if (!resolution.resolved) {
+      if (shouldTryPythonResolution) {
+        const pythonResolution = resolvePythonPackage(target, {
+          resolveFrom: resolveFrom || baseCwd || process.cwd(),
+        });
+
+        if (pythonResolution?.resolved && pythonResolution?.pkgDir) {
+          detectedLang = 'python';
+
+          if (jsonOutput) {
+            jsonOutput.package = pythonResolution.package || target;
+            jsonOutput.version = pythonResolution.version || null;
+            jsonOutput.description = pythonResolution.description || null;
+            jsonOutput.pkgDir = pythonResolution.pkgDir;
+            jsonOutput.resolution = {
+              target,
+              resolveFrom: resolveFrom || null,
+              resolveCwd: resolveCwd || resolveFrom || baseCwd || null,
+              resolved: pythonResolution.resolved || null,
+              entrypointPath: pythonResolution.resolved || null,
+              entrypointExists: pythonResolution.resolved
+                ? fs.existsSync(pythonResolution.resolved)
+                : false,
+            };
+          }
+
+          log('\n🧭 Resolution:');
+          log(`   ResolveFrom: ${resolveFrom || baseCwd || 'unknown'}`);
+          log(`   Entrypoint: ${pythonResolution.resolved}`);
+          log(`   PackageRoot: ${pythonResolution.pkgDir}`);
+          log(`   Runtime: ${pythonResolution.pythonExecutable || 'python'}`);
+
+          log('\n📄 Package Info:');
+          log(`   Name: ${pythonResolution.package || target}`);
+          log(`   Version: ${pythonResolution.version || 'Unknown'}`);
+          if (pythonResolution.description) {
+            log(`   Description: ${pythonResolution.description}`);
+          }
+
+          if (options?.analyzeSource) {
+            languageAnalysis = analyzePythonPackage(pythonResolution.pkgDir, {
+              filter: filterRaw,
+              maxFiles: options?.sourceMaxFiles || 100,
+              includeBody: options?.sourceIncludeBody || false,
+              maxBodyLines: 10,
+            });
+
+            if (languageAnalysis?.error) {
+              warn(languageAnalysis.error);
+            } else {
+              log('\n📝 Source/Language Analysis (python):');
+              log(
+                `   Python: ${languageAnalysis.summary.totalFiles} files, ${languageAnalysis.summary.totalFunctions} functions, ${languageAnalysis.summary.totalClasses} classes`
+              );
+            }
+          }
+
+          if (jsonOutput && languageAnalysis && !languageAnalysis.error) {
+            jsonOutput.languageAnalysis = {
+              language: 'python',
+              files: languageAnalysis.summary.totalFiles,
+              summary: languageAnalysis.summary,
+            };
+          }
+
+          if (format === 'object') return jsonOutput;
+          if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
+          return collect ? output.join('\n') : '';
+        }
+      }
+
       const errorMsg = `Não foi possível resolver '${target}'`;
       warn(errorMsg);
       logErr(`\n❌ Erro: ${errorMsg}`);

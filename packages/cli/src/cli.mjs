@@ -332,13 +332,13 @@ function usage() {
       '  --max-exports N        Max exports to show (default: 100)\n' +
       '  --max-props N          Max props per object (default: 10)\n' +
       '  --max-examples N       Max examples to show (default: 10)\n' +
-      '  --analyze-source       Analyze source code (JS/Python/Rust/Go)\n' +
+      '  --analyze-source       Analyze source code (JS/TS/Python/Java/Rust/Go)\n' +
       '  --source-max-files N   Max source files to analyze\n' +
       '  --source-include-body  Include function body snippets\n' +
       '  --save-history          Save analysis to local history (~/.deplens/history)\n' +
       '  --no-save-history       Disable saving to history\n' +
       '  --history-dir DIR       Custom history directory\n' +
-      '  --language LANG         Force language detection (python, javascript, rust, go)\n' +
+      '  --language LANG         Force language detection (javascript, typescript, python, java, rust, go)\n' +
       '  --kind f,c,...         Filter by kind (function,class,object,constant)\n' +
       '  --depth N              Object inspection depth (0-5)\n' +
       '  --resolve-from DIR     Base directory for module resolution\n' +

@@ -1,6 +1,6 @@
 {
   "name": "@deplens/core",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Core engine for inspecting installed package exports and types",
   "type": "module",
   "exports": {
@@ -19,6 +19,7 @@
   "dependencies": {
     "fast-glob": "^3.3.2",
     "import-meta-resolve": "^4.2.0",
+    "java-parser": "^3.0.1",
     "typescript": "^5.8.2"
   },
   "publishConfig": {

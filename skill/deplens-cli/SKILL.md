@@ -21,7 +21,7 @@ Trigger this skill when the user asks about:
 - **Examples** — "show usage examples for `ai`'s `generateText`"
 - **JSDoc** — "what does the JSDoc say about `parse` in `zod`?"
 - **Version diff** — "what changed between react 18.2 and 18.3?", "is there a breaking change in zod 3.23?"
-- **Source analysis** — "how complex is the `parse` function in `zod`?"
+- **Source analysis** — "how complex is the `parse` function in `zod`?", "analyze this Python package from its local project/venv", "inspect Java implementation details"
 - **A non-installed package** — "what's in `@tanstack/router` without installing it?"
 
 Skip this skill when:
@@ -135,14 +135,24 @@ deplens lodash --search "deep merge"
 
 Token-matches the query (with synonym expansion: `validate ↔ parse`, `auth ↔ token`, etc.) against export names and JSDoc; falls back to fuzzy token scoring if no types are available.
 
-### 10. Source-code analysis (JS / TS / Python / Rust / Go)
+### 10. Source-code analysis (JS / TS / Python / Java / Rust / Go)
 
 ```bash
 deplens zod --analyze-source --source-max-files 5
 deplens some-python-pkg --analyze-source --language python
+deplens some-java-pkg --analyze-source --language java
 ```
 
-Walks the package's source files and reports function counts, complexity (approximate cyclomatic), imports. Useful when the user asks "how big is the X function" or "what does the implementation look like".
+Walks the package's source files and reports function/class counts, complexity (approximate cyclomatic), imports, and body snippets when requested.
+
+For Python, the current implementation is environment-aware:
+
+- It prefers the project's `.venv` / `venv` when present.
+- It falls back to `uv run --project <dir> python` when a `pyproject.toml` or `uv.lock` exists and `uv` is available.
+- If neither exists, it falls back to the active system Python (`py`, `python3`, `python`).
+- It parses Python with the real `ast` module rather than regex, so methods, imports, decorators, return annotations, and complexity are structurally extracted.
+
+For Java, the source analysis is CST-based via `java-parser`, so package/import/class/interface/enum/method extraction is structural rather than regex-driven.
 
 ## Output handling
 
@@ -181,6 +191,7 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 ## Common gotchas
 
 - **Wrong package resolves.** DepLens uses Node's resolver from `cwd`. If `node_modules/<pkg>` is in a parent dir but not the current one, pass `--resolve-from <dir>` pointing at a folder that does have access to it (typically the workspace root). Inside a monorepo, also consider `cd`-ing into the workspace whose `node_modules` exposes the target.
+- **Python package resolution differs from Node.** When `--language python` is used, Deplens can resolve either a local Python project path or an installed package visible to the chosen Python runtime. If analysis looks stale or wrong, run from the project root that contains `.venv`, `venv`, `pyproject.toml`, or `uv.lock`, or pass `--resolve-from <dir>` pointing there.
 - **`@types/<pkg>` not picked up.** This only happens automatically when the target package itself has no `types`/`typings`/exports-defined `.d.ts`. If types still come back empty, re-run with `--types` and check the `warnings[]` in JSON output.
 - **`--remote` first run is slow.** It hits the npm registry / CDN; subsequent calls hit the cache. `deplens cache stats` shows what's cached; `deplens cache clear [pkg?]` purges it.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.

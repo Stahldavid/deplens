@@ -30,4 +30,5 @@ export {
 } from './history-manager.mjs';
 
 export { detectLanguage, getSourceFiles } from './language-detector.mjs';
-export { analyzePythonPackage } from './analyze-python.mjs';
+export { analyzePythonPackage, analyzePythonFile, resolvePythonPackage } from './analyze-python.mjs';
+export { analyzeJavaPackage, analyzeJavaFile } from './analyze-java.mjs';

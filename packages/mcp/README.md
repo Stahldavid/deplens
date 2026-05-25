@@ -69,10 +69,10 @@ Inspect an installed (or remotely downloaded) npm package.
 | `jsdoc`            | `'off'\|'compact'\|'full'`                                                 | JSDoc verbosity mode                                                                     |
 | `jsdocOutput`      | `'off'\|'section'\|'inline'\|'only'`                                       | Where to render JSDoc                                                                    |
 | `jsdocQuery`       | object                                                                     | Fine-grained JSDoc extraction (see Zod schema in [src/server.mjs](./src/server.mjs))     |
-| `analyzeSource`    | boolean                                                                    | Analyze source code (JS/TS/Python/Rust/Go) for implementation details + complexity       |
+| `analyzeSource`    | boolean                                                                    | Analyze source code (JS/TS/Python/Java/Rust/Go) for implementation details + complexity  |
 | `sourceMaxFiles`   | number (1–500)                                                             | Max source files to analyze (default: 5)                                                 |
 | `sourceIncludeBody` | boolean                                                                   | Include function body snippets                                                           |
-| `language`         | `'javascript'\|'typescript'\|'python'\|'rust'\|'go'`                       | Force language detection                                                                 |
+| `language`         | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`               | Force language detection                                                                 |
 
 **Example call:**
 

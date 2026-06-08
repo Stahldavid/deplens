@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 0.2.2
+
+### Patch Changes
+
+- Remove the vulnerable `java-parser` dependency and keep Java source analysis covered by the built-in parser.
+
 ## 0.2.1
 
 ### Patch Changes

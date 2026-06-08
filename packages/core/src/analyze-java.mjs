@@ -1,73 +1,64 @@
 import fs from 'fs';
 import path from 'path';
-import { parse } from 'java-parser';
 import { getSourceFiles } from './language-detector.mjs';
 
-const COMPLEXITY_NODE_NAMES = new Set([
-  'ifStatement',
-  'whileStatement',
-  'doStatement',
-  'forStatement',
-  'basicForStatement',
-  'enhancedForStatement',
-  'switchStatement',
-  'switchRule',
-  'catchClause',
-  'conditionalExpression',
+const MODIFIERS = new Set([
+  'public',
+  'private',
+  'protected',
+  'abstract',
+  'static',
+  'final',
+  'sealed',
+  'non-sealed',
+  'synchronized',
+  'native',
+  'default',
+  'strictfp',
 ]);
 
-const COMPLEXITY_TOKEN_NAMES = new Set(['AndAnd', 'OrOr', 'QuestionMark']);
-
-function firstChild(node, key) {
-  return node?.children?.[key]?.[0] || null;
-}
-
-function childList(node, key) {
-  return node?.children?.[key] || [];
-}
-
-function isToken(value) {
-  return Boolean(value && typeof value.image === 'string' && value.tokenType);
-}
-
-function visitNode(node, visitor) {
-  if (!node) return;
-  visitor(node);
-  const children = node.children || {};
-  for (const values of Object.values(children)) {
-    for (const value of values) {
-      if (isToken(value)) {
-        visitor(value);
-      } else {
-        visitNode(value, visitor);
-      }
-    }
-  }
-}
-
-function nodeText(node, content) {
-  if (!node?.location) return '';
-  return content.slice(node.location.startOffset, node.location.endOffset + 1);
-}
-
-function collectTokens(node, predicate = null) {
-  const tokens = [];
-  visitNode(node, (value) => {
-    if (isToken(value) && (!predicate || predicate(value))) {
-      tokens.push(value);
-    }
-  });
-  return tokens;
-}
-
-function collectIdentifiers(node) {
-  return collectTokens(node, (token) => token.tokenType?.name === 'Identifier').map(
-    (token) => token.image
-  );
-}
+const CONTROL_NAMES = new Set(['if', 'for', 'while', 'switch', 'catch', 'try', 'return', 'new']);
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function stripComments(content) {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => ' '.repeat(match.length))
+    .replace(/\/\/[^\n\r]*/g, (match) => ' '.repeat(match.length));
+}
+
+function findMatchingBrace(content, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < content.length; index += 1) {
+    const char = content[index];
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+      if (depth < 0) return -1;
+    }
+  }
+  return -1;
+}
+
+function bracesAreBalanced(content) {
+  let depth = 0;
+  for (const char of content) {
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+function parseModifiers(prefix) {
+  return unique((prefix.match(/\b(?:public|private|protected|abstract|static|final|sealed|non-sealed|synchronized|native|default|strictfp)\b/g) || []));
+}
+
+function parseAnnotations(prefix) {
+  return unique((prefix.match(/@\w+(?:\([^)]*\))?/g) || []));
 }
 
 function parseDelimitedTypeList(raw) {
@@ -78,423 +69,256 @@ function parseDelimitedTypeList(raw) {
     .filter(Boolean);
 }
 
-function extractModifiers(modifierNodes, content) {
-  return unique(
-    modifierNodes.map((node) => {
-      const text = nodeText(node, content).trim();
-      return text || collectTokens(node).map((token) => token.image).join(' ');
-    })
-  );
-}
-
-function extractAnnotations(modifierNodes, content) {
-  return unique(
-    modifierNodes
-      .filter((node) => node.children?.annotation)
-      .map((node) => nodeText(firstChild(node, 'annotation'), content).trim())
-  );
-}
-
-function extractVariableDeclaratorNames(variableDeclaratorListNode) {
-  return childList(variableDeclaratorListNode, 'variableDeclarator')
-    .map((declarator) => {
-      const idNode = firstChild(declarator, 'variableDeclaratorId');
-      const identifiers = collectIdentifiers(idNode);
-      return identifiers[identifiers.length - 1] || null;
-    })
-    .filter(Boolean);
-}
-
-function getBodySnippet(node, content, includeBody, maxBodyLines = 10) {
-  if (!includeBody || !node) return null;
-  const bodyText = nodeText(node, content).trim();
+function getBodySnippet(body, includeBody, maxBodyLines = 10) {
+  if (!includeBody || !body) return null;
+  const bodyText = body.trim();
   if (!bodyText) return null;
   const lines = bodyText.split('\n');
-  if (lines.length <= maxBodyLines) {
-    return bodyText;
-  }
+  if (lines.length <= maxBodyLines) return bodyText;
   return `${lines.slice(0, maxBodyLines).join('\n')}\n... (${lines.length - maxBodyLines} more lines)`;
 }
 
-function calculateComplexity(node) {
-  let complexity = 1;
-  visitNode(node, (value) => {
-    if (isToken(value)) {
-      if (COMPLEXITY_TOKEN_NAMES.has(value.tokenType?.name)) {
-        complexity += 1;
-      }
-      return;
-    }
-    if (COMPLEXITY_NODE_NAMES.has(value.name)) {
-      complexity += 1;
-    }
-  });
-  return complexity;
+function calculateComplexity(body) {
+  if (!body) return 1;
+  const keywordMatches = body.match(/\b(if|while|for|switch|case|catch)\b/g) || [];
+  const operatorMatches = body.match(/&&|\|\||\?/g) || [];
+  return 1 + keywordMatches.length + operatorMatches.length;
 }
 
-function detectPatterns(node) {
+function detectPatterns(body, annotations = []) {
   const patterns = new Set();
-  visitNode(node, (value) => {
-    if (isToken(value)) {
-      if (value.image === 'null') patterns.add('null-check');
-      return;
-    }
-    switch (value.name) {
-      case 'tryStatement':
-      case 'catchClause':
-      case 'throwStatement':
-        patterns.add('error-handling');
-        break;
-      case 'annotation':
-        patterns.add('annotation');
-        break;
-      case 'lambdaExpression':
-        patterns.add('lambda');
-        break;
-      case 'switchStatement':
-      case 'switchRule':
-        patterns.add('switch');
-        break;
-      case 'whileStatement':
-      case 'doStatement':
-      case 'forStatement':
-      case 'basicForStatement':
-      case 'enhancedForStatement':
-        patterns.add('loop');
-        break;
-      case 'typeArguments':
-        patterns.add('generics');
-        break;
-    }
-  });
+  if (annotations.length > 0) patterns.add('annotation');
+  if (/\btry\b|\bcatch\b|\bthrow\b/.test(body)) patterns.add('error-handling');
+  if (/\bfor\b|\bwhile\b|\bdo\b/.test(body)) patterns.add('loop');
+  if (/\bswitch\b/.test(body)) patterns.add('switch');
+  if (/\bnull\b/.test(body)) patterns.add('null-check');
+  if (/->/.test(body)) patterns.add('lambda');
+  if (/<[^>{}]+>/.test(body)) patterns.add('generics');
   return [...patterns];
 }
 
-function extractPackageName(packageDeclarationNode) {
-  const identifiers = collectIdentifiers(packageDeclarationNode);
-  return identifiers.join('.');
-}
-
-function extractImport(importDeclarationNode, content) {
-  let raw = nodeText(importDeclarationNode, content).trim();
-  if (raw.startsWith('import ')) raw = raw.slice('import '.length).trim();
-  if (raw.endsWith(';')) raw = raw.slice(0, -1).trim();
-
-  const isStatic = raw.startsWith('static ');
-  if (isStatic) raw = raw.slice('static '.length).trim();
-
-  const isWildcard = raw.endsWith('.*');
-  return {
-    path: raw,
-    static: isStatic,
-    wildcard: isWildcard,
-  };
-}
-
-function extractField(fieldDeclarationNode, content) {
-  const modifiers = extractModifiers(childList(fieldDeclarationNode, 'fieldModifier'), content);
-  const annotations = extractAnnotations(childList(fieldDeclarationNode, 'fieldModifier'), content);
-  const typeNode = firstChild(fieldDeclarationNode, 'unannType');
-  const declaratorList = firstChild(fieldDeclarationNode, 'variableDeclaratorList');
-  return {
-    names: extractVariableDeclaratorNames(declaratorList),
-    type: nodeText(typeNode, content).trim(),
-    modifiers,
-    annotations,
-  };
-}
-
-function extractMethodParameters(formalParameterListNode, content) {
-  return childList(formalParameterListNode, 'formalParameter')
-    .map((parameter) => {
-      const regular = firstChild(parameter, 'variableParaRegularParameter');
-      const varArg = firstChild(parameter, 'variableArityParameter');
-      const target = regular || varArg;
-      if (!target) return null;
-      const typeNode = firstChild(target, 'unannType');
-      const variableId = firstChild(target, 'variableDeclaratorId');
-      const nameParts = collectIdentifiers(variableId);
-      const modifiers = extractModifiers(childList(target, 'variableModifier'), content);
+function parseParams(raw) {
+  if (!raw.trim()) return [];
+  return raw
+    .split(',')
+    .map((param) => {
+      const cleaned = param.trim();
+      if (!cleaned) return null;
+      const parts = cleaned.split(/\s+/);
+      const name = parts.pop()?.replace(/\[\]$/, '') || '';
+      const modifiers = parts.filter((part) => MODIFIERS.has(part) || part.startsWith('@'));
+      const type = parts.filter((part) => !MODIFIERS.has(part) && !part.startsWith('@')).join(' ');
       return {
-        name: nameParts[nameParts.length - 1] || nodeText(variableId, content).trim(),
-        type: typeNode ? nodeText(typeNode, content).trim() : '',
+        name,
+        type: type.replace(/\.\.\.$/, ''),
         modifiers,
-        varArgs: Boolean(varArg),
+        varArgs: type.endsWith('...'),
       };
     })
     .filter(Boolean);
 }
 
-function extractThrows(throwsNode, content) {
-  const raw = nodeText(throwsNode, content).trim();
-  if (!raw) return [];
-  const normalized = raw.startsWith('throws ') ? raw.slice('throws '.length).trim() : raw;
-  return parseDelimitedTypeList(normalized);
+function cleanReturnType(rawReturnType) {
+  return rawReturnType
+    .trim()
+    .split(/\s+/)
+    .filter((part) => !MODIFIERS.has(part) && !part.startsWith('@'))
+    .join(' ');
 }
 
-function extractMethodFromHeader({
-  ownerName,
-  methodNode,
-  content,
-  modifierKey,
-  includeBody,
-  maxBodyLines,
-  kind = 'method',
-}) {
-  const modifierNodes = childList(methodNode, modifierKey);
-  const header = firstChild(methodNode, 'methodHeader');
-  const declarator = firstChild(header, 'methodDeclarator');
-  const parametersNode = firstChild(declarator, 'formalParameterList');
-  const bodyNode = firstChild(firstChild(methodNode, 'methodBody'), 'block');
-  const throwsNode = firstChild(header, 'throws');
-  const resultNode = firstChild(firstChild(header, 'result'), 'unannType') || firstChild(header, 'result');
-  const name = childList(declarator, 'Identifier')[0]?.image || 'anonymous';
+function parseMemberFunctions(ownerName, ownerBody, ownerOffset, includeBody, maxBodyLines) {
+  const functions = [];
+  const memberRegex =
+    /((?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|abstract|static|final|synchronized|native|default)\s+)*)([\w<>\[\],.?&\s]+?)?\s+(\w+)\s*\(([^()]*)\)\s*(?:throws\s+([^{;]+))?\s*([;{])/g;
 
-  return {
-    name,
-    owner: ownerName,
-    qualifiedName: ownerName ? `${ownerName}.${name}` : name,
-    kind,
-    modifiers: extractModifiers(modifierNodes, content),
-    annotations: extractAnnotations(modifierNodes, content),
-    params: extractMethodParameters(parametersNode, content),
-    returnType: kind === 'constructor' ? null : nodeText(resultNode, content).trim(),
-    throws: extractThrows(throwsNode, content),
-    complexity: bodyNode ? calculateComplexity(bodyNode) : 1,
-    patterns: bodyNode ? detectPatterns(bodyNode) : [],
-    body: getBodySnippet(bodyNode, content, includeBody, maxBodyLines),
-  };
-}
+  let match;
+  while ((match = memberRegex.exec(ownerBody))) {
+    const [, prefix = '', rawReturnType = '', name, rawParams = '', rawThrows = '', terminator] = match;
+    if (CONTROL_NAMES.has(name)) continue;
 
-function extractConstructor(ownerName, constructorNode, content, includeBody, maxBodyLines) {
-  const modifierNodes = childList(constructorNode, 'constructorModifier');
-  const declarator = firstChild(constructorNode, 'constructorDeclarator');
-  const parametersNode = firstChild(declarator, 'formalParameterList');
-  const bodyNode = firstChild(constructorNode, 'constructorBody');
-  return {
-    name: ownerName,
-    owner: ownerName,
-    qualifiedName: ownerName ? `${ownerName}.${ownerName}` : ownerName,
-    kind: 'constructor',
-    modifiers: extractModifiers(modifierNodes, content),
-    annotations: extractAnnotations(modifierNodes, content),
-    params: extractMethodParameters(parametersNode, content),
-    returnType: null,
-    throws: [],
-    complexity: bodyNode ? calculateComplexity(bodyNode) : 1,
-    patterns: bodyNode ? detectPatterns(bodyNode) : [],
-    body: getBodySnippet(bodyNode, content, includeBody, maxBodyLines),
-  };
-}
+    const isConstructor = name === ownerName;
+    const returnType = isConstructor ? null : cleanReturnType(rawReturnType);
+    if (!isConstructor && !returnType) continue;
 
-function extractClassBodyMembers(bodyDeclarationNodes, ownerName, content, includeBody, maxBodyLines) {
-  const fields = [];
-  const methods = [];
-  const constructors = [];
-
-  for (const declaration of bodyDeclarationNodes) {
-    const member = firstChild(declaration, 'classMemberDeclaration');
-    const constructor = firstChild(declaration, 'constructorDeclaration');
-
-    if (constructor) {
-      constructors.push(
-        extractConstructor(ownerName, constructor, content, includeBody, maxBodyLines)
-      );
-      continue;
+    let body = null;
+    let bodyEnd = match.index + match[0].length;
+    if (terminator === '{') {
+      const openIndex = ownerOffset + memberRegex.lastIndex - 1;
+      const closeIndex = findMatchingBrace(ownerBody, memberRegex.lastIndex - 1);
+      if (closeIndex === -1) continue;
+      body = ownerBody.slice(memberRegex.lastIndex - 1, closeIndex + 1);
+      bodyEnd = closeIndex + 1;
+      memberRegex.lastIndex = bodyEnd;
     }
 
-    if (!member) continue;
-    const field = firstChild(member, 'fieldDeclaration');
-    const method = firstChild(member, 'methodDeclaration');
-
-    if (field) {
-      fields.push(extractField(field, content));
-    } else if (method) {
-      methods.push(
-        extractMethodFromHeader({
-          ownerName,
-          methodNode: method,
-          content,
-          modifierKey: 'methodModifier',
-          includeBody,
-          maxBodyLines,
-        })
-      );
-    }
+    const annotations = parseAnnotations(prefix);
+    functions.push({
+      name,
+      owner: ownerName,
+      qualifiedName: ownerName ? `${ownerName}.${name}` : name,
+      kind: isConstructor ? 'constructor' : 'method',
+      modifiers: parseModifiers(prefix),
+      annotations,
+      params: parseParams(rawParams),
+      returnType,
+      throws: parseDelimitedTypeList(rawThrows),
+      complexity: calculateComplexity(body || ''),
+      patterns: detectPatterns(body || '', annotations),
+      body: getBodySnippet(body, includeBody, maxBodyLines),
+      range: { start: ownerOffset + match.index, end: ownerOffset + bodyEnd },
+    });
   }
 
-  return { fields, methods, constructors };
+  return functions;
 }
 
-function extractClass(normalClassDeclarationNode, classModifierNodes, content, includeBody, maxBodyLines) {
-  const name = collectIdentifiers(firstChild(normalClassDeclarationNode, 'typeIdentifier'))[0] || 'AnonymousClass';
-  const extendsNode = firstChild(normalClassDeclarationNode, 'classExtends');
-  const implementsNode = firstChild(normalClassDeclarationNode, 'classImplements');
-  const body = firstChild(normalClassDeclarationNode, 'classBody');
-  const members = extractClassBodyMembers(
-    childList(body, 'classBodyDeclaration'),
-    name,
-    content,
+function parseFields(ownerBody) {
+  const fields = [];
+  const fieldRegex =
+    /((?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|volatile|transient)\s+)*)([\w<>\[\],.?&\s]+?)\s+([\w\s,=.'"()[\]{}+-]+);/g;
+  let match;
+  while ((match = fieldRegex.exec(ownerBody))) {
+    const [, prefix = '', type = '', namesRaw = ''] = match;
+    if (/\(|\)/.test(namesRaw)) continue;
+    const names = namesRaw
+      .split(',')
+      .map((name) => name.split('=')[0].trim())
+      .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+    if (names.length === 0) continue;
+    fields.push({
+      names,
+      type: type.trim(),
+      modifiers: parseModifiers(prefix),
+      annotations: parseAnnotations(prefix),
+    });
+  }
+  return fields;
+}
+
+function findTypeDeclarations(content) {
+  const declarations = [];
+  const typeRegex =
+    /((?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|abstract|static|final|sealed|non-sealed)\s+)*)(class|interface|enum)\s+(\w+)([^{]*)\{/g;
+  let match;
+  while ((match = typeRegex.exec(content))) {
+    const openIndex = typeRegex.lastIndex - 1;
+    const closeIndex = findMatchingBrace(content, openIndex);
+    if (closeIndex === -1) continue;
+    const start = match.index;
+    if (declarations.some((decl) => start > decl.start && start < decl.end)) continue;
+    declarations.push({
+      prefix: match[1] || '',
+      kind: match[2],
+      name: match[3],
+      suffix: match[4] || '',
+      body: content.slice(openIndex + 1, closeIndex),
+      bodyOffset: openIndex + 1,
+      start,
+      end: closeIndex + 1,
+    });
+    typeRegex.lastIndex = closeIndex + 1;
+  }
+  return declarations;
+}
+
+function parseClass(declaration, includeBody, maxBodyLines) {
+  const methods = parseMemberFunctions(
+    declaration.name,
+    declaration.body,
+    declaration.bodyOffset,
+    includeBody,
+    maxBodyLines
+  );
+  const constructors = methods.filter((fn) => fn.kind === 'constructor');
+  const regularMethods = methods.filter((fn) => fn.kind !== 'constructor');
+
+  return {
+    name: declaration.name,
+    modifiers: parseModifiers(declaration.prefix),
+    annotations: parseAnnotations(declaration.prefix),
+    extends: declaration.suffix.match(/\bextends\s+([\w.<>]+)/)?.[1] || null,
+    implements: parseDelimitedTypeList(
+      declaration.suffix.match(/\bimplements\s+(.+)$/)?.[1]?.trim() || ''
+    ),
+    fields: parseFields(declaration.body),
+    constructors,
+    methods: regularMethods,
+  };
+}
+
+function parseInterface(declaration, includeBody, maxBodyLines) {
+  return {
+    name: declaration.name,
+    modifiers: parseModifiers(declaration.prefix),
+    annotations: parseAnnotations(declaration.prefix),
+    extends: parseDelimitedTypeList(declaration.suffix.match(/\bextends\s+(.+)$/)?.[1] || ''),
+    methods: parseMemberFunctions(
+      declaration.name,
+      declaration.body,
+      declaration.bodyOffset,
+      includeBody,
+      maxBodyLines
+    ).filter((fn) => fn.kind !== 'constructor'),
+  };
+}
+
+function parseEnum(declaration, includeBody, maxBodyLines) {
+  const beforeMembers = declaration.body.split(';')[0] || '';
+  const constants = beforeMembers
+    .split(',')
+    .map((constant) => constant.trim().match(/^([A-Z_$][\w$]*)/)?.[1])
+    .filter(Boolean);
+  const methods = parseMemberFunctions(
+    declaration.name,
+    declaration.body,
+    declaration.bodyOffset,
     includeBody,
     maxBodyLines
   );
 
   return {
-    name,
-    modifiers: extractModifiers(classModifierNodes, content),
-    annotations: extractAnnotations(classModifierNodes, content),
-    extends: extendsNode ? nodeText(extendsNode, content).replace(/^extends\s+/, '').trim() : null,
-    implements: implementsNode
-      ? parseDelimitedTypeList(nodeText(implementsNode, content).replace(/^implements\s+/, '').trim())
-      : [],
-    fields: members.fields,
-    constructors: members.constructors,
-    methods: members.methods,
-  };
-}
-
-function extractInterface(interfaceNode, content, includeBody, maxBodyLines) {
-  const normalInterfaceDeclaration = firstChild(interfaceNode, 'normalInterfaceDeclaration');
-  const name =
-    collectIdentifiers(firstChild(normalInterfaceDeclaration, 'typeIdentifier'))[0] || 'AnonymousInterface';
-  const body = firstChild(normalInterfaceDeclaration, 'interfaceBody');
-  const methods = childList(body, 'interfaceMemberDeclaration')
-    .map((member) => firstChild(member, 'interfaceMethodDeclaration'))
-    .filter(Boolean)
-    .map((method) =>
-      extractMethodFromHeader({
-        ownerName: name,
-        methodNode: method,
-        content,
-        modifierKey: 'interfaceMethodModifier',
-        includeBody,
-        maxBodyLines,
-      })
-    );
-
-  return {
-    name,
-    modifiers: [],
-    annotations: [],
-    extends: firstChild(normalInterfaceDeclaration, 'interfaceExtends')
-      ? parseDelimitedTypeList(
-          nodeText(firstChild(normalInterfaceDeclaration, 'interfaceExtends'), content)
-            .replace(/^extends\s+/, '')
-            .trim()
-        )
-      : [],
-    methods,
-  };
-}
-
-function extractEnum(enumDeclarationNode, content, includeBody, maxBodyLines) {
-  const name = collectIdentifiers(firstChild(enumDeclarationNode, 'typeIdentifier'))[0] || 'AnonymousEnum';
-  const body = firstChild(enumDeclarationNode, 'enumBody');
-  const constants = childList(firstChild(body, 'enumConstantList'), 'enumConstant')
-    .map((constant) => collectIdentifiers(constant)[0] || null)
-    .filter(Boolean);
-  const bodyDeclarations = childList(firstChild(body, 'enumBodyDeclarations'), 'classBodyDeclaration');
-  const members = extractClassBodyMembers(bodyDeclarations, name, content, includeBody, maxBodyLines);
-
-  return {
-    name,
-    modifiers: [],
-    annotations: [],
+    name: declaration.name,
+    modifiers: parseModifiers(declaration.prefix),
+    annotations: parseAnnotations(declaration.prefix),
     constants,
-    fields: members.fields,
-    constructors: members.constructors,
-    methods: members.methods,
+    fields: parseFields(declaration.body),
+    constructors: methods.filter((fn) => fn.kind === 'constructor'),
+    methods: methods.filter((fn) => fn.kind !== 'constructor'),
   };
 }
 
-export function analyzeJavaFile(content, options = {}) {
-  const { filter, includeBody = false, maxBodyLines = 10 } = options;
-
-  try {
-    const cst = parse(content);
-    const root = firstChild(cst, 'ordinaryCompilationUnit') || firstChild(cst, 'modularCompilationUnit');
-    if (!root) {
-      return {
-        packageName: null,
-        imports: [],
-        classes: [],
-        interfaces: [],
-        enums: [],
-        functions: [],
-      };
-    }
-
-    const packageDeclaration = firstChild(root, 'packageDeclaration');
-    const packageName = packageDeclaration ? extractPackageName(packageDeclaration) : null;
-    const imports = childList(root, 'importDeclaration').map((imp) => extractImport(imp, content));
-
-    const classes = [];
-    const interfaces = [];
-    const enums = [];
-
-    for (const typeDeclaration of childList(root, 'typeDeclaration')) {
-      const classDeclaration = firstChild(typeDeclaration, 'classDeclaration');
-      const interfaceDeclaration = firstChild(typeDeclaration, 'interfaceDeclaration');
-      if (classDeclaration) {
-        const normalClass = firstChild(classDeclaration, 'normalClassDeclaration');
-        const enumDeclaration = firstChild(classDeclaration, 'enumDeclaration');
-        if (normalClass) {
-          classes.push(
-            extractClass(
-              normalClass,
-              childList(classDeclaration, 'classModifier'),
-              content,
-              includeBody,
-              maxBodyLines
-            )
-          );
-        } else if (enumDeclaration) {
-          enums.push(extractEnum(enumDeclaration, content, includeBody, maxBodyLines));
-        }
-      } else if (interfaceDeclaration) {
-        interfaces.push(extractInterface(interfaceDeclaration, content, includeBody, maxBodyLines));
-      }
-    }
-
-    let functions = [
+function applyFilter(classes, interfaces, enums, filter) {
+  if (!filter) {
+    return [
       ...classes.flatMap((cls) => [...cls.constructors, ...cls.methods]),
       ...interfaces.flatMap((iface) => iface.methods),
       ...enums.flatMap((enm) => [...enm.constructors, ...enm.methods]),
     ];
+  }
 
-    if (filter) {
-      const lowered = filter.toLowerCase();
-      functions = functions.filter(
-        (fn) =>
-          fn.name.toLowerCase().includes(lowered) || fn.qualifiedName.toLowerCase().includes(lowered)
-      );
-      for (const collection of [classes, interfaces, enums]) {
-        for (const entry of collection) {
-          if (entry.methods) {
-            entry.methods = entry.methods.filter(
-              (fn) =>
-                fn.name.toLowerCase().includes(lowered) ||
-                fn.qualifiedName.toLowerCase().includes(lowered)
-            );
-          }
-          if (entry.constructors) {
-            entry.constructors = entry.constructors.filter((fn) =>
-              fn.qualifiedName.toLowerCase().includes(lowered)
-            );
-          }
-        }
-      }
+  const lowered = filter.toLowerCase();
+  const keep = (fn) =>
+    fn.name.toLowerCase().includes(lowered) || fn.qualifiedName.toLowerCase().includes(lowered);
+
+  for (const collection of [classes, interfaces, enums]) {
+    for (const entry of collection) {
+      if (entry.methods) entry.methods = entry.methods.filter(keep);
+      if (entry.constructors) entry.constructors = entry.constructors.filter(keep);
     }
+  }
 
-    return {
-      packageName,
-      imports,
-      classes,
-      interfaces,
-      enums,
-      functions,
-    };
-  } catch (error) {
+  return [
+    ...classes.flatMap((cls) => [...cls.constructors, ...cls.methods]),
+    ...interfaces.flatMap((iface) => iface.methods),
+    ...enums.flatMap((enm) => [...enm.constructors, ...enm.methods]),
+  ];
+}
+
+export function analyzeJavaFile(content, options = {}) {
+  const { filter, includeBody = false, maxBodyLines = 10 } = options;
+  const source = stripComments(content);
+
+  if (!bracesAreBalanced(source) || /\(\s*\{/.test(source)) {
     return {
       packageName: null,
       imports: [],
@@ -502,9 +326,41 @@ export function analyzeJavaFile(content, options = {}) {
       interfaces: [],
       enums: [],
       functions: [],
-      error: error instanceof Error ? error.message : String(error),
+      error: 'Unable to parse Java source',
     };
   }
+
+  const packageName = source.match(/\bpackage\s+([\w.]+)\s*;/)?.[1] || null;
+  const imports = [...source.matchAll(/^\s*import\s+(static\s+)?([\w.*]+)\s*;/gm)].map(
+    (match) => ({
+      path: match[2],
+      static: Boolean(match[1]),
+      wildcard: match[2].endsWith('.*'),
+    })
+  );
+
+  const classes = [];
+  const interfaces = [];
+  const enums = [];
+
+  for (const declaration of findTypeDeclarations(source)) {
+    if (declaration.kind === 'class') classes.push(parseClass(declaration, includeBody, maxBodyLines));
+    if (declaration.kind === 'interface') {
+      interfaces.push(parseInterface(declaration, includeBody, maxBodyLines));
+    }
+    if (declaration.kind === 'enum') enums.push(parseEnum(declaration, includeBody, maxBodyLines));
+  }
+
+  const functions = applyFilter(classes, interfaces, enums, filter);
+
+  return {
+    packageName,
+    imports,
+    classes,
+    interfaces,
+    enums,
+    functions,
+  };
 }
 
 export function analyzeJavaPackage(pkgDir, options = {}) {

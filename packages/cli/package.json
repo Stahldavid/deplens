@@ -1,6 +1,6 @@
 {
   "name": "@deplens/cli",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Inspect exports and types of installed npm packages",
   "type": "module",
   "bin": {
@@ -20,7 +20,7 @@
     "url": "https://github.com/Stahldavid/deplens/issues"
   },
   "dependencies": {
-    "@deplens/core": "0.2.1"
+    "@deplens/core": "0.2.2"
   },
   "publishConfig": {
     "access": "public"

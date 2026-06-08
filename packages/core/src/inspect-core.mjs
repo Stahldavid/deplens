@@ -309,7 +309,26 @@ function tryResolveTypesPackage(basePkgName, require) {
   return null;
 }
 
-function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require) {
+function getTypesCandidatesFromResolvedPath(resolvedPath) {
+  if (!resolvedPath) return [];
+  const candidates = [];
+  const resolvedDir = path.dirname(resolvedPath);
+  const resolvedExt = path.extname(resolvedPath);
+  if (resolvedExt) {
+    candidates.push(coerceTypesPath(resolvedPath));
+  } else {
+    candidates.push(`${resolvedPath}.d.ts`, `${resolvedPath}.d.cts`, `${resolvedPath}.d.mts`);
+    candidates.push(path.join(resolvedPath, 'index.d.ts'));
+    candidates.push(path.join(resolvedPath, 'index.d.cts'));
+    candidates.push(path.join(resolvedPath, 'index.d.mts'));
+  }
+  candidates.push(path.join(resolvedDir, 'index.d.ts'));
+  candidates.push(path.join(resolvedDir, 'index.d.cts'));
+  candidates.push(path.join(resolvedDir, 'index.d.mts'));
+  return candidates;
+}
+
+function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require, resolvedPath = null) {
   if (!pkg || !pkgDir) return { typesFile: null, dtsPath: null, source: null };
   let typesFile = null;
   let source = null;
@@ -341,6 +360,12 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require) {
 
   if (!typesFile) {
     const candidates = [
+      subpath ? `${subpath}.d.ts` : null,
+      subpath ? `${subpath}.d.cts` : null,
+      subpath ? `${subpath}.d.mts` : null,
+      subpath ? path.join(subpath, 'index.d.ts') : null,
+      subpath ? path.join(subpath, 'index.d.cts') : null,
+      subpath ? path.join(subpath, 'index.d.mts') : null,
       'index.d.ts',
       'index.d.cts',
       'index.d.mts',
@@ -357,7 +382,7 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require) {
       'dist/types/index.d.ts',
       'build/index.d.ts',
     ];
-    for (const candidate of candidates) {
+    for (const candidate of candidates.filter(Boolean)) {
       const candidatePath = path.resolve(pkgDir, candidate);
       if (fs.existsSync(candidatePath)) {
         typesFile = candidate;
@@ -386,6 +411,17 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require) {
         }
       } catch (e) {
         // Skip directories we can't read
+      }
+    }
+  }
+
+  if (!typesFile && resolvedPath) {
+    const resolvedCandidates = getTypesCandidatesFromResolvedPath(resolvedPath);
+    for (const candidate of resolvedCandidates) {
+      if (candidate && fs.existsSync(candidate)) {
+        typesFile = path.relative(pkgDir, candidate);
+        source = 'fallback';
+        break;
       }
     }
   }
@@ -441,6 +477,19 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require) {
       if (fs.existsSync(altPath)) {
         dtsPath = altPath;
         typesFile = path.relative(pkgDir, altPath);
+        if (!source || source === 'exports' || source === 'package') {
+          source = 'fallback';
+        }
+        break;
+      }
+    }
+  }
+
+  if ((!dtsPath || !fs.existsSync(dtsPath)) && resolvedPath) {
+    for (const candidate of getTypesCandidatesFromResolvedPath(resolvedPath)) {
+      if (candidate && fs.existsSync(candidate)) {
+        dtsPath = candidate;
+        typesFile = path.relative(pkgDir, candidate);
         if (!source || source === 'exports' || source === 'package') {
           source = 'fallback';
         }
@@ -737,6 +786,13 @@ function searchExports(exports, typeInfo, query, minScore = 0.3) {
   // Sort by score descending
   scored.sort((a, b) => b._searchScore - a._searchScore);
   return scored;
+}
+
+function hasTypeSymbols(typeInfo) {
+  if (!typeInfo) return false;
+  return ['functions', 'interfaces', 'types', 'classes', 'enums'].some(
+    (key) => Object.keys(typeInfo[key] || {}).length > 0
+  );
 }
 
 function readPackageTextFile(pkgDir, filenameCandidates) {
@@ -1047,6 +1103,7 @@ export async function runInspectCore(options) {
       try {
         const downloaded = await downloadVersion(basePkgName, spec, {
           timeout: 120000,
+          preferCdn: Boolean(options?.preferCdn),
         });
         resolveFrom = downloaded.path;
         explicitResolveFrom = downloaded.path;
@@ -1364,7 +1421,7 @@ export async function runInspectCore(options) {
         }
       }
 
-      const typesResolution = resolveTypesFile(pkg, pkgDir, subpath, basePkg, require);
+      const typesResolution = resolveTypesFile(pkg, pkgDir, subpath, basePkg, require, entrypointPath);
       typesFile = typesResolution.typesFile;
 
       dtsPath = typesResolution.dtsPath;
@@ -1431,6 +1488,7 @@ export async function runInspectCore(options) {
     let moduleNamespace = {};
     let moduleDescriptors = {};
     let allExports = [];
+    let runtimeLoadError = null;
     const runtimeAvailable = Boolean(entrypointExists);
     if (!runtimeAvailable) {
       log('\n⚠️  Entrypoint not found on disk; runtime exports skipped.');
@@ -1441,6 +1499,7 @@ export async function runInspectCore(options) {
         moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace);
         allExports = Object.keys(moduleDescriptors);
       } catch (e) {
+        runtimeLoadError = e instanceof Error ? e.message : String(e);
         // Continue with empty runtime exports
       }
 
@@ -1686,6 +1745,12 @@ export async function runInspectCore(options) {
       typeInfoRaw = await getCachedDtsParse(dtsPath);
     }
 
+    if (hasTypeSymbols(typeInfoRaw) && (!runtimeAvailable || runtimeLoadError)) {
+      const reason = runtimeLoadError
+        ? `runtime export introspection failed: ${runtimeLoadError}`
+        : 'runtime entrypoint is not available on disk';
+      warn(`Runtime export introspection unavailable (${reason}); type definitions were found.`);
+    }
 
 
     if (showTypes || wantJsdoc) {

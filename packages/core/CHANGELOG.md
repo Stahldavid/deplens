@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix remote package inspection by defaulting remote downloads to full npm installs, improve subpath type resolution and `.ts` re-export parsing, add runtime/type availability warnings, and normalize diff JSON with `package`, `changes`, and `changeCount`.
+
 ## 0.2.0
 
 ### Minor Changes

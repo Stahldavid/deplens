@@ -37,7 +37,8 @@ function findReExports(dtsPath, filterList) {
     let sourceFile = moduleSpec
       .replace(/\.cjs$/, '.d.cts')
       .replace(/\.mjs$/, '.d.mts')
-      .replace(/\.js$/, '.d.ts');
+      .replace(/\.js$/, '.d.ts')
+      .replace(/(?<!\.d)\.ts$/, '.d.ts');
     if (
       !sourceFile.endsWith('.d.ts') &&
       !sourceFile.endsWith('.d.cts') &&

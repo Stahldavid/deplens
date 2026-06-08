@@ -140,9 +140,8 @@ function parseInspectArgs(argv) {
     remoteVersion = argv[remoteVersionIndex + 1];
   }
 
-  // CDN vs npm preference (default: prefer CDN)
-  const preferCdn = !argv.includes('--prefer-npm');
-  const preferCdnExplicit = argv.includes('--prefer-cdn');
+  // npm install is the default because API inspection needs the full package tree.
+  const preferCdn = argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm');
 
   // History
   const saveHistory = argv.includes('--save-history');
@@ -239,7 +238,6 @@ function parseInspectArgs(argv) {
     language,
     sourceIncludeBody,
     preferCdn,
-    preferCdnExplicit,
     analyzeSource,
     autoGenerateTypes,
     includeSourceBody,
@@ -264,8 +262,8 @@ function parseDiffArgs(argv) {
     to = argv[toIndex + 1];
   }
 
-  // CDN preference
-  const preferCdn = !argv.includes('--prefer-npm');
+  // npm install is the default because semantic diff needs complete package contents.
+  const preferCdn = argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm');
 
   let filter = null;
   const filterIndex = argv.indexOf('--filter');
@@ -327,8 +325,8 @@ function usage() {
       '  --json                Shorthand for --format json\n' +
       '  --remote               Download package to cache\n' +
       '  --remote-version V     Version for remote download\n' +
-      '  --prefer-cdn          Prefer CDN download (default)\n' +
-      '  --prefer-npm          Force npm install (no CDN)\n' +
+      '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
+      '  --prefer-npm          Force npm install (default)\n' +
       '  --max-exports N        Max exports to show (default: 100)\n' +
       '  --max-props N          Max props per object (default: 10)\n' +
       '  --max-examples N       Max examples to show (default: 10)\n' +
@@ -350,8 +348,8 @@ function usage() {
       '  --filter VALUE         Filter exports by name\n' +
       '  --format text|json     Output format (default: text)\n' +
       '  --json                Shorthand for --format json\n' +
-      '  --prefer-cdn          Prefer CDN download (default)\n' +
-      '  --prefer-npm          Force npm install (no CDN)\n' +
+      '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
+      '  --prefer-npm          Force npm install (default)\n' +
       '  --include-source       Compare source complexity\n' +
       '  --no-changelog         Skip changelog parsing\n' +
       '  --verbose              Show detailed changes\n' +

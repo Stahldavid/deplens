@@ -7,6 +7,7 @@ import { parseDtsFile, findReExports } from './parse-dts.mjs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
+const PARSE_CACHE_VERSION = 2;
 
 export async function generateDts(pkgDir) {
   try {
@@ -20,9 +21,9 @@ export async function generateDts(pkgDir) {
 
 export function getCacheKey(dtsPath) {
   const cacheRoot = path.join(os.homedir(), '.deplens-cache');
-  if (dtsPath.startsWith(cacheRoot)) return dtsPath;
-  try { const real = fs.realpathSync(dtsPath); if (real.startsWith(cacheRoot)) return real; } catch {}
-  return dtsPath;
+  if (dtsPath.startsWith(cacheRoot)) return `${PARSE_CACHE_VERSION}:${dtsPath}`;
+  try { const real = fs.realpathSync(dtsPath); if (real.startsWith(cacheRoot)) return `${PARSE_CACHE_VERSION}:${real}`; } catch {}
+  return `${PARSE_CACHE_VERSION}:${dtsPath}`;
 }
 
 const memoryCache = new Map(); const MEMORY_CACHE_MAX = 20;

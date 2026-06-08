@@ -36,6 +36,13 @@ function isCached(packageName, version) {
   return fs.existsSync(cachePath) && fs.existsSync(path.join(cachePath, 'node_modules'));
 }
 
+function isNpmInstallCache(cachePath) {
+  return (
+    fs.existsSync(path.join(cachePath, 'package-lock.json')) ||
+    fs.existsSync(path.join(cachePath, 'node_modules', '.package-lock.json'))
+  );
+}
+
 /**
  * Get latest version from npm registry
  */
@@ -174,17 +181,20 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
 }
 
 export async function downloadVersion(packageName, version, options = {}) {
-  const { force = false, timeout = 60000, preferCdn = true } = options;
+  const { force = false, timeout = 60000, preferCdn = false } = options;
 
   const cachePath = getCachePath(packageName, version);
 
   // Return cached if available
   if (!force && isCached(packageName, version)) {
-    return {
-      path: cachePath,
-      packageDir: path.join(cachePath, 'node_modules', packageName),
-      cached: true,
-    };
+    if (preferCdn || isNpmInstallCache(cachePath)) {
+      return {
+        path: cachePath,
+        packageDir: path.join(cachePath, 'node_modules', packageName),
+        cached: true,
+      };
+    }
+    fs.rmSync(cachePath, { recursive: true, force: true });
   }
 
   // Create fresh directory

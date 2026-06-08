@@ -53,6 +53,24 @@ describe('parseDtsFile', () => {
     expect(result.functions).toHaveProperty('greet');
   });
 
+  it('should follow wildcard re-exports that reference .ts modules', () => {
+    const entryPath = path.join(import.meta.dirname, 'fixtures', 'reexport-ts-entry.d.ts');
+    const targetPath = path.join(import.meta.dirname, 'fixtures', 'reexport-ts-target.d.ts');
+    fs.writeFileSync(entryPath, 'export * from "./reexport-ts-target.ts";');
+    fs.writeFileSync(
+      targetPath,
+      'export declare function reexported(value: string): number;'
+    );
+
+    const result = parseDtsFile(entryPath, ['reexported']);
+    expect(result.functions).toHaveProperty('reexported');
+    expect(result.functions.reexported.params).toBe('value: string');
+    expect(result.functions.reexported.returnType).toBe('number');
+
+    fs.unlinkSync(entryPath);
+    fs.unlinkSync(targetPath);
+  });
+
   it('should return null for non-existent file', () => {
     const result = parseDtsFile('/nonexistent/file.d.ts', null);
     expect(result).toBeNull();

@@ -30,7 +30,7 @@ export async function runDiff(options = {}) {
     projectDir = process.cwd(),
     includeSource = false,
     includeChangelog = true,
-    preferCdn = true,
+    preferCdn = false,
     filter,
     format = 'text', // "text" | "json"
     verbose = false,
@@ -51,7 +51,7 @@ export async function runDiff(options = {}) {
     const versionPair = await downloadVersionPair(packageName, from, to, {
       projectDir,
       preferCdn,
-      timeout: 30000,
+      timeout: 120000,
     });
 
     log(`   From: ${versionPair.from.version}${versionPair.from.cached ? ' (cached)' : ''}`);
@@ -108,9 +108,18 @@ export async function runDiff(options = {}) {
 
     // Format output
     if (format === 'json') {
+      const changes = [
+        ...diff.breaking,
+        ...diff.warnings,
+        ...diff.additions,
+        ...diff.info,
+      ];
       return {
         output: formatDiffAsJson({
           ...diff,
+          package: packageName,
+          changes,
+          changeCount: changes.length,
           changelog: changelogDiff,
           meta: {
             package: packageName,
@@ -138,6 +147,22 @@ export async function runDiff(options = {}) {
       changelog: changelogDiff,
     };
   } catch (error) {
+    if (format === 'json') {
+      return {
+        output: formatDiffAsJson({
+          package: packageName,
+          error: error.message,
+          warnings: [error.message],
+          meta: {
+            package: packageName,
+            from,
+            to,
+            analyzedAt: new Date().toISOString(),
+          },
+        }),
+        error: error.message,
+      };
+    }
     return {
       output: `❌ Error: ${error.message}`,
       error: error.message,

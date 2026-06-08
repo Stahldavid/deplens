@@ -11,6 +11,24 @@ function getScriptKind(filePath) {
   return ts.ScriptKind.TS;
 }
 
+function findPackageInfo(startPath) {
+  let dir = path.dirname(startPath);
+  while (true) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        return { dir, name: pkg.name || null };
+      } catch {
+        return null;
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 /**
  * Find re-exported symbols and their source files
  * @param {string} dtsPath - Path to the .d.ts file
@@ -28,13 +46,24 @@ function findReExports(dtsPath, filterList) {
   );
 
   const dtsDir = path.dirname(dtsPath);
+  const packageInfo = findPackageInfo(dtsPath);
   const reExports = new Map();
   const wildcardSources = [];
   const filterSet = filterList ? new Set(filterList.map((n) => n.toLowerCase())) : null;
 
   function resolveDtsPath(moduleSpec) {
+    let moduleBaseDir = dtsDir;
+    let modulePath = moduleSpec;
+    if (packageInfo?.name && moduleSpec === packageInfo.name) {
+      moduleBaseDir = packageInfo.dir;
+      modulePath = '';
+    } else if (packageInfo?.name && moduleSpec.startsWith(`${packageInfo.name}/`)) {
+      moduleBaseDir = packageInfo.dir;
+      modulePath = moduleSpec.slice(packageInfo.name.length + 1);
+    }
+
     // Handle .cjs/.mjs/.js -> .d.cts/.d.mts/.d.ts
-    let sourceFile = moduleSpec
+    let sourceFile = modulePath
       .replace(/\.cjs$/, '.d.cts')
       .replace(/\.mjs$/, '.d.mts')
       .replace(/\.js$/, '.d.ts')
@@ -45,15 +74,15 @@ function findReExports(dtsPath, filterList) {
       !sourceFile.endsWith('.d.mts')
     ) {
       // Try all extensions
-      const dtsCandidate = path.resolve(dtsDir, sourceFile + '.d.ts');
-      const ctsCandidate = path.resolve(dtsDir, sourceFile + '.d.cts');
-      const mtsCandidate = path.resolve(dtsDir, sourceFile + '.d.mts');
+      const dtsCandidate = path.resolve(moduleBaseDir, sourceFile + '.d.ts');
+      const ctsCandidate = path.resolve(moduleBaseDir, sourceFile + '.d.cts');
+      const mtsCandidate = path.resolve(moduleBaseDir, sourceFile + '.d.mts');
       if (fs.existsSync(dtsCandidate) && fs.statSync(dtsCandidate).isFile()) return dtsCandidate;
       if (fs.existsSync(ctsCandidate) && fs.statSync(ctsCandidate).isFile()) return ctsCandidate;
       if (fs.existsSync(mtsCandidate) && fs.statSync(mtsCandidate).isFile()) return mtsCandidate;
       return null;
     }
-    const fullPath = path.resolve(dtsDir, sourceFile);
+    const fullPath = path.resolve(moduleBaseDir, sourceFile);
     return fs.existsSync(fullPath) && fs.statSync(fullPath).isFile() ? fullPath : null;
   }
 

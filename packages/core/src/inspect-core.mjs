@@ -353,6 +353,36 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require, resolvedPa
     }
   }
 
+  if (!typesFile && subpath) {
+    const candidates = [
+      `${subpath}.d.ts`,
+      `${subpath}.d.cts`,
+      `${subpath}.d.mts`,
+      path.join(subpath, 'index.d.ts'),
+      path.join(subpath, 'index.d.cts'),
+      path.join(subpath, 'index.d.mts'),
+    ];
+    for (const candidate of candidates) {
+      const candidatePath = path.resolve(pkgDir, candidate);
+      if (fs.existsSync(candidatePath)) {
+        typesFile = candidate;
+        source = 'subpath';
+        break;
+      }
+    }
+  }
+
+  if (!typesFile && subpath && resolvedPath) {
+    const resolvedCandidates = getTypesCandidatesFromResolvedPath(resolvedPath);
+    for (const candidate of resolvedCandidates) {
+      if (candidate && fs.existsSync(candidate)) {
+        typesFile = path.relative(pkgDir, candidate);
+        source = 'subpath';
+        break;
+      }
+    }
+  }
+
   if (!typesFile) {
     typesFile = pkg.types || pkg.typings || null;
     if (typesFile) source = 'package';

@@ -7,7 +7,7 @@ import { parseDtsFile, findReExports } from './parse-dts.mjs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
-const PARSE_CACHE_VERSION = 2;
+const PARSE_CACHE_VERSION = 3;
 
 export async function generateDts(pkgDir) {
   try {

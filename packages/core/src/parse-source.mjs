@@ -362,6 +362,27 @@ export function parseSourceFile(filePath, options = {}) {
 /**
  * Find source files for a package
  */
+function scoreSourceFile(filePath, pkgDir) {
+  const rel = path.relative(pkgDir, filePath).replace(/\\/g, '/');
+  const base = path.basename(filePath).toLowerCase();
+  let score = 0;
+
+  if (rel.startsWith('src/')) score += 30;
+  if (rel.includes('/src/')) score += 20;
+  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) score += 12;
+  if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) score += 6;
+  if (base === 'index.ts' || base === 'index.js' || base === 'index.tsx' || base === 'index.jsx') {
+    score -= 35;
+  }
+  if (rel.includes('/locales/') || rel.startsWith('locales/')) score -= 15;
+  if (rel.includes('/benchmarks/') || rel.includes('/tests/') || rel.includes('/__tests__/')) {
+    score -= 50;
+  }
+  if (/(parse|schema|type|util|core|api|client|server|request|response)/i.test(rel)) score += 10;
+
+  return score;
+}
+
 export function findSourceFiles(pkgDir, options = {}) {
   const {
     maxFiles = 10,
@@ -377,6 +398,7 @@ export function findSourceFiles(pkgDir, options = {}) {
   } = options;
 
   const sourceFiles = new Set();
+  const scanLimit = Math.max(maxFiles * 12, 60);
 
   for (const pattern of include) {
     let baseDir;
@@ -389,7 +411,7 @@ export function findSourceFiles(pkgDir, options = {}) {
     if (!fs.existsSync(baseDir)) continue;
 
     (function walkDir(dir, depth = 0) {
-      if (depth > 5 || sourceFiles.size >= maxFiles) return;
+      if (depth > 8 || sourceFiles.size >= scanLimit) return;
 
       let entries;
       try {
@@ -398,10 +420,18 @@ export function findSourceFiles(pkgDir, options = {}) {
         return;
       }
       for (const entry of entries) {
-        if (sourceFiles.size >= maxFiles) break;
+        if (sourceFiles.size >= scanLimit) break;
 
         const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        if (
+          entry.isDirectory() &&
+          !entry.name.startsWith('.') &&
+          entry.name !== 'node_modules' &&
+          entry.name !== 'test' &&
+          entry.name !== 'tests' &&
+          entry.name !== '__tests__' &&
+          entry.name !== 'benchmarks'
+        ) {
           walkDir(fullPath, depth + 1);
         } else if (
           entry.isFile() &&
@@ -418,7 +448,9 @@ export function findSourceFiles(pkgDir, options = {}) {
     })(baseDir);
   }
 
-  return Array.from(sourceFiles);
+  return Array.from(sourceFiles)
+    .sort((a, b) => scoreSourceFile(b, pkgDir) - scoreSourceFile(a, pkgDir) || a.localeCompare(b))
+    .slice(0, maxFiles);
 }
 
 /**

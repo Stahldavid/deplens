@@ -71,6 +71,26 @@ describe('parseDtsFile', () => {
     fs.unlinkSync(targetPath);
   });
 
+  it('should follow re-exports that reference the same package by name', () => {
+    const pkgDir = path.join(import.meta.dirname, 'fixtures', 'self-package-reexport');
+    const distDir = path.join(pkgDir, 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), '{"name":"self-pkg"}');
+    fs.writeFileSync(
+      path.join(pkgDir, 'server.d.ts'),
+      'export { SelfRequest } from "self-pkg/dist/request";'
+    );
+    fs.writeFileSync(
+      path.join(distDir, 'request.d.ts'),
+      'export declare class SelfRequest extends Request {}'
+    );
+
+    const result = parseDtsFile(path.join(pkgDir, 'server.d.ts'), ['SelfRequest']);
+    expect(result.classes).toHaveProperty('SelfRequest');
+
+    fs.rmSync(pkgDir, { recursive: true, force: true });
+  });
+
   it('should return null for non-existent file', () => {
     const result = parseDtsFile('/nonexistent/file.d.ts', null);
     expect(result).toBeNull();

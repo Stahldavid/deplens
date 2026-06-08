@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 0.2.3
+
+### Patch Changes
+
+- Fix subpath type resolution for package self re-exports and prioritize implementation files over barrel entrypoints during source analysis.
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,15 +1,27 @@
 #!/usr/bin/env node
-import { runInspect, runDiff } from '@deplens/core';
-import { clearCache, getCacheStats } from '@deplens/core';
+import { runInspect, runDiff, runDoctor } from '@deplens/core';
+import { clearCache, getCacheStats, pinCache } from '@deplens/core';
 import { listHistory, getHistoryEntry, clearHistory, compareHistoryEntries } from '@deplens/core';
 
 function parseInspectArgs(argv) {
   const target = argv[0];
   let filter = argv[1] && !argv[1].startsWith('--') ? argv[1].toLowerCase() : null;
   const showTypes = argv.includes('--types');
-  const includeDocs = argv.includes('--docs') || argv.includes('--include-docs');
-  const includeExamples = argv.includes('--examples') || argv.includes('--include-examples');
+  let docsFor = null;
+  const docsForIndex = argv.indexOf('--docs-for');
+  if (docsForIndex !== -1 && argv[docsForIndex + 1]) {
+    docsFor = argv[docsForIndex + 1];
+  }
+  const includeDocs = argv.includes('--docs') || argv.includes('--include-docs') || Boolean(docsFor);
+  let examplesFor = null;
+  const examplesForIndex = argv.indexOf('--examples-for');
+  if (examplesForIndex !== -1 && argv[examplesForIndex + 1]) {
+    examplesFor = argv[examplesForIndex + 1];
+  }
+  const includeExamples =
+    argv.includes('--examples') || argv.includes('--include-examples') || Boolean(examplesFor);
   const remote = argv.includes('--remote');
+  const offline = argv.includes('--offline');
 
   // New options
   const listSections = argv.includes('--list-sections');
@@ -216,8 +228,11 @@ function parseInspectArgs(argv) {
     filter,
     showTypes,
     includeDocs,
+    docsFor,
     includeExamples,
+    examplesFor,
     remote,
+    offline,
     remoteVersion,
     kindFilter,
     depth,
@@ -264,6 +279,7 @@ function parseDiffArgs(argv) {
 
   // npm install is the default because semantic diff needs complete package contents.
   const preferCdn = argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm');
+  const offline = argv.includes('--offline');
 
   let filter = null;
   const filterIndex = argv.indexOf('--filter');
@@ -304,6 +320,7 @@ function parseDiffArgs(argv) {
     verbose,
     noColor,
     projectDir,
+    offline,
   };
 }
 
@@ -312,7 +329,8 @@ function usage() {
     'Uso:\n' +
       '  deplens <pacote> [filtro] [opções]\n' +
       '  deplens inspect <pacote> [filtro] [opções]\n' +
-      '  deplens diff <pacote> [opções]\n\n' +
+      '  deplens diff <pacote> [opções]\n' +
+      '  deplens doctor <pacote> [opções]\n\n' +
       'Opções (inspect):\n' +
       '  --filter VALUE         Filter exports by name\n' +
       '  --search QUERY         Semantic search (token matching + JSDoc)\n' +
@@ -320,11 +338,14 @@ function usage() {
       '  --docs                 Include README preview\n' +
       '  --list-sections        List available README sections\n' +
       '  --docs-sections S1,S2  Extract specific README sections\n' +
+      '  --docs-for SYMBOL      Rank README sections for a symbol\n' +
       '  --examples             Include code examples\n' +
+      '  --examples-for SYMBOL  Rank examples for a symbol\n' +
       '  --format text|json     Output format (default: text)\n' +
       '  --json                Shorthand for --format json\n' +
       '  --remote               Download package to cache\n' +
       '  --remote-version V     Version for remote download\n' +
+      '  --offline              Use cached remote packages only\n' +
       '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
       '  --prefer-npm          Force npm install (default)\n' +
       '  --max-exports N        Max exports to show (default: 100)\n' +
@@ -349,6 +370,7 @@ function usage() {
       '  --format text|json     Output format (default: text)\n' +
       '  --json                Shorthand for --format json\n' +
       '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
+      '  --offline             Use cached packages only\n' +
       '  --prefer-npm          Force npm install (default)\n' +
       '  --include-source       Compare source complexity\n' +
       '  --no-changelog         Skip changelog parsing\n' +
@@ -359,7 +381,7 @@ function usage() {
 }
 
 const argv = process.argv.slice(2);
-let command = argv[0] === 'diff' || argv[0] === 'inspect' ? argv[0] : 'inspect';
+let command = argv[0] === 'diff' || argv[0] === 'inspect' || argv[0] === 'doctor' ? argv[0] : 'inspect';
 if (argv[0] === 'cache') command = 'cache';
 if (argv[0] === 'history') command = 'history';
 
@@ -390,8 +412,31 @@ if (command === 'cache') {
         console.log(`  ${p.name}: ${p.sizeFormatted || p.size + ' B'}`);
       }
     }
+  } else if (subcmd === 'pin') {
+    const spec = argv[2];
+    if (!spec || !spec.includes('@') || spec.endsWith('@')) {
+      console.error('Usage: deplens cache pin <package>@<version>');
+      process.exit(1);
+    }
+    const atIndex = spec.startsWith('@') ? spec.indexOf('@', 1) : spec.lastIndexOf('@');
+    const pkg = spec.slice(0, atIndex);
+    const version = spec.slice(atIndex + 1);
+    try {
+      const result = await pinCache(pkg, version, {
+        preferCdn: argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm'),
+        projectDir: process.cwd(),
+      });
+      console.log(`Pinned ${result.package}@${result.version}`);
+      console.log(`CachePath: ${result.path}`);
+      if (result.metadata?.integrity) {
+        console.log(`Integrity: ${result.metadata.integrity}`);
+      }
+    } catch (e) {
+      console.error(`Failed to pin cache: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
   } else {
-    console.error('Usage: deplens cache [clear|stats] [package?]');
+    console.error('Usage: deplens cache [clear|stats|pin] [package?]');
     process.exit(1);
   }
   process.exit(0);
@@ -490,6 +535,7 @@ if (command === 'diff') {
     includeSource: parsed.includeSource,
     includeChangelog: parsed.includeChangelog,
     preferCdn: parsed.preferCdn,
+    offline: parsed.offline,
     filter: parsed.filter,
     format: parsed.format,
     verbose: parsed.verbose,
@@ -498,6 +544,27 @@ if (command === 'diff') {
 
   if (typeof output?.output === 'string' && output.output.length > 0) {
     process.stdout.write(output.output);
+  }
+} else if (command === 'doctor') {
+  if (!parsed.target) {
+    usage();
+    process.exit(1);
+  }
+
+  const output = await runDoctor({
+    target: parsed.target,
+    filter: parsed.filter,
+    remote: parsed.remote,
+    remoteVersion: parsed.remoteVersion,
+    preferCdn: parsed.preferCdn,
+    offline: parsed.offline,
+    resolveFrom: parsed.resolveFrom,
+    format: parsed.format,
+    cwd: process.cwd(),
+  });
+
+  if (typeof output === 'string' && output.length > 0) {
+    process.stdout.write(output);
   }
 } else {
   if (!parsed.target) {
@@ -510,10 +577,13 @@ if (command === 'diff') {
     filter: parsed.filter,
     showTypes: parsed.showTypes,
     includeDocs: parsed.includeDocs,
+    docsFor: parsed.docsFor,
     includeExamples: parsed.includeExamples,
+    examplesFor: parsed.examplesFor,
     remote: parsed.remote,
     remoteVersion: parsed.remoteVersion,
     preferCdn: parsed.preferCdn,
+    offline: parsed.offline,
     jsdoc: parsed.jsdoc,
     jsdocOutput: parsed.jsdocOutput,
     jsdocQuery: parsed.jsdocQuery,

@@ -31,6 +31,7 @@ export async function runDiff(options = {}) {
     includeSource = false,
     includeChangelog = true,
     preferCdn = false,
+    offline = false,
     filter,
     format = 'text', // "text" | "json"
     verbose = false,
@@ -39,6 +40,33 @@ export async function runDiff(options = {}) {
 
   if (!packageName) {
     throw new Error('Package name is required');
+  }
+
+  const isExactOfflineSpec = (spec) =>
+    spec === 'installed' || /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(String(spec));
+  if (offline && (!isExactOfflineSpec(from) || !isExactOfflineSpec(to))) {
+    const message = '--offline diff requires exact versions, except --from installed';
+    if (format === 'json') {
+      return {
+        output: formatDiffAsJson({
+          package: packageName,
+          error: message,
+          warnings: [message],
+          meta: {
+            package: packageName,
+            from,
+            to,
+            analyzedAt: new Date().toISOString(),
+            offline: true,
+          },
+        }),
+        error: message,
+      };
+    }
+    return {
+      output: `❌ Error: ${message}`,
+      error: message,
+    };
   }
 
   const output = [];
@@ -51,6 +79,7 @@ export async function runDiff(options = {}) {
     const versionPair = await downloadVersionPair(packageName, from, to, {
       projectDir,
       preferCdn,
+      offline,
       timeout: 120000,
     });
 

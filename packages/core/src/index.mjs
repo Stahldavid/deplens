@@ -5,9 +5,11 @@
 
 export { runInspect } from './inspect.mjs';
 export { runDiff } from './diff.mjs';
+export { runDoctor } from './doctor.mjs';
 export {
   clearCache,
   getCacheStats,
+  pinCache,
   getLatestVersion,
   getAllVersions,
 } from './version-resolver.mjs';

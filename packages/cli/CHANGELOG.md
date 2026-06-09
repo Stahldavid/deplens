@@ -1,5 +1,16 @@
 # @deplens/cli
 
+## 0.2.4
+
+### Patch Changes
+
+- Add a canonical multi-facet `symbols[]` JSON layer that correlates runtime exports, type declarations, and JSDoc while preserving the legacy `exports` and `types` fields.
+
+  Also expose conditional export/type resolution traces, add `deplens doctor` for agent-friendly package resolution diagnostics, include symbol-based semantic diff metadata, add focused `--docs-for`/`--examples-for` ranking, link `symbols[]` to source analysis when `--analyze-source` is enabled, and improve remote cache reproducibility with `--offline`, `cache pin`, and cache integrity metadata.
+
+- Updated dependencies []:
+  - @deplens/core@0.2.4
+
 ## 0.2.3
 
 ### Patch Changes

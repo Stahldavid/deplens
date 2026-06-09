@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import fs from 'fs';
 import path from 'path';
+import { buildSymbols } from './symbols.mjs';
 
 /**
  * Change types and their severity
@@ -144,6 +145,170 @@ function compareProperties(fromProps, toProps) {
   return changes;
 }
 
+function normalizeParams(params) {
+  if (!params) return [];
+  if (typeof params === 'string') {
+    return params
+      .split(',')
+      .map((param) => param.trim())
+      .filter(Boolean);
+  }
+  return params.map((param) => ({
+    name: param.name || '',
+    type: normalizeType(param.type || ''),
+    optional: Boolean(param.optional),
+  }));
+}
+
+function normalizeSymbolFacet(facet) {
+  if (!facet) return null;
+  return {
+    kind: facet.kind || null,
+    signature: normalizeType(facet.signature || ''),
+    params: normalizeParams(facet.params),
+    returnType: normalizeType(facet.returnType || ''),
+    properties: facet.properties || null,
+    definition: normalizeType(facet.definition || ''),
+    extends: facet.extends || null,
+    members: facet.members || null,
+  };
+}
+
+function symbolIdentity(symbol) {
+  return `${symbol.subpath || '.'}:${symbol.exportName || symbol.name}`;
+}
+
+function compareSymbolFacets(fromSymbol, toSymbol) {
+  const changes = [];
+  const fromFacets = new Set(fromSymbol.facets || []);
+  const toFacets = new Set(toSymbol.facets || []);
+
+  for (const facet of fromFacets) {
+    if (!toFacets.has(facet)) {
+      changes.push({
+        kind: 'facet_removed',
+        facet,
+        severity: facet === 'runtime' || facet === 'types' ? Severity.BREAKING : Severity.WARNING,
+        detail: `${facet} facet was removed`,
+      });
+    }
+  }
+
+  for (const facet of toFacets) {
+    if (!fromFacets.has(facet)) {
+      changes.push({
+        kind: 'facet_added',
+        facet,
+        severity: Severity.SAFE,
+        detail: `${facet} facet was added`,
+      });
+    }
+  }
+
+  for (const facet of ['runtime', 'types']) {
+    if (!fromFacets.has(facet) || !toFacets.has(facet)) continue;
+    const fromFacet = normalizeSymbolFacet(fromSymbol[facet]);
+    const toFacet = normalizeSymbolFacet(toSymbol[facet]);
+    if (fromFacet.kind !== toFacet.kind) {
+      changes.push({
+        kind: 'kind_changed',
+        facet,
+        severity: facet === 'types' ? Severity.WARNING : Severity.BREAKING,
+        detail: `${facet} kind changed: ${fromFacet.kind || 'unknown'} → ${toFacet.kind || 'unknown'}`,
+      });
+    }
+    if (JSON.stringify(fromFacet.params) !== JSON.stringify(toFacet.params)) {
+      changes.push({
+        kind: 'params_changed',
+        facet,
+        severity: Severity.WARNING,
+        detail: `${facet} parameters changed`,
+      });
+    }
+    if (fromFacet.returnType !== toFacet.returnType) {
+      changes.push({
+        kind: 'return_changed',
+        facet,
+        severity: Severity.WARNING,
+        detail: `${facet} return type changed: ${fromFacet.returnType || 'unknown'} → ${toFacet.returnType || 'unknown'}`,
+      });
+    }
+    if (fromFacet.definition !== toFacet.definition) {
+      changes.push({
+        kind: 'definition_changed',
+        facet,
+        severity: Severity.WARNING,
+        detail: `${facet} definition changed`,
+      });
+    }
+  }
+
+  return changes;
+}
+
+function compareSymbols(fromSymbols, toSymbols) {
+  const fromMap = new Map(fromSymbols.map((symbol) => [symbolIdentity(symbol), symbol]));
+  const toMap = new Map(toSymbols.map((symbol) => [symbolIdentity(symbol), symbol]));
+  const changes = [];
+
+  for (const [id, fromSymbol] of fromMap) {
+    const toSymbol = toMap.get(id);
+    if (!toSymbol) {
+      changes.push({
+        kind: 'symbol_removed',
+        severity: Severity.BREAKING,
+        identity: id,
+        name: fromSymbol.exportName,
+        subpath: fromSymbol.subpath,
+        detail: `Symbol '${fromSymbol.exportName}' was removed`,
+        from: fromSymbol,
+        to: null,
+      });
+      continue;
+    }
+
+    for (const facetChange of compareSymbolFacets(fromSymbol, toSymbol)) {
+      changes.push({
+        ...facetChange,
+        identity: id,
+        name: fromSymbol.exportName,
+        subpath: fromSymbol.subpath,
+        detail: `Symbol '${fromSymbol.exportName}': ${facetChange.detail}`,
+        from: fromSymbol,
+        to: toSymbol,
+      });
+    }
+  }
+
+  for (const [id, toSymbol] of toMap) {
+    if (fromMap.has(id)) continue;
+    changes.push({
+      kind: 'symbol_added',
+      severity: Severity.SAFE,
+      identity: id,
+      name: toSymbol.exportName,
+      subpath: toSymbol.subpath,
+      detail: `Symbol '${toSymbol.exportName}' was added`,
+      from: null,
+      to: toSymbol,
+    });
+  }
+
+  return {
+    fromCount: fromSymbols.length,
+    toCount: toSymbols.length,
+    changes,
+    summary: {
+      breaking: changes.filter((change) => change.severity === Severity.BREAKING).length,
+      warnings: changes.filter((change) => change.severity === Severity.WARNING).length,
+      additions: changes.filter((change) => change.kind === 'symbol_added' || change.kind === 'facet_added')
+        .length,
+      removals: changes.filter((change) => change.kind === 'symbol_removed' || change.kind === 'facet_removed')
+        .length,
+    },
+  };
+}
+
 /**
  * Analyze types from a package directory - self-contained implementation
  */
@@ -186,15 +351,24 @@ async function analyzePackageTypes(packageDir, options = {}) {
     'dist/index.d.ts',
   ].filter(Boolean);
 
+  let selectedTypesEntry = null;
   for (const entry of entryPoints) {
     const fullPath = path.join(packageDir, entry);
     if (fs.existsSync(fullPath)) {
+      selectedTypesEntry = entry;
       parseTypesRecursively(fullPath, packageDir, allExports, visited);
       break;
     }
   }
 
   result.exports = allExports;
+  result.symbols = buildSymbols({
+    packageName: pkg.name,
+    subpath: null,
+    typeInfo: allExports,
+    typesPath: selectedTypesEntry,
+    typesSource: selectedTypesEntry ? 'package' : null,
+  });
   return result;
 }
 
@@ -345,6 +519,7 @@ export async function compareVersions(fromDir, toDir, options = {}) {
       additions: 0,
       removals: 0,
     },
+    symbols: compareSymbols(fromAnalysis.symbols || [], toAnalysis.symbols || []),
   };
 
   // Compare each export category

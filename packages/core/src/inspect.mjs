@@ -2,6 +2,7 @@
 import { runInspectCore } from './inspect-core.mjs';
 import { runSourceAnalysis } from './inspect-source.mjs';
 import { saveHistoryEntry } from './history-manager.mjs';
+import { enrichSymbolsWithSource } from './symbols.mjs';
 
 export async function runInspect(options) {
   const rawOutput = await runInspectCore(options);
@@ -29,6 +30,9 @@ export async function runInspect(options) {
     });
 
     jsonOutput.sourceAnalysis = sourceResult.sourceAnalysis;
+    if (Array.isArray(jsonOutput.symbols) && sourceResult.sourceAnalysis) {
+      jsonOutput.symbols = enrichSymbolsWithSource(jsonOutput.symbols, sourceResult.sourceAnalysis);
+    }
     jsonOutput.languageAnalysis = {
       language: sourceResult.detectedLang || 'unknown',
       files: sourceResult.languageAnalysis?.summary?.totalFiles || 0,

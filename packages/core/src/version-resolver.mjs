@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 
 // Use user's home directory for more reliable caching
 const CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'versions');
@@ -41,6 +42,57 @@ function isNpmInstallCache(cachePath) {
     fs.existsSync(path.join(cachePath, 'package-lock.json')) ||
     fs.existsSync(path.join(cachePath, 'node_modules', '.package-lock.json'))
   );
+}
+
+function cacheMetadataPath(cachePath) {
+  return path.join(cachePath, '.deplens-cache.json');
+}
+
+function hashDirectory(dirPath) {
+  if (!fs.existsSync(dirPath)) return null;
+  const hash = crypto.createHash('sha256');
+  const files = [];
+  const visit = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+      } else if (entry.isFile()) {
+        files.push(fullPath);
+      }
+    }
+  };
+  visit(dirPath);
+  files.sort();
+  for (const file of files) {
+    const rel = path.relative(dirPath, file).replace(/\\/g, '/');
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  }
+  return `sha256-${hash.digest('hex')}`;
+}
+
+function writeCacheMetadata(cachePath, packageDir, packageName, version, source) {
+  const metadata = {
+    schemaVersion: 1,
+    package: packageName,
+    version,
+    source,
+    cachedAt: new Date().toISOString(),
+    integrity: hashDirectory(packageDir),
+  };
+  fs.writeFileSync(cacheMetadataPath(cachePath), JSON.stringify(metadata, null, 2));
+  return metadata;
+}
+
+function readCacheMetadata(cachePath) {
+  try {
+    return JSON.parse(fs.readFileSync(cacheMetadataPath(cachePath), 'utf-8'));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -181,20 +233,29 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
 }
 
 export async function downloadVersion(packageName, version, options = {}) {
-  const { force = false, timeout = 60000, preferCdn = false } = options;
+  const { force = false, timeout = 60000, preferCdn = false, offline = false } = options;
 
   const cachePath = getCachePath(packageName, version);
 
   // Return cached if available
   if (!force && isCached(packageName, version)) {
-    if (preferCdn || isNpmInstallCache(cachePath)) {
+    if (offline || preferCdn || isNpmInstallCache(cachePath)) {
+      const packageDir = path.join(cachePath, 'node_modules', packageName);
+      const metadata =
+        readCacheMetadata(cachePath) ||
+        writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache');
       return {
         path: cachePath,
-        packageDir: path.join(cachePath, 'node_modules', packageName),
+        packageDir,
         cached: true,
+        metadata,
       };
     }
     fs.rmSync(cachePath, { recursive: true, force: true });
+  }
+
+  if (offline) {
+    throw new Error(`${packageName}@${version} is not cached and --offline was requested`);
   }
 
   // Create fresh directory
@@ -207,7 +268,10 @@ export async function downloadVersion(packageName, version, options = {}) {
   if (preferCdn && typeof fetch === 'function') {
     const fetched = await tryFetchPackageFromCdn(packageName, version, cachePath, timeout);
     if (fetched) {
-      return fetched;
+      return {
+        ...fetched,
+        metadata: writeCacheMetadata(cachePath, fetched.packageDir, packageName, version, 'cdn'),
+      };
     }
   }
 
@@ -244,6 +308,7 @@ export async function downloadVersion(packageName, version, options = {}) {
     packageDir,
     cached: false,
     fetched: false,
+    metadata: writeCacheMetadata(cachePath, packageDir, packageName, version, 'npm'),
   };
 }
 
@@ -281,6 +346,19 @@ export function resolveVersion(packageName, versionSpec, projectDir = process.cw
 
   // Assume it's an exact version
   return versionSpec;
+}
+
+export async function pinCache(packageName, versionSpec, options = {}) {
+  const version = resolveVersion(packageName, versionSpec, options.projectDir || process.cwd());
+  const result = await downloadVersion(packageName, version, {
+    ...options,
+    force: options.force || false,
+  });
+  return {
+    package: packageName,
+    version,
+    ...result,
+  };
 }
 
 /**
@@ -396,6 +474,7 @@ export default {
   getInstalledVersion,
   downloadVersion,
   resolveVersion,
+  pinCache,
   downloadVersionPair,
   clearCache,
   getCacheStats,

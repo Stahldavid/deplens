@@ -90,13 +90,14 @@ function resolveWildcardTarget(basePath) {
 }
 
 export function filterTypeInfo(typeInfoRaw, filterRaw, kindFilter = []) {
-  if (!typeInfoRaw) return { functions: {}, interfaces: {}, types: {}, classes: {}, enums: {}, namespaces: {} };
+  if (!typeInfoRaw) return { functions: {}, interfaces: {}, types: {}, classes: {}, enums: {}, namespaces: {}, jsdoc: {} };
   let functions = typeInfoRaw.functions || {};
   let interfaces = typeInfoRaw.interfaces || {};
   let types = typeInfoRaw.types || {};
   let classes = typeInfoRaw.classes || {};
   let enums = typeInfoRaw.enums || {};
   let namespaces = typeInfoRaw.namespaces || {};
+  let jsdoc = typeInfoRaw.jsdoc || {};
   if (filterRaw) {
     const isRegex = filterRaw.startsWith('/') && filterRaw.endsWith('/') && filterRaw.length > 2;
     const regex = isRegex ? new RegExp(filterRaw.slice(1,-1), 'i') : null;
@@ -107,6 +108,7 @@ export function filterTypeInfo(typeInfoRaw, filterRaw, kindFilter = []) {
     classes = Object.fromEntries(Object.entries(classes).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
     enums = Object.fromEntries(Object.entries(enums).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
     namespaces = Object.fromEntries(Object.entries(namespaces).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    jsdoc = Object.fromEntries(Object.entries(jsdoc).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
   }
   if (kindFilter && kindFilter.length > 0) {
     if (!kindFilter.includes('function')) functions = {};
@@ -116,5 +118,16 @@ export function filterTypeInfo(typeInfoRaw, filterRaw, kindFilter = []) {
     if (!kindFilter.includes('enum')) enums = {};
     if (!kindFilter.includes('namespace')) namespaces = {};
   }
-  return { functions, interfaces, types, classes, enums, namespaces };
+  const symbolNames = new Set([
+    ...Object.keys(functions),
+    ...Object.keys(interfaces),
+    ...Object.keys(types),
+    ...Object.keys(classes),
+    ...Object.keys(enums),
+    ...Object.keys(namespaces),
+  ]);
+  if (symbolNames.size > 0) {
+    jsdoc = Object.fromEntries(Object.entries(jsdoc).filter(([name]) => symbolNames.has(name)));
+  }
+  return { functions, interfaces, types, classes, enums, namespaces, jsdoc };
 }

@@ -12,6 +12,8 @@ import { analyzePythonPackage, resolvePythonPackage } from './analyze-python.mjs
 import { downloadVersion } from './version-resolver.mjs';
 import { execSync } from 'child_process';
 import {getCachedDtsParse, generateDts, filterTypeInfo} from './inspect-types.mjs';
+import { buildSymbols } from './symbols.mjs';
+import { buildResolutionTrace } from './resolution-trace.mjs';
 
 function getPackageName(target) {
   if (!target) return target;
@@ -731,6 +733,41 @@ function extractSectionsByName(markdown, sectionNames, maxCharsPerSection = 4000
   return results;
 }
 
+function rankReadmeSections(markdown, needle, maxSections = 5, maxCharsPerSection = 4000) {
+  if (!markdown || !needle) return [];
+  const sections = extractMarkdownSections(markdown);
+  const tokens = expandSynonyms(tokenizeSymbolName(needle));
+  const lowerNeedle = String(needle).toLowerCase();
+  const ranked = sections.map((section, index) => {
+    const titleLower = section.title.toLowerCase();
+    const contentLower = section.content.toLowerCase();
+    let score = 0;
+    if (titleLower.includes(lowerNeedle)) score += 50;
+    score += (contentLower.split(lowerNeedle).length - 1) * 20;
+    for (const token of tokens) {
+      if (titleLower.includes(token)) score += 10;
+      score += (contentLower.split(token).length - 1) * 3;
+    }
+    if (section.codeBlocks.some((block) => block.code.toLowerCase().includes(lowerNeedle))) {
+      score += 30;
+    }
+    return { section, index, score };
+  });
+
+  return ranked
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, maxSections)
+    .map(({ section, score }) => ({
+      title: section.title,
+      level: section.level,
+      score,
+      content: section.content.slice(0, maxCharsPerSection),
+      codeBlocks: section.codeBlocks,
+      truncated: section.content.length > maxCharsPerSection,
+    }));
+}
+
 /**
  * Tokenize symbol name (camelCase, snake_case, kebab-case)
  */
@@ -860,6 +897,44 @@ function listExamplesFromDirs(pkgDir, maxFiles = 12) {
     }
   }
   return result;
+}
+
+function exampleNeedle(optionsFilter, examplesFor) {
+  const raw = examplesFor || optionsFilter || null;
+  return raw ? String(raw).trim() : null;
+}
+
+function scoreExampleForNeedle(example, needle) {
+  if (!needle) return 0;
+  const lowerNeedle = needle.toLowerCase();
+  const haystack = [example.path, example.symbol, example.lang, example.code]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+  let score = 0;
+  if ((example.symbol || '').toLowerCase() === lowerNeedle) score += 100;
+  if ((example.path || '').toLowerCase().includes(lowerNeedle)) score += 25;
+  const directMatches = haystack.split(lowerNeedle).length - 1;
+  score += directMatches * 12;
+
+  const tokens = tokenizeSymbolName(needle);
+  for (const token of tokens) {
+    if (token.length < 2) continue;
+    const tokenMatches = haystack.split(token).length - 1;
+    score += tokenMatches * 3;
+  }
+  return score;
+}
+
+function rankExamplesForNeedle(examples, needle, maxExamples) {
+  const ranked = examples.map((example, index) => ({
+    ...example,
+    score: scoreExampleForNeedle(example, needle),
+    rankSource: needle ? 'symbol' : 'default',
+    _index: index,
+  }));
+  ranked.sort((a, b) => b.score - a.score || a._index - b._index);
+  return ranked.slice(0, maxExamples).map(({ _index, ...example }) => example);
 }
 
 function truncateSummary(text, mode, maxLen, truncateMode) {
@@ -1031,7 +1106,9 @@ export async function runInspectCore(options) {
   const filter = filterRaw ? filterRaw.toLowerCase() : null;
   const showTypes = Boolean(options?.showTypes);
   const includeDocs = Boolean(options?.includeDocs);
+  const docsFor = options?.docsFor ? String(options.docsFor) : null;
   const includeExamples = Boolean(options?.includeExamples);
+  const examplesFor = options?.examplesFor ? String(options.examplesFor) : null;
   const remote = Boolean(options?.remote);
   const remoteVersion = options?.remoteVersion ? String(options.remoteVersion) : null;
 
@@ -1082,10 +1159,13 @@ export async function runInspectCore(options) {
           meta: {
             target: target || null,
             includeDocs,
+            docsFor,
             includeExamples,
+            examplesFor,
             showTypes,
             remote,
             remoteVersion,
+            offline: Boolean(options?.offline),
             listSections,
             docsSections: docsSections || null,
             search,
@@ -1121,6 +1201,7 @@ export async function runInspectCore(options) {
     : null;
   let resolveFrom = explicitResolveFromRaw || baseCwd;
   let explicitResolveFrom = explicitResolveFromRaw;
+  let remoteCache = null;
   const inferredProjectLanguage = detectLanguage(resolveFrom || baseCwd || process.cwd());
   const shouldTryPythonResolution =
     forcedLanguage === 'python' || (!forcedLanguage && inferredProjectLanguage === 'python');
@@ -1129,19 +1210,32 @@ export async function runInspectCore(options) {
     const basePkgName = getPackageName(target);
     if (basePkgName) {
       const spec = remoteVersion || 'latest';
+      if (options?.offline && !remoteVersion) {
+        const message = '--offline with --remote requires an explicit --remote-version';
+        warn(message);
+        logErr(`\n❌ Remote download failed: ${message}`);
+      } else {
       log(`\n🌐 Remote: downloading ${basePkgName}@${spec}...`);
       try {
         const downloaded = await downloadVersion(basePkgName, spec, {
           timeout: 120000,
           preferCdn: Boolean(options?.preferCdn),
+          offline: Boolean(options?.offline),
         });
         resolveFrom = downloaded.path;
         explicitResolveFrom = downloaded.path;
+        remoteCache = {
+          path: downloaded.path,
+          cached: Boolean(downloaded.cached),
+          fetched: Boolean(downloaded.fetched),
+          metadata: downloaded.metadata || null,
+        };
         log(`   CachePath: ${downloaded.path}`);
         log(`   Cached: ${downloaded.cached ? 'yes' : 'no'}`);
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         logErr(`\n❌ Remote download failed: ${message}`);
+      }
       }
     }
   }
@@ -1169,6 +1263,7 @@ export async function runInspectCore(options) {
       resolved: resolution.resolved || null,
       entrypointPath: entrypointPath || null,
       entrypointExists,
+      cache: remoteCache,
     };
   }
 
@@ -1313,13 +1408,13 @@ export async function runInspectCore(options) {
         jsonOutput.pkgDir = pkgDir;
       }
 
-      if (includeDocs || listSections || docsSections) {
+      if (includeDocs || listSections || docsSections || docsFor) {
         const readme = readPackageTextFile(pkgDir, ['README.md', 'readme.md', 'README.MD']);
 
         if (listSections) {
           // List available sections
           const sections = listReadmeSections(readme);
-          if (format === 'json') {
+          if (jsonOutput) {
             jsonOutput.sections = sections;
           } else {
             log(`\n📑 Available README Sections (${sections.length}):`);
@@ -1330,10 +1425,24 @@ export async function runInspectCore(options) {
           }
         }
 
-        if (docsSections && docsSections.length > 0) {
+        if (docsFor) {
+          const rankedSections = rankReadmeSections(readme, docsFor, 5, 4000);
+          if (jsonOutput) {
+            jsonOutput.docs = { target: docsFor, rankedSections };
+          } else {
+            log(`\n📚 Docs ranked for ${docsFor} (${rankedSections.length} sections):`);
+            for (const section of rankedSections) {
+              log(`\n--- ${section.title} (score ${section.score}) ---`);
+              log(section.content);
+              if (section.truncated) {
+                log('\n… (truncated)');
+              }
+            }
+          }
+        } else if (docsSections && docsSections.length > 0) {
           // Extract specific sections
           const extracted = extractSectionsByName(readme, docsSections, 4000);
-          if (format === 'json') {
+          if (jsonOutput) {
             jsonOutput.docs = { sections: extracted };
           } else {
             log(`\n📚 Docs (${extracted.length} sections):`);
@@ -1349,7 +1458,7 @@ export async function runInspectCore(options) {
           // Original behavior: full README preview
           if (readme) {
             const preview = readme.trim().slice(0, 4000);
-            if (format === 'json') {
+            if (jsonOutput) {
               jsonOutput.docs = {
                 readme: preview,
                 truncated: readme.trim().length > 4000,
@@ -1371,9 +1480,13 @@ export async function runInspectCore(options) {
 
       if (includeExamples) {
         const readme = readPackageTextFile(pkgDir, ['README.md', 'readme.md', 'README.MD']);
-        const readmeBlocks = extractMarkdownCodeFences(readme, 10, 50);
+        const targetNeedle = exampleNeedle(filterRaw, examplesFor);
+        const readmeBlocks = extractMarkdownCodeFences(readme, maxExamples, 50).map((block) => ({
+          ...block,
+          source: 'readme',
+        }));
 
-        const examplesFiles = listExamplesFromDirs(pkgDir, 10);
+        const examplesFiles = listExamplesFromDirs(pkgDir, maxExamples);
         const examplesContent = [];
         for (const relPath of examplesFiles) {
           const full = path.join(pkgDir, relPath);
@@ -1381,7 +1494,7 @@ export async function runInspectCore(options) {
             const body = fs.readFileSync(full, 'utf-8');
             const snippet = body.split('\n').slice(0, 80).join('\n').trim();
             if (!snippet) continue;
-            examplesContent.push({ path: relPath, code: snippet });
+            examplesContent.push({ source: 'file', path: relPath, code: snippet });
           } catch {
             // ignore
           }
@@ -1398,22 +1511,30 @@ export async function runInspectCore(options) {
               for (const snippet of ex) {
                 if (!snippet || !looksLikeCodeBlock(snippet)) continue;
                 jsdocExamples.push({
+                  source: 'jsdoc',
                   symbol: name,
                   code: String(snippet).trim(),
                 });
-                if (jsdocExamples.length >= 10) break;
+                if (jsdocExamples.length >= maxExamples) break;
               }
-              if (jsdocExamples.length >= 10) break;
+              if (jsdocExamples.length >= maxExamples) break;
             }
           }
         }
 
         const hasAnything =
           readmeBlocks.length > 0 || examplesContent.length > 0 || jsdocExamples.length > 0;
+        const rankedExamples = rankExamplesForNeedle(
+          [...readmeBlocks, ...examplesContent, ...jsdocExamples],
+          targetNeedle,
+          maxExamples
+        );
 
         // Populate JSON examples
         if (jsonOutput) {
           jsonOutput.examples = {
+            target: targetNeedle,
+            ranked: rankedExamples,
             readme: readmeBlocks,
             files: examplesContent,
             jsdoc: jsdocExamples,
@@ -1424,8 +1545,16 @@ export async function runInspectCore(options) {
           log('\n🧩 Examples: none found');
         } else {
           log('\n🧩 Examples:');
+          if (targetNeedle) {
+            log(`\n  Ranked for: ${targetNeedle}`);
+            for (const ex of rankedExamples) {
+              const label = ex.symbol || ex.path || ex.lang || ex.source || 'example';
+              log(`\n  --- ${label} (score ${ex.score}) ---`);
+              log(ex.code);
+            }
+          }
 
-          if (readmeBlocks.length > 0) {
+          if (!targetNeedle && readmeBlocks.length > 0) {
             log(`\n  📄 README code fences (${readmeBlocks.length}):`);
             readmeBlocks.forEach((b, i) => {
               log(`\n  --- README example #${i + 1}${b.lang ? ` (${b.lang})` : ''} ---`);
@@ -1433,7 +1562,7 @@ export async function runInspectCore(options) {
             });
           }
 
-          if (examplesContent.length > 0) {
+          if (!targetNeedle && examplesContent.length > 0) {
             log(`\n  📁 examples/ files (${examplesContent.length}):`);
             for (const ex of examplesContent) {
               log(`\n  --- ${ex.path} ---`);
@@ -1441,7 +1570,7 @@ export async function runInspectCore(options) {
             }
           }
 
-          if (jsdocExamples.length > 0) {
+          if (!targetNeedle && jsdocExamples.length > 0) {
             log(`\n  🏷️  JSDoc @example (${jsdocExamples.length}):`);
             for (const ex of jsdocExamples) {
               log(`\n  --- ${ex.symbol} ---`);
@@ -1851,9 +1980,11 @@ export async function runInspectCore(options) {
 
 
 
+    let symbolTypeInfo = null;
     if (jsonOutput && dtsPath && fs.existsSync(dtsPath) && !jsonOutput.types) {
       const typeInfoRaw2 = await getCachedDtsParse(dtsPath);
       const typeInfo = filterTypeInfo(typeInfoRaw2, filter, kindFilter);
+      symbolTypeInfo = typeInfo;
       if (typeInfo) {
         jsonOutput.types = {
           source: path.basename(dtsPath),
@@ -1864,6 +1995,55 @@ export async function runInspectCore(options) {
           enums: typeInfo.enums || {},
         };
       }
+    }
+
+    if (jsonOutput) {
+      if (!symbolTypeInfo && typeInfoRaw) {
+        symbolTypeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
+      }
+      const relativeRuntimePath =
+        entrypointPath && pkgDir && entrypointPath.startsWith(pkgDir)
+          ? path.relative(pkgDir, entrypointPath)
+          : entrypointPath || null;
+      const relativeTypesPath =
+        dtsPath && pkgDir && dtsPath.startsWith(pkgDir)
+          ? path.relative(pkgDir, dtsPath)
+          : dtsPath || null;
+      if (jsonOutput.resolution) {
+        jsonOutput.resolution.runtimePath = relativeRuntimePath;
+        jsonOutput.resolution.typesPath = relativeTypesPath;
+        jsonOutput.resolution.typesSource = typesSource || null;
+        jsonOutput.resolution.runtimeTypesDiverge = Boolean(
+          relativeRuntimePath && relativeTypesPath && relativeRuntimePath !== relativeTypesPath
+        );
+        jsonOutput.resolution.trace = buildResolutionTrace({
+          pkg,
+          subpath,
+          resolver: resolution.resolver,
+          runtimePath: relativeRuntimePath,
+          runtimeAvailable,
+          typesPath: relativeTypesPath,
+          typesSource,
+        });
+      }
+      const runtimeCondition =
+        jsonOutput.resolution?.trace?.runtime?.conditionsMatched?.slice(-1)[0] || null;
+      const typesCondition =
+        jsonOutput.resolution?.trace?.types?.conditionsMatched?.slice(-1)[0] ||
+        (typesSource === 'exports' ? 'types' : null);
+      jsonOutput.symbols = buildSymbols({
+        packageName: pkg?.name || basePkg || target,
+        subpath,
+        runtimeNames: finalList,
+        categorized,
+        runtimePath: relativeRuntimePath,
+        runtimeAvailable,
+        runtimeCondition,
+        typeInfo: symbolTypeInfo,
+        typesPath: relativeTypesPath,
+        typesSource,
+        typesCondition,
+      });
     }
 
     // Source code analysis

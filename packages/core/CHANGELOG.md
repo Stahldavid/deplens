@@ -1,5 +1,13 @@
 # @deplens/core
 
+## 0.2.5
+
+### Patch Changes
+
+- Repair semantic diff symbol analysis for packages that expose declarations through conditional exports, include symbol changes in JSON `changes`/`changeCount`, and add runtime symbol coverage for simple packages.
+
+  Also add `deplens --version`, JSON output for `deplens cache stats --json`, document cache commands in help, and warn when CDN remote cache lacks enough files for type analysis.
+
 ## 0.2.4
 
 ### Patch Changes

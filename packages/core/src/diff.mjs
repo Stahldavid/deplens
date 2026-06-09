@@ -142,6 +142,15 @@ export async function runDiff(options = {}) {
         ...diff.warnings,
         ...diff.additions,
         ...diff.info,
+        ...(diff.symbols?.changes || []).map((change) => ({
+          category: 'symbol',
+          type: change.kind,
+          severity: change.severity,
+          name: change.name,
+          detail: change.detail,
+          from: change.from,
+          to: change.to,
+        })),
       ];
       return {
         output: formatDiffAsJson({

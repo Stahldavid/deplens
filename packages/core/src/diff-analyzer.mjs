@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { buildSymbols } from './symbols.mjs';
 
 /**
@@ -309,6 +310,84 @@ function compareSymbols(fromSymbols, toSymbols) {
   };
 }
 
+function resolveConditionalExport(entry, preferred = ['types', 'import', 'require', 'default']) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  if (Array.isArray(entry)) {
+    for (const item of entry) {
+      const resolved = resolveConditionalExport(item, preferred);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+  if (typeof entry !== 'object') return null;
+  for (const condition of preferred) {
+    if (condition in entry) {
+      const resolved = resolveConditionalExport(entry[condition], preferred);
+      if (resolved) return resolved;
+    }
+  }
+  for (const value of Object.values(entry)) {
+    const resolved = resolveConditionalExport(value, preferred);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function findTypesEntry(pkg) {
+  const candidates = [pkg.types, pkg.typings];
+  const rootExport = typeof pkg.exports === 'object' ? pkg.exports['.'] || pkg.exports : null;
+  const exportTypes = resolveConditionalExport(rootExport, ['types', 'typings', 'default']);
+  if (exportTypes) candidates.push(exportTypes);
+  candidates.push('index.d.ts', 'index.d.cts', 'index.d.mts', 'lib/index.d.ts', 'dist/index.d.ts');
+  return candidates.filter(Boolean);
+}
+
+function findRuntimeEntry(pkg) {
+  const rootExport = typeof pkg.exports === 'object' ? pkg.exports['.'] || pkg.exports : null;
+  const exportRuntime = resolveConditionalExport(rootExport, ['import', 'require', 'node', 'default']);
+  return [exportRuntime, pkg.module, pkg.main, 'index.js', 'index.mjs', 'index.cjs'].filter(Boolean);
+}
+
+function runtimeKind(name, value) {
+  if (typeof value === 'function') {
+    const source = Function.prototype.toString.call(value);
+    return source.startsWith('class ') ? 'class' : 'function';
+  }
+  if (value && typeof value === 'object') return 'object';
+  return 'constant';
+}
+
+async function inspectRuntimeExports(packageDir, pkg) {
+  const entry = findRuntimeEntry(pkg).find((candidate) =>
+    fs.existsSync(path.join(packageDir, candidate))
+  );
+  if (!entry) return { runtimeNames: [], categorized: {}, runtimePath: null, runtimeAvailable: false };
+  try {
+    const mod = await import(pathToFileURL(path.join(packageDir, entry)).href);
+    const names = Object.keys(mod);
+    if ('default' in mod && mod.default && typeof mod.default === 'object') {
+      for (const key of Object.keys(mod.default)) {
+        if (!names.includes(key)) names.push(key);
+      }
+    }
+    const valueFor = (name) => (name in mod ? mod[name] : mod.default?.[name]);
+    return {
+      runtimeNames: names,
+      categorized: {
+        functions: names.filter((name) => runtimeKind(name, valueFor(name)) === 'function'),
+        classes: names.filter((name) => runtimeKind(name, valueFor(name)) === 'class'),
+        objects: names.filter((name) => runtimeKind(name, valueFor(name)) === 'object'),
+        constants: names.filter((name) => runtimeKind(name, valueFor(name)) === 'constant'),
+      },
+      runtimePath: entry,
+      runtimeAvailable: true,
+    };
+  } catch {
+    return { runtimeNames: [], categorized: {}, runtimePath: entry, runtimeAvailable: false };
+  }
+}
+
 /**
  * Analyze types from a package directory - self-contained implementation
  */
@@ -340,16 +419,12 @@ async function analyzePackageTypes(packageDir, options = {}) {
     interfaces: {},
     types: {},
     enums: {},
+    namespaces: {},
+    jsdoc: {},
   };
 
   // Start from the main types entry point
-  const entryPoints = [
-    pkg.types,
-    pkg.typings,
-    'index.d.ts',
-    'lib/index.d.ts',
-    'dist/index.d.ts',
-  ].filter(Boolean);
+  const entryPoints = findTypesEntry(pkg);
 
   let selectedTypesEntry = null;
   for (const entry of entryPoints) {
@@ -362,9 +437,14 @@ async function analyzePackageTypes(packageDir, options = {}) {
   }
 
   result.exports = allExports;
+  const runtime = await inspectRuntimeExports(packageDir, pkg);
   result.symbols = buildSymbols({
     packageName: pkg.name,
     subpath: null,
+    runtimeNames: runtime.runtimeNames,
+    categorized: runtime.categorized,
+    runtimePath: runtime.runtimePath,
+    runtimeAvailable: runtime.runtimeAvailable,
     typeInfo: allExports,
     typesPath: selectedTypesEntry,
     typesSource: selectedTypesEntry ? 'package' : null,

@@ -2044,6 +2044,16 @@ export async function runInspectCore(options) {
         typesSource,
         typesCondition,
       });
+      if (
+        options?.preferCdn &&
+        showTypes &&
+        jsonOutput.symbols.length === 0 &&
+        remoteCache?.metadata?.source === 'cdn'
+      ) {
+        warn(
+          'CDN cache did not provide enough package files for type analysis; retry with --prefer-npm for full package contents.'
+        );
+      }
     }
 
     // Source code analysis

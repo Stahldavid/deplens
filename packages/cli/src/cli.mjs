@@ -2,6 +2,19 @@
 import { runInspect, runDiff, runDoctor } from '@deplens/core';
 import { clearCache, getCacheStats, pinCache } from '@deplens/core';
 import { listHistory, getHistoryEntry, clearHistory, compareHistoryEntries } from '@deplens/core';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+function cliVersion() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const pkgPath = path.resolve(here, '..', 'package.json');
+  try {
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+  } catch {
+    return 'unknown';
+  }
+}
 
 function parseInspectArgs(argv) {
   const target = argv[0];
@@ -330,7 +343,8 @@ function usage() {
       '  deplens <pacote> [filtro] [opções]\n' +
       '  deplens inspect <pacote> [filtro] [opções]\n' +
       '  deplens diff <pacote> [opções]\n' +
-      '  deplens doctor <pacote> [opções]\n\n' +
+      '  deplens doctor <pacote> [opções]\n' +
+      '  deplens cache [stats|clear|pin] [opções]\n\n' +
       'Opções (inspect):\n' +
       '  --filter VALUE         Filter exports by name\n' +
       '  --search QUERY         Semantic search (token matching + JSDoc)\n' +
@@ -381,6 +395,10 @@ function usage() {
 }
 
 const argv = process.argv.slice(2);
+if (argv.includes('--version') || argv.includes('-v')) {
+  console.log(cliVersion());
+  process.exit(0);
+}
 let command = argv[0] === 'diff' || argv[0] === 'inspect' || argv[0] === 'doctor' ? argv[0] : 'inspect';
 if (argv[0] === 'cache') command = 'cache';
 if (argv[0] === 'history') command = 'history';
@@ -404,12 +422,16 @@ if (command === 'cache') {
     console.log(`Cache cleared${pkg ? ` for ${pkg}` : ''}.`);
   } else if (subcmd === 'stats' || subcmd === 'status') {
     const stats = getCacheStats();
-    console.log(`📦 Cache entries: ${stats.entries}`);
-    console.log(`📊 Total size: ${stats.sizeFormatted || stats.size + ' B'}`);
-    if (stats.packages && stats.packages.length > 0) {
+    if (argv.includes('--json')) {
+      console.log(JSON.stringify(stats, null, 2));
+    } else {
+      console.log(`📦 Cache entries: ${stats.entries}`);
+      console.log(`📊 Total size: ${stats.sizeFormatted || stats.size + ' B'}`);
+      if (stats.packages && stats.packages.length > 0) {
       console.log('\nPackages:');
       for (const p of stats.packages.sort((a, b) => b.size - a.size).slice(0, 10)) {
         console.log(`  ${p.name}: ${p.sizeFormatted || p.size + ' B'}`);
+      }
       }
     }
   } else if (subcmd === 'pin') {

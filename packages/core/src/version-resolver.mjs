@@ -163,6 +163,37 @@ async function fetchText(url, timeoutMs) {
   }
 }
 
+function resolveConditionalExport(entry, preferred = ['types', 'import', 'require', 'default']) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  if (Array.isArray(entry)) {
+    for (const item of entry) {
+      const resolved = resolveConditionalExport(item, preferred);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+  if (typeof entry !== 'object') return null;
+  for (const condition of preferred) {
+    if (condition in entry) {
+      const resolved = resolveConditionalExport(entry[condition], preferred);
+      if (resolved) return resolved;
+    }
+  }
+  for (const value of Object.values(entry)) {
+    const resolved = resolveConditionalExport(value, preferred);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function rootExport(pkg) {
+  if (!pkg.exports) return null;
+  if (typeof pkg.exports === 'string') return pkg.exports;
+  if (typeof pkg.exports === 'object') return pkg.exports['.'] || pkg.exports;
+  return null;
+}
+
 async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs) {
   // Strategy:
   // 1) Read package.json from CDN
@@ -184,7 +215,12 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
       fs.mkdirSync(packageDir, { recursive: true });
       fs.writeFileSync(path.join(packageDir, 'package.json'), pkgJsonText, 'utf-8');
 
-      const typesFile = pkg.types || pkg.typings || 'index.d.ts';
+      const exportRoot = rootExport(pkg);
+      const typesFile =
+        pkg.types ||
+        pkg.typings ||
+        resolveConditionalExport(exportRoot, ['types', 'typings', 'default']) ||
+        'index.d.ts';
       const dtsUrl = `${base}/${typesFile}`;
 
       try {
@@ -198,6 +234,7 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
 
       // Best-effort: fetch entrypoint JS if it exists
       const entryCandidates = [
+        resolveConditionalExport(exportRoot, ['import', 'require', 'node', 'default']),
         pkg.module,
         pkg.main,
         typeof pkg.exports === 'string' ? pkg.exports : null,

@@ -1,5 +1,14 @@
 # @deplens/cli
 
+## 0.2.6
+
+### Patch Changes
+
+- Fix JSON diff crashes for object-shaped type aliases and locally parsed changelogs, and make history commands parse `--history-dir` and scoped package names correctly.
+
+- Updated dependencies []:
+  - @deplens/core@0.2.6
+
 ## 0.2.5
 
 ### Patch Changes

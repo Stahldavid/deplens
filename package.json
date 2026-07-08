@@ -13,7 +13,7 @@
     "format:check": "prettier --check .",
     "test": "npm run test:core && npm run test:cli && npm run test:mcp",
     "test:core": "npm --workspace @deplens/core test",
-    "test:cli": "node packages/cli/bin/deplens.js zod --types --filter ZodString",
+    "test:cli": "npm --workspace @deplens/cli test && node packages/cli/bin/deplens.js zod --types --filter ZodString",
     "test:mcp": "node packages/mcp/bin/deplens-mcp.js",
     "changeset": "changeset",
     "version-packages": "changeset version",

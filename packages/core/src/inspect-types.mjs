@@ -2,7 +2,6 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { fileURLToPath } from 'url';
 import { parseDtsFile, findReExports } from './parse-dts.mjs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -62,7 +61,7 @@ async function parseDtsFileRecursive(dtsPath, visited) {
   const named = new Map(reExportResult.named);
   const wildcards = reExportResult.wildcards;
   const extraResults = [];
-  for (const [sym, targetPath] of named) {
+  for (const [, targetPath] of named) {
     try { if (fs.existsSync(targetPath)) { const sub = await parseDtsFileRecursive(targetPath, nextVisited); if (sub) extraResults.push(sub); } } catch {}
   }
   for (const basePath of wildcards) {

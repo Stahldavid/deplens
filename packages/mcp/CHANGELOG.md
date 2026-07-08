@@ -1,5 +1,12 @@
 # @deplens/mcp
 
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @deplens/core@0.2.6
+
 ## 0.3.5
 
 ### Patch Changes

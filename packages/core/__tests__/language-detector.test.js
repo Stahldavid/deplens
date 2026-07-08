@@ -1,7 +1,7 @@
 // __tests__/language-detector.test.js
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { detectLanguage, getSourceFiles } from '../src/language-detector.mjs';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
@@ -105,7 +105,7 @@ describe('language-detector', () => {
 
     it('should respect maxFiles limit', () => {
       for (let i = 0; i < 20; i++) {
-        writeFile(`file${i}.py`, `def f{i}(): pass`);
+        writeFile(`file${i}.py`, 'def f{i}(): pass');
       }
       const files = getSourceFiles(testRoot, 'python', 10);
       expect(files.length).toBe(10);

@@ -394,6 +394,29 @@ function usage() {
   );
 }
 
+function optionAwareArgs(args, startIndex = 0) {
+  const positionals = [];
+  for (let i = startIndex; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--history-dir') {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--')) continue;
+    positionals.push(arg);
+  }
+  return positionals;
+}
+
+function parsePackageVersionSpec(spec) {
+  if (!spec) return [null, null];
+  const atIndex = spec.startsWith('@') ? spec.indexOf('@', 1) : spec.lastIndexOf('@');
+  if (atIndex > 0 && atIndex < spec.length - 1) {
+    return [spec.slice(0, atIndex), spec.slice(atIndex + 1)];
+  }
+  return [spec, null];
+}
+
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
   console.log(cliVersion());
@@ -467,6 +490,7 @@ if (command === 'cache') {
 // History commands
 if (command === 'history') {
   const subcmd = argv[1] || 'list';
+  const historyArgs = optionAwareArgs(argv, 2);
 
   // Parse optional --history-dir
   let historyDir = null;
@@ -476,7 +500,7 @@ if (command === 'history') {
   }
 
   if (subcmd === 'list') {
-    const filter = argv[2] || null;
+    const filter = historyArgs[0] || null;
     const entries = listHistory(filter, historyDir);
     if (entries.length === 0) {
       console.log('📭 No history entries found.');
@@ -488,12 +512,12 @@ if (command === 'history') {
       }
     }
   } else if (subcmd === 'show') {
-    const spec = argv[2];
+    const spec = historyArgs[0];
     if (!spec) {
       console.error('Usage: deplens history show <package[@version]>');
       process.exit(1);
     }
-    const [pkg, ver] = spec.includes('@') ? spec.split('@') : [spec, null];
+    const [pkg, ver] = parsePackageVersionSpec(spec);
     let entry;
     if (ver) {
       entry = getHistoryEntry(pkg, ver, historyDir);
@@ -511,9 +535,9 @@ if (command === 'history') {
     // Print full entry
     console.log(JSON.stringify(entry, null, 2));
   } else if (subcmd === 'compare') {
-    const pkg = argv[2];
-    const v1 = argv[3];
-    const v2 = argv[4];
+    const pkg = historyArgs[0];
+    const v1 = historyArgs[1];
+    const v2 = historyArgs[2];
     if (!pkg || !v1 || !v2) {
       console.error('Usage: deplens history compare <package> <version1> <version2>');
       process.exit(1);
@@ -527,7 +551,7 @@ if (command === 'history') {
     const diff = compareHistoryEntries(e1, e2);
     console.log(JSON.stringify(diff, null, 2));
   } else if (subcmd === 'clear') {
-    const pkg = argv[2] || null;
+    const pkg = historyArgs[0] || null;
     const { removed } = clearHistory(pkg, historyDir);
     console.log(
       `🗑️  Cleared ${removed} history entr${removed === 1 ? 'y' : 'ies'}${pkg ? ` for ${pkg}` : ''}.`

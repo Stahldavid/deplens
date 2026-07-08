@@ -102,4 +102,28 @@ export interface Options { strict: boolean }
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('normalizes object-shaped type alias entries in symbol diffs', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-type-alias-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writePackage(fromDir, '1.0.0', 'export type Config = { apiKey: string };\n');
+      writePackage(toDir, '1.1.0', 'export type Config = { apiKey: string; host?: string };\n');
+
+      const diff = await compareVersions(fromDir, toDir);
+
+      expect(diff.symbols.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'definition_changed',
+            name: 'Config',
+            facet: 'types',
+          }),
+        ])
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

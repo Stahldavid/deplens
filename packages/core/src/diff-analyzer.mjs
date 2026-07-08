@@ -33,7 +33,11 @@ export const Severity = {
  */
 function normalizeType(type) {
   if (!type) return '';
-  return type
+  const text =
+    typeof type === 'string'
+      ? type
+      : type.type || type.definition || type.signature || String(type);
+  return text
     .replace(/\s+/g, ' ')
     .replace(/\s*([,:<>{}()[\]|&])\s*/g, '$1')
     .trim();

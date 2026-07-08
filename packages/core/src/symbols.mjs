@@ -40,7 +40,9 @@ function typeEntries(typeInfo) {
   for (const [name, properties] of Object.entries(typeInfo?.interfaces || {})) {
     entries.push({ name, kind: 'interface', properties });
   }
-  for (const [name, definition] of Object.entries(typeInfo?.types || {})) {
+  for (const [name, info] of Object.entries(typeInfo?.types || {})) {
+    const definition =
+      typeof info === 'string' ? info : info?.type || info?.definition || info?.signature || null;
     entries.push({ name, kind: 'type', signature: definition, definition });
   }
   for (const [name, extendsClause] of Object.entries(typeInfo?.classes || {})) {

@@ -143,7 +143,6 @@ function parseMemberFunctions(ownerName, ownerBody, ownerOffset, includeBody, ma
     let body = null;
     let bodyEnd = match.index + match[0].length;
     if (terminator === '{') {
-      const openIndex = ownerOffset + memberRegex.lastIndex - 1;
       const closeIndex = findMatchingBrace(ownerBody, memberRegex.lastIndex - 1);
       if (closeIndex === -1) continue;
       body = ownerBody.slice(memberRegex.lastIndex - 1, closeIndex + 1);

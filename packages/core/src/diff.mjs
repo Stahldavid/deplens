@@ -98,25 +98,26 @@ export async function runDiff(options = {}) {
     // Parse changelog if available (local or remote)
     let changelogDiff = null;
     if (includeChangelog) {
-      let changelogText = null;
+      let changelog = null;
       let changelogSource = null;
 
       // Try local file first
       const changelogPath = findChangelog(versionPair.to.packageDir);
       if (changelogPath) {
         log('📜 Parsing local changelog...');
-        changelogText = parseChangelogFile(changelogPath);
+        changelog = parseChangelogFile(changelogPath);
         changelogSource = 'local';
       } else {
         // Try remote CDN fetch
         log('📦 No local changelog, trying remote...');
         try {
-          changelogText = await findChangelogRemote(
+          const changelogText = await findChangelogRemote(
             versionPair.package,
             versionPair.to.version,
             30000
           );
           if (changelogText) {
+            changelog = parseChangelogString(changelogText);
             changelogSource = 'remote (CDN)';
           }
         } catch (e) {
@@ -124,9 +125,8 @@ export async function runDiff(options = {}) {
         }
       }
 
-      if (changelogText) {
+      if (changelog) {
         log(`📜 Parsing changelog (${changelogSource})...`);
-        const changelog = parseChangelogString(changelogText);
         changelogDiff = getChangesBetweenVersions(
           changelog,
           versionPair.from.version,

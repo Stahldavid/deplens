@@ -207,6 +207,12 @@ export function parseChangelog(content) {
  * Parse changelog from raw text string
  */
 export function parseChangelogString(text) {
+  if (text && typeof text === 'object' && text.versions) {
+    return text;
+  }
+  if (typeof text !== 'string') {
+    return { versions: {} };
+  }
   return {
     versions: parseChangelog(text),
   };

@@ -2,15 +2,12 @@
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fg from 'fast-glob';
 import { resolve as importMetaResolve } from 'import-meta-resolve';
-import { analyzePackageSource } from './parse-source.mjs';
 import { detectLanguage } from './language-detector.mjs';
 import { analyzePythonPackage, resolvePythonPackage } from './analyze-python.mjs';
 import { downloadVersion } from './version-resolver.mjs';
-import { execSync } from 'child_process';
 import {getCachedDtsParse, generateDts, filterTypeInfo} from './inspect-types.mjs';
 import { buildSymbols } from './symbols.mjs';
 import { buildResolutionTrace } from './resolution-trace.mjs';
@@ -1073,12 +1070,6 @@ function inspectObject(obj, currentDepth = 0, maxDepth = 1, maxPropsLimit = 10, 
   }
   return lines;
 }
-
-const DTS_CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'types');
-const DEFAULT_DTS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-
-
 
 export async function runInspectCore(options) {
 

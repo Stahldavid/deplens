@@ -29,16 +29,19 @@ Skip this skill when:
 - The question is about authoring docs or package metadata rather than reading existing ones.
 - The package is not on npm (e.g. a private git URL with no published version; for git URLs, `--remote` won't work).
 
-## Prerequisites — locate the binary
+## Prerequisites — locate or install the binary
 
-The CLI binary is `deplens`. Pick the first option below that works:
+The CLI binary is `deplens`. Prefer the globally installed npm binary because it is fastest across repeated agent calls:
 
-1. **Project-installed:** `npx --yes @deplens/cli@latest <args>` — works in any directory; npx caches the binary
-2. **Globally installed:** `deplens <args>` — after `npm i -g @deplens/cli`
-3. **In the deplens monorepo:** `node packages/cli/bin/deplens.js <args>`
-4. **Local-project bin:** `node ./node_modules/.bin/deplens <args>` — only if `@deplens/cli` is installed locally
+1. **Already globally installed:** `deplens <args>` — first run `deplens --version` to check.
+2. **Install globally if missing:** `npm install -g @deplens/cli@latest`, then use `deplens <args>` for subsequent calls.
+3. **In the deplens monorepo:** `node packages/cli/bin/deplens.js <args>` — use this when testing unpublished local changes.
+4. **Local-project bin:** `node ./node_modules/.bin/deplens <args>` — only if `@deplens/cli` is installed locally.
+5. **Last-resort fallback:** `npx --yes @deplens/cli@latest <args>` — only when global install is unavailable or not permitted.
 
 Working directory matters: deplens resolves the target package relative to the **current working directory** (or `--resolve-from DIR`). Run it from a directory whose `node_modules` contains the target, or pass `--remote` to download it.
+
+For agent usage, do not use `npx` by default. The normal fast path is `deplens <package> --json` or `deplens diff <package> --from X --to Y --json`. Use `npx` only as a fallback.
 
 ## Quick decision tree
 
@@ -56,7 +59,7 @@ Is the user asking about a SINGLE version of a package?
 
 ## Core workflows
 
-Every command below uses `deplens` as the binary; substitute one of the four prerequisites above if needed.
+Every command below uses `deplens` as the binary; install it globally once with npm if the command is missing, or substitute one of the fallback options above if needed.
 
 ### 1. Inspect a package
 

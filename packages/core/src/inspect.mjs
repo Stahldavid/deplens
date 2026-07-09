@@ -6,14 +6,23 @@ import { enrichSymbolsWithSource } from './symbols.mjs';
 
 export async function runInspect(options) {
   const rawOutput = await runInspectCore(options);
+  const format = options?.format || 'text';
+  const shouldSaveHistory = Boolean(options?.saveHistory);
 
-  // Text mode: pass through core output unchanged
-  if (options?.format !== 'json') {
+  // Text mode: pass through core output unchanged unless history needs a
+  // structured payload to persist.
+  if (format !== 'json' && format !== 'object' && !shouldSaveHistory) {
     return rawOutput;
   }
 
-  // JSON mode: parse and enrich
-  let jsonOutput = typeof rawOutput === 'string' ? JSON.parse(rawOutput) : rawOutput;
+  // JSON/object modes already have structured data. Text + --save-history
+  // creates a quiet object-mode pass so history works without changing output.
+  let jsonOutput =
+    format === 'json' || format === 'object'
+      ? typeof rawOutput === 'string'
+        ? JSON.parse(rawOutput)
+        : rawOutput
+      : await runInspectCore({ ...options, format: 'object', write: undefined, writeError: undefined });
 
   if (options?.analyzeSource && jsonOutput?.pkgDir) {
     const sourceResult = runSourceAnalysis({
@@ -40,7 +49,7 @@ export async function runInspect(options) {
     };
   }
 
-  if (options?.saveHistory) {
+  if (shouldSaveHistory) {
     try {
       const historyResult = {
         package: jsonOutput.package,
@@ -58,5 +67,11 @@ export async function runInspect(options) {
     }
   }
 
+  if (format === 'object') {
+    return jsonOutput;
+  }
+  if (format !== 'json') {
+    return rawOutput;
+  }
   return JSON.stringify(jsonOutput, null, 2);
 }

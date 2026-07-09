@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## 2026-07-09 — `@deplens/core@0.3.1`, `@deplens/cli@0.3.1`, `@deplens/mcp@0.4.1`
+
+### Safer runtime defaults and release polish
+
+**Fixed:**
+
+- `deplens diff` now uses static package/type analysis by default and only imports downloaded package entrypoints when `--runtime` / `runtime: true` is explicitly supplied.
+- Remote inspections now default to static analysis unless runtime import is explicitly requested.
+- `--save-history` now persists snapshots in text mode, not only JSON mode.
+- The original `@posthog/convex` diff scenario no longer fails with `type.replace is not a function`.
+
+**Changed:**
+
+- Updated CLI, MCP, README, and local skill documentation to describe the safer runtime defaults.
+- Published package metadata remains minimal through workspace `files` allowlists.
+
+---
+
 ## 2026-05-15 — `@deplens/core@0.1.7`, `@deplens/cli@0.1.7`, `@deplens/mcp@0.2.0`
 
 ### `@deplens/mcp@0.2.0` — modernization (BREAKING for tool names)

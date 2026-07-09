@@ -185,27 +185,70 @@ export function compareHistoryEntries(entryA, entryB) {
     package: entryA.package,
     versions: { v1: entryA.version, v2: entryB.version },
     exports: { added: 0, removed: 0, changed: 0 },
+    symbols: { added: 0, removed: 0, changed: 0 },
     types: { added: 0, removed: 0, changed: 0 },
     summary: '',
   };
 
-  // Comparar exports (simplificado)
-  const exportsA = entryA.exports || [];
-  const exportsB = entryB.exports || [];
+  const exportEntries = (exportsValue) => {
+    if (!exportsValue) return [];
+    if (Array.isArray(exportsValue)) return exportsValue;
+    if (typeof exportsValue !== 'object') return [];
+    const entries = [];
+    for (const [kind, names] of Object.entries(exportsValue)) {
+      if (!Array.isArray(names)) continue;
+      for (const name of names) entries.push({ name, kind: kind.replace(/s$/, '') });
+    }
+    return entries;
+  };
 
-  const keysA = new Set(exportsA.map((e) => e.name || e));
-  const keysB = new Set(exportsB.map((e) => e.name || e));
+  const symbolEntries = (symbolsValue) => {
+    if (!Array.isArray(symbolsValue)) return [];
+    return symbolsValue.map((symbol) => ({
+      name: symbol.exportName || symbol.name,
+      kind: symbol.runtime?.kind || symbol.types?.kind || symbol.source?.kind || null,
+    })).filter((symbol) => symbol.name);
+  };
 
-  diff.exports.added = [...keysB].filter((k) => !keysA.has(k)).length;
-  diff.exports.removed = [...keysA].filter((k) => !keysB.has(k)).length;
-  // Changed: mesmos nomes mas tipo diferente? (precisa mergirar detalhes)
-  const common = [...keysA].filter((k) => keysB.has(k));
-  for (const name of common) {
-    const expA = exportsA.find((e) => (e.name || e) === name);
-    const expB = exportsB.find((e) => (e.name || e) === name);
-    // Se forem objetos (com tipo), comparar kind
-    if (expA && expB && typeof expA === 'object' && typeof expB === 'object') {
-      if (expA.kind !== expB.kind) diff.exports.changed++;
+  const countDiff = (before, after) => {
+    const beforeMap = new Map(before.map((entry) => [entry.name || entry, entry]));
+    const afterMap = new Map(after.map((entry) => [entry.name || entry, entry]));
+    const beforeKeys = new Set(beforeMap.keys());
+    const afterKeys = new Set(afterMap.keys());
+    let changed = 0;
+    for (const key of beforeKeys) {
+      if (!afterKeys.has(key)) continue;
+      const beforeEntry = beforeMap.get(key);
+      const afterEntry = afterMap.get(key);
+      if (
+        beforeEntry &&
+        afterEntry &&
+        typeof beforeEntry === 'object' &&
+        typeof afterEntry === 'object' &&
+        beforeEntry.kind !== afterEntry.kind
+      ) {
+        changed += 1;
+      }
+    }
+    return {
+      added: [...afterKeys].filter((key) => !beforeKeys.has(key)).length,
+      removed: [...beforeKeys].filter((key) => !afterKeys.has(key)).length,
+      changed,
+    };
+  };
+
+  const exportsA = exportEntries(entryA.exports);
+  const exportsB = exportEntries(entryB.exports);
+  const exportDiff = countDiff(exportsA, exportsB);
+  diff.exports = exportDiff;
+
+  const symbolsA = symbolEntries(entryA.symbols);
+  const symbolsB = symbolEntries(entryB.symbols);
+  if (symbolsA.length > 0 || symbolsB.length > 0) {
+    const symbolDiff = countDiff(symbolsA, symbolsB);
+    diff.symbols = symbolDiff;
+    if (exportsA.length === 0 && exportsB.length === 0) {
+      diff.exports = symbolDiff;
     }
   }
 
@@ -228,6 +271,11 @@ export function compareHistoryEntries(entryA, entryB) {
   diff.summary =
     `+${diff.exports.added} exports, -${diff.exports.removed} removals` +
     (diff.exports.changed ? `, ~${diff.exports.changed} changed` : '');
+  if (symbolsA.length > 0 || symbolsB.length > 0) {
+    diff.summary +=
+      `; +${diff.symbols.added} symbols, -${diff.symbols.removed} symbol removals` +
+      (diff.symbols.changed ? `, ~${diff.symbols.changed} symbol changes` : '');
+  }
 
   return diff;
 }

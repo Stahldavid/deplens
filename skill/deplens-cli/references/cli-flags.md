@@ -73,7 +73,8 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 | `--source-max-files N`            | int    | 5       | Max source files to analyze.                                                                    |
 | `--source-include-body`           | flag   | off     | Include function body snippets in source analysis.                                              |
 
-Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then the system Python runtime. Java source analysis uses structural parsing via `java-parser`.
+Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then the system Python runtime. Java source analysis uses DepLens' built-in structural parser.
+JS/TS source analysis recognizes ESM exports, default exported functions, and common CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and `module.exports = { foo() {} }`.
 
 ### Resolution
 
@@ -83,7 +84,7 @@ Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then t
 | `--remote`                    | flag   | off                | Download the package into `~/.deplens-cache/versions/` and inspect that copy.                   |
 | `--remote-version V`          | string | `latest`           | Version to download (only with `--remote`).                                                     |
 | `--no-runtime`                | flag   | off                | Do not import/require the package entrypoint; use static package/type data only.                |
-| `--runtime`                   | flag   | on                 | Force runtime import when CI remote safety would otherwise skip it.                             |
+| `--runtime`                   | flag   | local on / remote off | Force runtime import for remote inspections. Local inspect imports runtime unless `--no-runtime`. |
 | `--prefer-cdn` / `--prefer-npm` | flag | `--prefer-npm`     | Use CDN tarball (jsdelivr/unpkg) vs `npm install`. CDN is faster; npm is canonical.             |
 
 ### Output
@@ -113,13 +114,13 @@ Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then t
 | `--format text\|json`         | enum   | `text`        | Output format.                                                                                  |
 | `--json`                      | flag   | off           | Shorthand for `--format json`.                                                                  |
 | `--include-source`            | flag   | off           | Compare per-symbol source complexity between versions.                                          |
-| `--no-runtime`                | flag   | off           | Do not import downloaded package entrypoints while diffing.                                     |
-| `--runtime`                   | flag   | on            | Force runtime import when CI safety would otherwise skip it.                                    |
+| `--no-runtime`                | flag   | implicit      | Keep diff on static package/type data only.                                                     |
+| `--runtime`                   | flag   | off           | Import downloaded package entrypoints while diffing.                                            |
 | `--no-changelog`              | flag   | off (parse on)| Skip `CHANGELOG.md` parsing (much faster on huge changelogs).                                   |
 | `--verbose`                   | flag   | off           | Show detailed per-symbol changes.                                                               |
 | `--no-color`                  | flag   | off           | Disable ANSI color codes in text output.                                                        |
 | `--project-dir DIR`           | path   | cwd           | Working directory used when `--from installed`.                                                 |
-| `--prefer-cdn` / `--prefer-npm` | flag | `--prefer-cdn` | Same as inspect's CDN preference.                                                               |
+| `--prefer-cdn` / `--prefer-npm` | flag | `--prefer-npm` | Same as inspect's CDN preference.                                                               |
 
 ---
 
@@ -198,7 +199,7 @@ History entries store a full `runInspect` JSON payload. Useful for time-travel d
     "functions": {
       "<name>": { "params": "<formatted params string>", "returnType": "<type>" }
     },
-    "interfaces": { "<name>": { /* fields */ } },
+    "interfaces": { "<name>": ["field: Type", "method(arg: Type): Return"] },
     "types":      { "<name>": "<type alias body>" },
     "classes":    { "<name>": "<extends clause or null>" },
     "enums":      { "<name>": { /* members */ } }

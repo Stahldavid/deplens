@@ -38,6 +38,26 @@ function writeExportsTypesPackage(root, version, dts) {
   writeFileSync(path.join(root, 'dist', 'index.js'), 'export const runtimeValue = 1;\n');
 }
 
+function writeAliasPackage(root, version, localName) {
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'alias-pkg', version, types: 'index.d.ts' }, null, 2)
+  );
+  writeFileSync(path.join(root, 'index.d.ts'), `export { ${localName} as Bar } from './foo';\n`);
+  writeFileSync(path.join(root, 'foo.d.ts'), `export interface ${localName} { id: string }\n`);
+}
+
+function writeCtsReexportPackage(root, version) {
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'cts-pkg', version, types: 'index.d.cts' }, null, 2)
+  );
+  writeFileSync(path.join(root, 'index.d.cts'), "export * from './foo.cjs';\n");
+  writeFileSync(path.join(root, 'foo.d.cts'), 'export interface CjsType { id: string }\n');
+}
+
 describe('symbol diff', () => {
   it('compares package versions through canonical symbols', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-symbols-'));
@@ -237,6 +257,44 @@ export interface Options { strict: boolean; mode?: string }
         ])
       );
       expect(() => readFileSync(marker, 'utf-8')).toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('diffs public aliases by exported name, not private local names', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-alias-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writeAliasPackage(fromDir, '1.0.0', 'Foo');
+      writeAliasPackage(toDir, '2.0.0', 'Baz');
+
+      const diff = await compareVersions(fromDir, toDir, { runtime: false });
+
+      expect(diff.symbols.fromCount).toBe(1);
+      expect(diff.symbols.toCount).toBe(1);
+      expect(diff.breaking).toHaveLength(0);
+      expect(diff.additions).toHaveLength(0);
+      expect(diff.symbols.changes).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('follows cts/mts declaration re-export targets in diffs', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-cts-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writeCtsReexportPackage(fromDir, '1.0.0');
+      writeCtsReexportPackage(toDir, '2.0.0');
+
+      const diff = await compareVersions(fromDir, toDir, { runtime: false });
+
+      expect(diff.symbols.fromCount).toBe(1);
+      expect(diff.symbols.toCount).toBe(1);
+      expect(diff.symbols.changes).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

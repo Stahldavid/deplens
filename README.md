@@ -67,12 +67,12 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --filter <text>               Substring filter for export names
 --search <query>              Lightweight semantic search (token + JSDoc)
 --kind <k1,k2>                Filter by kind (function,class,object,constant)
---depth <0-5>                 Object inspection depth (default: 3)
+--depth <0-5>                 Object inspection depth (default: 1)
 --resolve-from <dir>          Base directory for module resolution (workspaces)
 --remote                      Download package to cache (no install required)
 --remote-version <v>          Version for remote download (default: latest)
 --no-runtime                  Skip importing/requiring the package entrypoint
---runtime                     Force runtime import (overrides CI remote safety)
+--runtime                     Force runtime import (remote inspect defaults static)
 --prefer-cdn                  Prefer lightweight CDN download
 --prefer-npm                  Force npm install [default]
 --docs                        Include README preview
@@ -117,11 +117,11 @@ Flags:
   --filter <text>         Filter export name changes
   --format text|json      Output format
   --json                  Shorthand for --format json
-  --prefer-cdn            Prefer CDN download (default)
+  --prefer-cdn            Prefer lightweight CDN download
   --prefer-npm            Force npm install [default]
   --include-source        Include source complexity metrics in diff
-  --no-runtime            Skip importing downloaded package entrypoints
-  --runtime               Force runtime import (overrides CI safety)
+  --no-runtime            Keep diff on static package/type data only [default]
+  --runtime               Import downloaded package entrypoints while diffing
   --no-changelog          Skip remote changelog fetching
   --verbose               Show detailed per-export changes
   --no-color              Disable ANSI colors in text output
@@ -138,6 +138,10 @@ deplens cache clear [package]    # Clear all or specific package cache
 
 Fast cache stats avoid walking large cached packages. Older entries that do not
 have size metadata may show `unknown`; run `--exact` when you need precise sizes.
+
+Source analysis recognizes ESM exports, default exported functions, and common
+CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and
+`module.exports = { foo() {} }`.
 
 ### History management
 
@@ -173,7 +177,7 @@ deplens zod --docs-sections "Getting Started,Usage" --format json
 
 ## MCP
 
-DepLens ships an MCP server over **stdio** (`@deplens/mcp`) so agents can call `deplens.inspect` and receive structured output.
+DepLens ships an MCP server over **stdio** (`@deplens/mcp`) so agents can call `deplens_inspect` and receive structured output.
 
 ### Run
 
@@ -234,7 +238,7 @@ Example config snippet:
 
 ### Tools
 
-#### `deplens.inspect`
+#### `deplens_inspect`
 
 Recommended for agents: use `format: "json"` to avoid parsing human text.
 
@@ -269,7 +273,7 @@ The JSON response includes a `resolution` block to explain where DepLens resolve
 }
 ```
 
-#### `deplens.diff`
+#### `deplens_diff`
 
 Compare two versions of a package. Useful for upgrade planning and identifying breaking changes.
 
@@ -299,7 +303,7 @@ console.log(output);
 ## Requirements
 
 - Node.js >= 18
-- Bun is optional (used if available for extra speed)
+- Bun is optional runtime acceleration; npm is the canonical package fetcher.
 
 ## License
 

@@ -1,5 +1,13 @@
 # @deplens/core
 
+## 0.3.1
+
+### Patch Changes
+
+- Make diff analysis static by default so comparing downloaded package versions no longer imports package entrypoints unless `runtime: true` is explicitly supplied.
+- Allow `runInspect(..., { saveHistory: true })` to persist history snapshots in text mode by generating a quiet structured payload for storage.
+- Update release docs and agent skill guidance for the safer runtime defaults.
+
 ## 0.3.0
 
 ### Minor Changes

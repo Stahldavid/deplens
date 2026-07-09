@@ -149,6 +149,52 @@ describe('parseDtsFile', () => {
     fs.unlinkSync(tempPath);
   });
 
+  it('should match named default declarations by local name filters', () => {
+    const tempPath = path.join(import.meta.dirname, 'fixtures', 'default-export-filter.d.ts');
+    fs.writeFileSync(
+      tempPath,
+      'export default function createClient(url: string): Client;\nexport interface Client { id: string }\n'
+    );
+
+    const result = parseDtsFile(tempPath, ['createClient']);
+
+    expect(result.functions.default).toEqual(
+      expect.objectContaining({ params: 'url: string', returnType: 'Client', localName: 'createClient' })
+    );
+
+    fs.unlinkSync(tempPath);
+  });
+
+  it('should not truncate structured type data', () => {
+    const tempPath = path.join(import.meta.dirname, 'fixtures', 'long-types.d.ts');
+    fs.writeFileSync(
+      tempPath,
+      [
+        'export interface Big {',
+        '  alpha: { aReallyLongPropertyName: string; anotherLongPropertyName: number; nested: { flag: boolean } };',
+        '  run(input: { nestedValue: string; anotherNestedValue: number }): Promise<{ ok: true; value: string }>',
+        '}',
+        'export function many(one: string, two: number, three: boolean, four: Date, five: RegExp): Promise<{ ok: true; value: string }>;',
+        'export type LongAlias = { aReallyLongPropertyName: string; anotherLongPropertyName: number; nested: { flag: boolean } };',
+      ].join('\n')
+    );
+
+    const result = parseDtsFile(tempPath, null);
+
+    expect(result.interfaces.Big).toContain(
+      'alpha: { aReallyLongPropertyName: string; anotherLongPropertyName: number; nested: { flag: boolean } }'
+    );
+    expect(result.interfaces.Big).toContain(
+      'run(input: { nestedValue: string; anotherNestedValue: number }): Promise<{ ok: true; value: string }>'
+    );
+    expect(result.functions.many.returnType).toBe('Promise<{ ok: true; value: string }>');
+    expect(result.types.LongAlias).toBe(
+      '{ aReallyLongPropertyName: string; anotherLongPropertyName: number; nested: { flag: boolean } }'
+    );
+
+    fs.unlinkSync(tempPath);
+  });
+
   it('should return null for non-existent file', () => {
     const result = parseDtsFile('/nonexistent/file.d.ts', null);
     expect(result).toBeNull();

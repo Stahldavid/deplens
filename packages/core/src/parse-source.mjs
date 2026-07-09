@@ -300,18 +300,76 @@ export function parseSourceFile(filePath, options = {}) {
     };
   }
 
+  function hasModifier(node, kind) {
+    return Boolean(node.modifiers?.some((modifier) => modifier.kind === kind));
+  }
+
+  function propertyNameText(nameNode) {
+    if (!nameNode) return null;
+    if (ts.isIdentifier(nameNode) || ts.isStringLiteral(nameNode) || ts.isNumericLiteral(nameNode)) {
+      return nameNode.text;
+    }
+    return nameNode.getText(sourceFile);
+  }
+
+  function isModuleExports(node) {
+    return (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'module' &&
+      node.name.text === 'exports'
+    );
+  }
+
+  function cjsExportName(left) {
+    if (!ts.isPropertyAccessExpression(left)) return null;
+    if (ts.isIdentifier(left.expression) && left.expression.text === 'exports') {
+      return left.name.text;
+    }
+    if (isModuleExports(left.expression)) {
+      return left.name.text;
+    }
+    if (isModuleExports(left)) {
+      return 'default';
+    }
+    return null;
+  }
+
+  function analyzeAssignedExport(name, initializer) {
+    if (ts.isFunctionExpression(initializer) || ts.isArrowFunction(initializer)) {
+      analyzeFunction(
+        initializer,
+        name,
+        true,
+        hasModifier(initializer, ts.SyntaxKind.AsyncKeyword)
+      );
+    }
+  }
+
+  function analyzeModuleExportsObject(objectLiteral) {
+    for (const property of objectLiteral.properties || []) {
+      if (ts.isMethodDeclaration(property)) {
+        const name = propertyNameText(property.name);
+        if (name) analyzeFunction(property, name, true, hasModifier(property, ts.SyntaxKind.AsyncKeyword));
+      } else if (ts.isPropertyAssignment(property)) {
+        const name = propertyNameText(property.name);
+        if (name) analyzeAssignedExport(name, property.initializer);
+      }
+    }
+  }
+
   function visit(node) {
     // Function declarations
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      const name = node.name.text;
-      const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-      const isAsync = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+    if (ts.isFunctionDeclaration(node) && (node.name || hasModifier(node, ts.SyntaxKind.DefaultKeyword))) {
+      const name = hasModifier(node, ts.SyntaxKind.DefaultKeyword) ? 'default' : node.name.text;
+      const isExported = hasModifier(node, ts.SyntaxKind.ExportKeyword) || hasModifier(node, ts.SyntaxKind.DefaultKeyword);
+      const isAsync = hasModifier(node, ts.SyntaxKind.AsyncKeyword);
       analyzeFunction(node, name, isExported, isAsync);
     }
 
     // Arrow functions assigned to variables
     if (ts.isVariableStatement(node)) {
-      const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      const isExported = hasModifier(node, ts.SyntaxKind.ExportKeyword);
 
       node.declarationList.declarations.forEach((decl) => {
         if (decl.initializer && ts.isArrowFunction(decl.initializer)) {
@@ -330,6 +388,20 @@ export function parseSourceFile(filePath, options = {}) {
           analyzeFunction(decl.initializer, name, isExported, isAsync);
         }
       });
+    }
+
+    if (ts.isExpressionStatement(node) && ts.isBinaryExpression(node.expression)) {
+      const { left, operatorToken, right } = node.expression;
+      if (operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const exportName = cjsExportName(left);
+        if (exportName) {
+          if (exportName === 'default' && ts.isObjectLiteralExpression(right)) {
+            analyzeModuleExportsObject(right);
+          } else {
+            analyzeAssignedExport(exportName, right);
+          }
+        }
+      }
     }
 
     // Class methods

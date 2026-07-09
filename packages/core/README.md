@@ -40,6 +40,8 @@ console.log(diff.output);
 - `filter` (string): substring filter for export names
 - `showTypes` (boolean): include type signatures from `.d.ts`
 - `kind` (string[]): filter by export kind (`function`, `class`, `object`, `constant`)
+- `runtime` (boolean): import the package entrypoint for runtime exports; set `false` for static type/package inspection
+- `analyzeSource` (boolean): include source complexity and implementation summaries
 - `depth` (number): object inspection depth (0–5)
 - `resolveFrom` (string): base directory for module resolution
 - `cwd` (string): working directory for the inspection
@@ -79,6 +81,7 @@ await runInspect({
 ## Notes
 
 - JSDoc is extracted from `.d.ts` declarations, not runtime JS.
+- Source analysis recognizes ESM exports, default exported functions, and common CommonJS assignment patterns.
 - `--resolve-from` is essential in monorepos to avoid false negatives.
 
 ## License

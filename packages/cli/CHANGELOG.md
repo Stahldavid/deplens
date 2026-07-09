@@ -1,5 +1,17 @@
 # @deplens/cli
 
+## 0.3.1
+
+### Patch Changes
+
+- Default remote inspections to static package/type analysis unless `--runtime` is supplied.
+- Default `deplens diff` to static analysis and make runtime imports opt-in with `--runtime`.
+- Fix `--save-history` so text-mode inspect commands also write history entries.
+- Refresh README and installed skill documentation for the new runtime defaults.
+
+- Updated dependencies []:
+  - @deplens/core@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes

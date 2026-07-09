@@ -133,6 +133,8 @@ function resolveWildcardTarget(basePath) {
   if (fs.existsSync(withIndex)) return withIndex;
   const withCts = path.join(basePath, 'index.d.cts');
   if (fs.existsSync(withCts)) return withCts;
+  const withMts = path.join(basePath, 'index.d.mts');
+  if (fs.existsSync(withMts)) return withMts;
   return basePath;
 }
 
@@ -149,10 +151,14 @@ export function filterTypeInfo(typeInfoRaw, filterRaw, kindFilter = []) {
     const isRegex = filterRaw.startsWith('/') && filterRaw.endsWith('/') && filterRaw.length > 2;
     const regex = isRegex ? new RegExp(filterRaw.slice(1,-1), 'i') : null;
     const lower = filterRaw.toLowerCase();
-    functions = Object.fromEntries(Object.entries(functions).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    const matchesName = (name, value) => {
+      const candidates = [name, value?.localName].filter(Boolean).map(String);
+      return candidates.some((candidate) => regex ? regex.test(candidate) : candidate.toLowerCase().includes(lower));
+    };
+    functions = Object.fromEntries(Object.entries(functions).filter(([name, value]) => matchesName(name, value)));
     interfaces = Object.fromEntries(Object.entries(interfaces).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
     types = Object.fromEntries(Object.entries(types).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
-    classes = Object.fromEntries(Object.entries(classes).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
+    classes = Object.fromEntries(Object.entries(classes).filter(([name, value]) => matchesName(name, value)));
     enums = Object.fromEntries(Object.entries(enums).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
     namespaces = Object.fromEntries(Object.entries(namespaces).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));
     jsdoc = Object.fromEntries(Object.entries(jsdoc).filter(([name]) => regex ? regex.test(name) : name.toLowerCase().includes(lower)));

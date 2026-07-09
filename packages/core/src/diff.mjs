@@ -36,7 +36,7 @@ export async function runDiff(options = {}) {
     format = 'text', // "text" | "json"
     verbose = false,
     colors = true,
-    runtime = true,
+    runtime = false,
   } = options;
 
   if (!packageName) {

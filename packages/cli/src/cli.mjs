@@ -37,7 +37,7 @@ function parseInspectArgs(argv) {
   const offline = argv.includes('--offline');
   const explicitRuntime = argv.includes('--runtime');
   const noRuntime = argv.includes('--no-runtime');
-  const runtime = !noRuntime && !(remote && process.env.CI && !explicitRuntime);
+  const runtime = !noRuntime && (explicitRuntime || !remote);
 
   // New options
   const listSections = argv.includes('--list-sections');
@@ -294,7 +294,7 @@ function parseDiffArgs(argv) {
   const preferCdn = argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm');
   const offline = argv.includes('--offline');
   const explicitRuntime = argv.includes('--runtime');
-  const runtime = !argv.includes('--no-runtime') && !(!explicitRuntime && process.env.CI);
+  const runtime = explicitRuntime && !argv.includes('--no-runtime');
 
   let filter = null;
   const filterIndex = argv.indexOf('--filter');
@@ -492,7 +492,7 @@ if (command === 'cache') {
       if (stats.packages && stats.packages.length > 0) {
         console.log('\nPackages:');
         for (const p of stats.packages.sort((a, b) => b.size - a.size).slice(0, 10)) {
-          const suffix = p.sizeExact ? '' : ' (estimate)';
+          const suffix = p.sizeExact ? '' : ' (unknown; run --exact)';
           console.log(`  ${p.name}: ${p.sizeFormatted || p.size + ' B'}${suffix}`);
         }
       }

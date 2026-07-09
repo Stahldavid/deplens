@@ -183,7 +183,7 @@ const inspectInputShape = {
   runtime: z
     .boolean()
     .optional()
-    .describe('Whether to import/require the package entrypoint for runtime exports. Set false for safer static inspection.'),
+    .describe('Whether to import/require the package entrypoint for runtime exports. Local inspect defaults to true; remote inspect defaults to false.'),
   format: FormatEnum
     .optional()
     .describe(
@@ -293,6 +293,9 @@ const inspectOutputShape = {
   docs: z.record(z.any()).nullable(),
   sections: z.array(z.record(z.any())).nullable(),
   examples: z.record(z.any()).nullable(),
+  symbols: z.array(z.record(z.any())).nullable(),
+  sourceAnalysis: z.record(z.any()).nullable(),
+  languageAnalysis: z.record(z.any()).nullable(),
   meta: z.record(z.any()).nullable(),
   warnings: z.array(z.string()),
   error: z.string().optional(),
@@ -313,6 +316,9 @@ const emptyInspectStructured = () => ({
   docs: null,
   sections: null,
   examples: null,
+  symbols: null,
+  sourceAnalysis: null,
+  languageAnalysis: null,
   meta: null,
   warnings: [],
 });
@@ -334,7 +340,7 @@ async function handleInspect(params) {
     includeExamples: params.includeExamples,
     remote: params.remote,
     remoteVersion: params.remoteVersion,
-    runtime: params.runtime,
+    runtime: params.runtime ?? !params.remote,
     jsdoc: params.jsdoc,
     jsdocOutput: params.jsdocOutput,
     jsdocQuery: params.jsdocQuery,
@@ -426,7 +432,15 @@ const diffInputShape = {
   runtime: z
     .boolean()
     .optional()
-    .describe('Whether to import package entrypoints while diffing. Set false for safer static type-only comparison.'),
+    .describe('Whether to import package entrypoints while diffing. Defaults to false for safer static type-only comparison.'),
+  preferCdn: z
+    .boolean()
+    .optional()
+    .describe('Prefer lightweight CDN downloads instead of full npm installs when fetching package versions.'),
+  offline: z
+    .boolean()
+    .optional()
+    .describe('Use only versions already present in the local DepLens cache.'),
   includeChangelog: z
     .boolean()
     .optional()
@@ -477,7 +491,9 @@ async function handleDiff(params) {
     to,
     projectDir: rootDir,
     includeSource: Boolean(params.includeSource),
-    runtime: params.runtime !== false,
+    runtime: params.runtime === true,
+    preferCdn: Boolean(params.preferCdn),
+    offline: Boolean(params.offline),
     includeChangelog: params.includeChangelog !== false,
     filter: params.filter,
     format: coreFormat,
@@ -580,6 +596,7 @@ const inspectToolConfig = {
     '  - filter: substring (case-insensitive) or "/regex/" pattern over export names',
     '  - kind: ["function","class","object","constant","interface","type"]',
     '  - showTypes: true to parse .d.ts (functions/interfaces/classes/types/enums)',
+    '  - runtime: true to import entrypoints (local inspect defaults on; remote inspect defaults off)',
     '  - includeDocs / docsSections / listSections: control README extraction',
     '  - format: "text" (default human-readable), "json" (stringified payload), or "object" (only structuredContent)',
     '',
@@ -609,6 +626,8 @@ const diffToolConfig = {
     '  - to: "latest" (default), a concrete semver ("3.24.0"), or "installed"',
     '  - filter: substring (case-insensitive) or "/regex/" pattern',
     '  - includeSource: include source-code complexity comparison',
+    '  - runtime: true to import package entrypoints (default is static analysis only)',
+    '  - preferCdn / offline: control package version fetching',
     '  - includeChangelog: parse CHANGELOG.md entries (default: true)',
     '  - format: "text" (default), "json", or "object"',
     '',

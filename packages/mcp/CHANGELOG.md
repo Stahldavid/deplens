@@ -1,5 +1,16 @@
 # @deplens/mcp
 
+## 0.4.1
+
+### Patch Changes
+
+- Default remote `deplens_inspect` calls to static analysis unless `runtime: true` is supplied.
+- Default `deplens_diff` to static analysis and make entrypoint imports opt-in with `runtime: true`.
+- Document the safer runtime defaults in the MCP schema and README.
+
+- Updated dependencies []:
+  - @deplens/core@0.3.1
+
 ## 0.4.0
 
 ### Minor Changes

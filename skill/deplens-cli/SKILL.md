@@ -132,8 +132,8 @@ deplens @tanstack/router --remote --remote-version 1.40.0
 
 Use `--no-runtime` when inspecting untrusted packages and you only need static
 package/type metadata. Runtime inspection imports the package entrypoint and may
-execute package code. In CI, remote inspections default to the safer static path
-unless `--runtime` is explicitly supplied.
+execute package code. Remote inspections default to the safer static path unless
+`--runtime` is explicitly supplied.
 
 ### 9. Semantic search across exports
 
@@ -152,6 +152,9 @@ deplens some-java-pkg --analyze-source --language java
 ```
 
 Walks the package's source files and reports function/class counts, complexity (approximate cyclomatic), imports, and body snippets when requested.
+For JS/TS packages, source analysis recognizes ESM exports, default exported functions,
+and common CommonJS assignments such as `exports.foo`, `module.exports.foo`, and
+`module.exports = { foo() {} }`.
 
 For Python, the current implementation is environment-aware:
 
@@ -160,7 +163,7 @@ For Python, the current implementation is environment-aware:
 - If neither exists, it falls back to the active system Python (`py`, `python3`, `python`).
 - It parses Python with the real `ast` module rather than regex, so methods, imports, decorators, return annotations, and complexity are structurally extracted.
 
-For Java, the source analysis is CST-based via `java-parser`, so package/import/class/interface/enum/method extraction is structural rather than regex-driven.
+For Java, the source analysis uses DepLens' built-in structural parser for package/import/class/interface/enum/method extraction rather than regex-driven scanning.
 
 ## Output handling
 

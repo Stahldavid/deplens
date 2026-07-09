@@ -60,13 +60,17 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 - `--remote` — download package to cache
 - `--remote-version <v>` — remote version override
 - `--no-runtime` — skip importing/requiring the package entrypoint
-- `--runtime` — force runtime import, including in CI remote inspections
+- `--runtime` — force runtime import for remote inspections
 - `--max-exports <n>` — limit exports shown
 - `--max-props <n>` — limit object props shown
 - `--max-examples <n>` — limit examples shown
 - `--analyze-source` — analyze source complexity
 - `--source-max-files <n>` — max source files to analyze
 - `--source-include-body` — include function body snippets
+
+Source analysis recognizes ESM exports, default exported functions, and common
+CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and
+`module.exports = { foo() {} }`.
 
 ## Flags (diff)
 
@@ -75,8 +79,8 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 - `--filter <text>` — filter exports by name
 - `--format text|json` — output format
 - `--include-source` — compare source complexity
-- `--no-runtime` — skip importing downloaded package entrypoints
-- `--runtime` — force runtime import, including in CI
+- `--no-runtime` — keep diff on static package/type data only (default)
+- `--runtime` — import downloaded package entrypoints while diffing
 - `--no-changelog` — skip changelog parsing
 - `--verbose` — show detailed changes
 - `--no-color` — disable ANSI colors
@@ -96,7 +100,7 @@ JSDoc:
 ## Requirements
 
 - Node.js >= 18
-- Bun is optional and used automatically if available
+- Bun is optional runtime acceleration; npm is the canonical package fetcher.
 
 ## License
 

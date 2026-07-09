@@ -59,6 +59,7 @@ Inspect an installed (or remotely downloaded) npm package.
 | `search`           | string                                                                     | Semantic search over export names (token matching + JSDoc)                               |
 | `remote`           | boolean                                                                    | Download into local cache instead of resolving from `rootDir`                            |
 | `remoteVersion`    | string                                                                     | Version to download when `remote=true` (default: `"latest"`)                             |
+| `runtime`          | boolean                                                                    | Import/require package entrypoint for runtime exports. Local inspect defaults on; remote inspect defaults off |
 | `format`           | `'text'\|'json'\|'object'`                                                 | Output format for the text channel. `structuredContent` is always populated.             |
 | `maxExports`       | number (1–10000)                                                           | Max exports to include (default: 100)                                                    |
 | `maxProps`         | number (1–1000)                                                            | Max props per object when `depth>0` (default: 10)                                        |
@@ -107,6 +108,9 @@ Compare two versions of an npm package.
 | `filter`           | string                     | Filter exports by name (substring or `/regex/`)                                                   |
 | `format`           | `'text'\|'json'\|'object'` | Output format for the text channel                                                                |
 | `includeSource`    | boolean                    | Include source code complexity comparison                                                         |
+| `runtime`          | boolean                    | Import package entrypoints while diffing. Defaults off for safer static comparison                 |
+| `preferCdn`        | boolean                    | Prefer lightweight CDN downloads instead of full npm installs                                     |
+| `offline`          | boolean                    | Use only versions already present in the local DepLens cache                                      |
 | `includeChangelog` | boolean                    | Parse `CHANGELOG.md` entries (default: `true`)                                                    |
 | `verbose`          | boolean                    | Show detailed per-symbol changes                                                                  |
 | `rootDir`          | string                     | Working directory for resolution of `from="installed"` (default: `$DEPLENS_ROOT` or `cwd()`)      |

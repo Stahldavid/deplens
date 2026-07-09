@@ -4,11 +4,10 @@
  * Self-contained: no dependencies on inspect.mjs or fast-glob
  */
 
-import ts from 'typescript';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { parseDtsFile } from './parse-dts.mjs';
+import { getCachedDtsParse } from './inspect-types.mjs';
 import { buildSymbols } from './symbols.mjs';
 import { runSourceAnalysis } from './inspect-source.mjs';
 
@@ -536,8 +535,6 @@ async function analyzePackageTypes(packageDir, options = {}) {
     },
   };
 
-  // Find and parse all .d.ts files, following re-exports
-  const visited = new Set();
   const allExports = {
     functions: {},
     classes: {},
@@ -556,7 +553,7 @@ async function analyzePackageTypes(packageDir, options = {}) {
     const fullPath = path.join(packageDir, entry);
     if (fs.existsSync(fullPath)) {
       selectedTypesEntry = entry;
-      parseTypesRecursively(fullPath, packageDir, allExports, visited);
+      mergeParsedDtsExports(allExports, await getCachedDtsParse(fullPath));
       break;
     }
   }
@@ -589,147 +586,6 @@ async function analyzePackageTypes(packageDir, options = {}) {
     typesSource: selectedTypesEntry ? 'package' : null,
   });
   return result;
-}
-
-/**
- * Parse a .d.ts file and follow re-exports recursively
- */
-function parseTypesRecursively(filePath, baseDir, allExports, visited) {
-  if (visited.has(filePath) || !fs.existsSync(filePath)) return;
-  visited.add(filePath);
-
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const sourceFile = ts.createSourceFile(
-    path.basename(filePath),
-    content,
-    ts.ScriptTarget.Latest,
-    true
-  );
-
-  const fileDir = path.dirname(filePath);
-
-  mergeParsedDtsExports(allExports, parseDtsFile(filePath, null, new Set()));
-
-  ts.forEachChild(sourceFile, (node) => {
-    // Handle export declarations: export { x } from './module'
-    if (ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-        const modulePath = node.moduleSpecifier.text;
-        const resolvedPath = resolveModulePath(modulePath, fileDir, baseDir);
-        if (resolvedPath) {
-          parseTypesRecursively(resolvedPath, baseDir, allExports, visited);
-        }
-      }
-    }
-
-    // Handle function declarations
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      const name = node.name.text;
-      const params =
-        node.parameters?.map((p) => ({
-          name: p.name.getText(sourceFile),
-          type: p.type ? p.type.getText(sourceFile) : 'any',
-          optional: !!p.questionToken,
-        })) || [];
-      const returnType = node.type ? node.type.getText(sourceFile) : 'void';
-      allExports.functions[name] = { params, returnType };
-    }
-
-    // Handle class declarations
-    if (ts.isClassDeclaration(node) && node.name) {
-      const name = node.name.text;
-      const methods = {};
-      node.members?.forEach((member) => {
-        if (ts.isMethodDeclaration(member) && member.name) {
-          const methodName = member.name.getText(sourceFile);
-          const params =
-            member.parameters?.map((p) => ({
-              name: p.name.getText(sourceFile),
-              type: p.type ? p.type.getText(sourceFile) : 'any',
-              optional: !!p.questionToken,
-            })) || [];
-          const returnType = member.type ? member.type.getText(sourceFile) : 'void';
-          methods[methodName] = { params, returnType };
-        }
-      });
-      allExports.classes[name] = { methods };
-    }
-
-    // Handle interface declarations
-    if (ts.isInterfaceDeclaration(node) && node.name) {
-      const name = node.name.text;
-      const properties = {};
-      node.members?.forEach((member) => {
-        if (ts.isPropertySignature(member) && member.name) {
-          const propName = member.name.getText(sourceFile);
-          properties[propName] = {
-            type: member.type ? member.type.getText(sourceFile) : 'any',
-            optional: !!member.questionToken,
-          };
-        }
-      });
-      allExports.interfaces[name] = { properties };
-    }
-
-    // Handle type aliases
-    if (ts.isTypeAliasDeclaration(node) && node.name) {
-      const name = node.name.text;
-      allExports.types[name] = {
-        type: node.type ? node.type.getText(sourceFile) : 'unknown',
-      };
-    }
-
-    // Handle enum declarations
-    if (ts.isEnumDeclaration(node) && node.name) {
-      const name = node.name.text;
-      const members = node.members?.map((m) => m.name.getText(sourceFile)) || [];
-      allExports.enums[name] = { members };
-    }
-
-    // Handle exported const declarations with function types:
-    // export const foo: (input: string) => number;
-    if (ts.isVariableStatement(node)) {
-      const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-      if (!isExported) return;
-      for (const declaration of node.declarationList.declarations || []) {
-        if (!ts.isIdentifier(declaration.name) || !declaration.type) continue;
-        const name = declaration.name.text;
-        if (ts.isFunctionTypeNode(declaration.type)) {
-          const params =
-            declaration.type.parameters?.map((p) => ({
-              name: p.name.getText(sourceFile),
-              type: p.type ? p.type.getText(sourceFile) : 'any',
-              optional: !!p.questionToken,
-            })) || [];
-          const returnType = declaration.type.type
-            ? declaration.type.type.getText(sourceFile)
-            : 'void';
-          allExports.functions[name] = { params, returnType };
-        }
-      }
-    }
-  });
-}
-
-/**
- * Resolve a module path to an actual file path
- */
-function resolveModulePath(modulePath, fromDir, baseDir) {
-  // Handle relative paths
-  if (modulePath.startsWith('.')) {
-    const candidates = [
-      path.join(fromDir, modulePath + '.d.ts'),
-      path.join(fromDir, modulePath, 'index.d.ts'),
-      path.join(fromDir, modulePath + '.ts'),
-      path.join(fromDir, modulePath),
-    ];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return candidate;
-      }
-    }
-  }
-  return null;
 }
 
 /**

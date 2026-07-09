@@ -26,6 +26,43 @@ function writeHistoryEntry(historyDir, packageName, version) {
 }
 
 describe('history CLI', () => {
+  it('saves inspect history in text mode', () => {
+    const projectDir = path.join(tmpdir(), `deplens-cli-history-project-${process.pid}-${Date.now()}`);
+    const historyDir = path.join(tmpdir(), `deplens-cli-history-save-${process.pid}-${Date.now()}`);
+    const packageDir = path.join(projectDir, 'node_modules', 'deplens-history-fixture');
+    try {
+      mkdirSync(packageDir, { recursive: true });
+      writeFileSync(
+        path.join(packageDir, 'package.json'),
+        JSON.stringify(
+          {
+            name: 'deplens-history-fixture',
+            version: '1.2.3',
+            main: 'index.js',
+          },
+          null,
+          2
+        )
+      );
+      writeFileSync(path.join(packageDir, 'index.js'), 'exports.answer = 42;\n');
+
+      runCli([
+        'deplens-history-fixture',
+        '--resolve-from',
+        projectDir,
+        '--save-history',
+        '--history-dir',
+        historyDir,
+      ]);
+      const output = runCli(['history', 'list', '--history-dir', historyDir]);
+
+      expect(output).toContain('deplens-history-fixture@1.2.3');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(historyDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not treat --history-dir as the history list filter', () => {
     const historyDir = path.join(tmpdir(), `deplens-cli-history-${process.pid}-${Date.now()}`);
     try {

@@ -33,7 +33,7 @@ function findPackageInfo(startPath) {
  * Find re-exported symbols and their source files
  * @param {string} dtsPath - Path to the .d.ts file
  * @param {string[]} filterList - List of symbol names to find
- * @returns {Map<string, string>} Map of symbol name -> source file path
+ * @returns {{named: Map<string, {sourcePath: string, localName: string}>, wildcards: string[]}}
  */
 function findReExports(dtsPath, filterList) {
   const content = fs.readFileSync(dtsPath, 'utf-8');
@@ -162,14 +162,23 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     return filterSet.has(name.toLowerCase());
   }
 
+  function shouldIncludeExport(exportName, localName = null) {
+    if (!filterSet) return true;
+    return [exportName, localName]
+      .filter(Boolean)
+      .some((name) => filterSet.has(String(name).toLowerCase()));
+  }
+
   function getNodeText(node) {
     return node.getText(sourceFile);
   }
 
-  function formatType(typeNode, maxLen = 80) {
+  function formatType(typeNode, maxLen = Infinity) {
     if (!typeNode) return 'any';
     const text = getNodeText(typeNode).replace(/\s+/g, ' ').trim();
-    return text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
+    return Number.isFinite(maxLen) && text.length > maxLen
+      ? text.substring(0, maxLen) + '...'
+      : text;
   }
 
   function formatParams(params) {
@@ -185,19 +194,10 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
       }
 
       const optional = p.questionToken ? '?' : '';
-      const type = p.type ? formatType(p.type, 40) : 'any';
-
-      // Simplify long type names
-      const shortType = type.length > 40 ? type.split('<')[0] + '<...>' : type;
-      return `${name}${optional}: ${shortType}`;
+      const type = p.type ? formatType(p.type) : 'any';
+      return `${name}${optional}: ${type}`;
     });
-
-    // If total length too long, just show count
-    const joined = paramStrs.join(', ');
-    if (joined.length > 100) {
-      return `${params.length} param${params.length > 1 ? 's' : ''}`;
-    }
-    return joined;
+    return paramStrs.join(', ');
   }
 
   function jsDocText(comment) {
@@ -280,9 +280,9 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     if (ts.isFunctionDeclaration(node)) {
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
       const name = isDefault ? 'default' : node.name?.text || null;
-      if (name && shouldInclude(name)) {
+      if (name && shouldIncludeExport(name, node.name?.text || null)) {
         const params = formatParams(node.parameters);
-        const returnType = formatType(node.type, 60);
+        const returnType = formatType(node.type);
         typeInfo.functions[name] = {
           params,
           returnType,
@@ -297,14 +297,37 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
       const name = node.name.text;
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
       const exportName = isDefault ? 'default' : name;
-      if (shouldInclude(exportName)) {
+      if (shouldIncludeExport(exportName, name)) {
         const props = [];
+        if (node.heritageClauses) {
+          const extendsTypes = [];
+          for (const clause of node.heritageClauses) {
+            if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+              extendsTypes.push(...clause.types.map((type) => getNodeText(type)));
+            }
+          }
+          if (extendsTypes.length > 0) props.push(`extends ${extendsTypes.join(', ')}`);
+        }
         node.members.forEach((member) => {
           if (ts.isPropertySignature(member) && member.name) {
             const propName = getNodeText(member.name);
             const optional = member.questionToken ? '?' : '';
-            const propType = formatType(member.type, 30);
+            const propType = formatType(member.type);
             props.push(`${propName}${optional}: ${propType}`);
+          } else if (ts.isMethodSignature(member) && member.name) {
+            const methodName = getNodeText(member.name);
+            const optional = member.questionToken ? '?' : '';
+            const params = formatParams(member.parameters);
+            const returnType = formatType(member.type);
+            props.push(`${methodName}${optional}(${params}): ${returnType}`);
+          } else if (ts.isCallSignatureDeclaration(member)) {
+            const params = formatParams(member.parameters);
+            const returnType = formatType(member.type);
+            props.push(`(${params}): ${returnType}`);
+          } else if (ts.isIndexSignatureDeclaration(member)) {
+            const params = formatParams(member.parameters);
+            const returnType = formatType(member.type);
+            props.push(`[${params}]: ${returnType}`);
           }
         });
         if (props.length > 0) {
@@ -320,7 +343,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
       const exportName = isDefault ? 'default' : name;
       if (shouldInclude(exportName)) {
-        typeInfo.types[exportName] = formatType(node.type, 80);
+        typeInfo.types[exportName] = formatType(node.type);
         attachJSDoc(exportName, node);
       }
     }
@@ -329,7 +352,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     if (ts.isClassDeclaration(node)) {
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
       const name = isDefault ? 'default' : node.name?.text || null;
-      if (name && shouldInclude(name)) {
+      if (name && shouldIncludeExport(name, node.name?.text || null)) {
         let extendsClause = null;
         if (node.heritageClauses) {
           for (const clause of node.heritageClauses) {
@@ -376,7 +399,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
               // Check if it's a function type
               if (ts.isFunctionTypeNode(decl.type)) {
                 const params = formatParams(decl.type.parameters);
-                const returnType = formatType(decl.type.type, 60);
+                const returnType = formatType(decl.type.type);
                 typeInfo.functions[name] = { params, returnType };
                 attachJSDoc(name, node);
               }

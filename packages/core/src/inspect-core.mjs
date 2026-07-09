@@ -1953,7 +1953,9 @@ export async function runInspectCore(options) {
         const classCount = Object.keys(typeInfo.classes).length;
         if (classCount > 0 && jsdocOutput !== 'only') {
           log(`\n   Classes (${classCount}):`);
-          for (const [name, extendsClause] of Object.entries(typeInfo.classes)) {
+          for (const [name, classInfo] of Object.entries(typeInfo.classes)) {
+            const extendsClause =
+              classInfo && typeof classInfo === 'object' ? classInfo.extends || null : classInfo;
             log(`     class ${name}${extendsClause ? ' extends ' + extendsClause : ''}`);
           }
         }

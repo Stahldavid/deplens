@@ -45,8 +45,15 @@ function typeEntries(typeInfo) {
       typeof info === 'string' ? info : info?.type || info?.definition || info?.signature || null;
     entries.push({ name, kind: 'type', signature: definition, definition });
   }
-  for (const [name, extendsClause] of Object.entries(typeInfo?.classes || {})) {
-    entries.push({ name, kind: 'class', extends: extendsClause || null });
+  for (const [name, classInfo] of Object.entries(typeInfo?.classes || {})) {
+    const extendsClause =
+      classInfo && typeof classInfo === 'object' ? classInfo.extends || null : classInfo || null;
+    entries.push({
+      name,
+      kind: 'class',
+      extends: extendsClause,
+      localName: classInfo && typeof classInfo === 'object' ? classInfo.localName || null : null,
+    });
   }
   for (const [name, members] of Object.entries(typeInfo?.enums || {})) {
     entries.push({ name, kind: 'enum', members });
@@ -156,6 +163,7 @@ export function buildSymbols({
       properties: entry.properties,
       definition: entry.definition,
       extends: entry.extends,
+      localName: entry.localName,
       members: entry.members,
     };
   }

@@ -91,11 +91,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # NPM_TOKEN deliberately not set — npm CLI falls back to OIDC
           # when no auth token is provided and id-token: write is granted.
-          #
-          # Provenance is normally automatic with trusted publishing, but the
-          # current npm/Sigstore path can fail with TLOG_CREATE_ENTRY_ERROR.
-          # Keep OIDC auth while disabling provenance so publish remains reliable.
-          NPM_CONFIG_PROVENANCE: 'false'
 
       - name: Summarize outcome
         if: always()
@@ -172,8 +167,5 @@ jobs:
           echo "Version check OK: tag=$TAG_VERSION matches $WS_DIR/package.json"
 
       - name: Publish (provenance is automatic via OIDC)
-        env:
-          NODE_AUTH_TOKEN: ''
-          NPM_CONFIG_PROVENANCE: 'false'
         run: |
           npm --workspace "${{ steps.pkg.outputs.name }}" publish --access public

@@ -35,6 +35,9 @@ function parseInspectArgs(argv) {
     argv.includes('--examples') || argv.includes('--include-examples') || Boolean(examplesFor);
   const remote = argv.includes('--remote');
   const offline = argv.includes('--offline');
+  const explicitRuntime = argv.includes('--runtime');
+  const noRuntime = argv.includes('--no-runtime');
+  const runtime = !noRuntime && !(remote && process.env.CI && !explicitRuntime);
 
   // New options
   const listSections = argv.includes('--list-sections');
@@ -84,15 +87,14 @@ function parseInspectArgs(argv) {
 
   const analyzeSource = argv.includes('--analyze-source');
   const autoGenerateTypes = !argv.includes('--no-auto-generate-types');
-  const includeSourceBody = argv.includes('--include-source-body');
+  const sourceIncludeBody =
+    argv.includes('--source-include-body') || argv.includes('--include-source-body');
   let sourceMaxFiles = null;
   const sourceMaxFilesIndex = argv.indexOf('--source-max-files');
   if (sourceMaxFilesIndex !== -1 && argv[sourceMaxFilesIndex + 1]) {
     const parsed = parseInt(argv[sourceMaxFilesIndex + 1], 10);
     if (!isNaN(parsed) && parsed > 0) sourceMaxFiles = parsed;
   }
-  const sourceIncludeBody = argv.includes('--source-include-body');
-
   let language = null;
   const languageIndex = argv.indexOf('--language');
   if (languageIndex !== -1 && argv[languageIndex + 1]) {
@@ -261,15 +263,13 @@ function parseInspectArgs(argv) {
     maxExports,
     maxProps,
     maxExamples,
+    runtime,
     analyzeSource,
     sourceMaxFiles,
     language,
     sourceIncludeBody,
     preferCdn,
-    analyzeSource,
     autoGenerateTypes,
-    includeSourceBody,
-    sourceMaxFiles,
     saveHistory: effectiveSaveHistory,
     historyDir,
   };
@@ -293,6 +293,8 @@ function parseDiffArgs(argv) {
   // npm install is the default because semantic diff needs complete package contents.
   const preferCdn = argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm');
   const offline = argv.includes('--offline');
+  const explicitRuntime = argv.includes('--runtime');
+  const runtime = !argv.includes('--no-runtime') && !(!explicitRuntime && process.env.CI);
 
   let filter = null;
   const filterIndex = argv.indexOf('--filter');
@@ -334,6 +336,7 @@ function parseDiffArgs(argv) {
     noColor,
     projectDir,
     offline,
+    runtime,
   };
 }
 
@@ -345,6 +348,10 @@ function usage() {
       '  deplens diff <pacote> [opções]\n' +
       '  deplens doctor <pacote> [opções]\n' +
       '  deplens cache [stats|clear|pin] [opções]\n\n' +
+      'Opções (cache):\n' +
+      '  --fast                Fast stats using metadata / directory entries only (default)\n' +
+      '  --exact               Recalculate recursive directory sizes\n' +
+      '  --json                Output cache stats as JSON\n\n' +
       'Opções (inspect):\n' +
       '  --filter VALUE         Filter exports by name\n' +
       '  --search QUERY         Semantic search (token matching + JSDoc)\n' +
@@ -359,6 +366,8 @@ function usage() {
       '  --json                Shorthand for --format json\n' +
       '  --remote               Download package to cache\n' +
       '  --remote-version V     Version for remote download\n' +
+      '  --no-runtime           Do not import/require package entrypoint\n' +
+      '  --runtime              Force runtime import even when CI would skip it\n' +
       '  --offline              Use cached remote packages only\n' +
       '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
       '  --prefer-npm          Force npm install (default)\n' +
@@ -387,6 +396,8 @@ function usage() {
       '  --offline             Use cached packages only\n' +
       '  --prefer-npm          Force npm install (default)\n' +
       '  --include-source       Compare source complexity\n' +
+      '  --no-runtime           Do not import package entrypoints while diffing\n' +
+      '  --runtime              Force runtime import even when CI would skip it\n' +
       '  --no-changelog         Skip changelog parsing\n' +
       '  --verbose              Show detailed changes\n' +
       '  --no-color             Disable ANSI colors\n' +
@@ -417,6 +428,31 @@ function parsePackageVersionSpec(spec) {
   return [spec, null];
 }
 
+function shouldExitNonZeroForPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (payload.error) return true;
+  if (payload.package === null && Array.isArray(payload.warnings) && payload.warnings.length > 0) {
+    return true;
+  }
+  return false;
+}
+
+function markExitCodeForOutput(output, format) {
+  if (shouldExitNonZeroForPayload(output)) {
+    process.exitCode = 1;
+    return;
+  }
+  if (format === 'json' && typeof output === 'string') {
+    try {
+      if (shouldExitNonZeroForPayload(JSON.parse(output))) {
+        process.exitCode = 1;
+      }
+    } catch {
+      // Leave exit code unchanged for non-JSON text.
+    }
+  }
+}
+
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
   console.log(cliVersion());
@@ -444,17 +480,21 @@ if (command === 'cache') {
     clearCache(pkg);
     console.log(`Cache cleared${pkg ? ` for ${pkg}` : ''}.`);
   } else if (subcmd === 'stats' || subcmd === 'status') {
-    const stats = getCacheStats();
+    const stats = getCacheStats({ exact: argv.includes('--exact') && !argv.includes('--fast') });
     if (argv.includes('--json')) {
       console.log(JSON.stringify(stats, null, 2));
     } else {
       console.log(`📦 Cache entries: ${stats.entries}`);
       console.log(`📊 Total size: ${stats.sizeFormatted || stats.size + ' B'}`);
-      if (stats.packages && stats.packages.length > 0) {
-      console.log('\nPackages:');
-      for (const p of stats.packages.sort((a, b) => b.size - a.size).slice(0, 10)) {
-        console.log(`  ${p.name}: ${p.sizeFormatted || p.size + ' B'}`);
+      if (!stats.exact) {
+        console.log('ℹ️  Fast estimate. Use --exact to recalculate recursive sizes.');
       }
+      if (stats.packages && stats.packages.length > 0) {
+        console.log('\nPackages:');
+        for (const p of stats.packages.sort((a, b) => b.size - a.size).slice(0, 10)) {
+          const suffix = p.sizeExact ? '' : ' (estimate)';
+          console.log(`  ${p.name}: ${p.sizeFormatted || p.size + ' B'}${suffix}`);
+        }
       }
     }
   } else if (subcmd === 'pin') {
@@ -582,6 +622,7 @@ if (command === 'diff') {
     includeChangelog: parsed.includeChangelog,
     preferCdn: parsed.preferCdn,
     offline: parsed.offline,
+    runtime: parsed.runtime,
     filter: parsed.filter,
     format: parsed.format,
     verbose: parsed.verbose,
@@ -591,6 +632,7 @@ if (command === 'diff') {
   if (typeof output?.output === 'string' && output.output.length > 0) {
     process.stdout.write(output.output);
   }
+  markExitCodeForOutput(output, parsed.format);
 } else if (command === 'doctor') {
   if (!parsed.target) {
     usage();
@@ -604,6 +646,7 @@ if (command === 'diff') {
     remoteVersion: parsed.remoteVersion,
     preferCdn: parsed.preferCdn,
     offline: parsed.offline,
+    runtime: parsed.runtime,
     resolveFrom: parsed.resolveFrom,
     format: parsed.format,
     cwd: process.cwd(),
@@ -612,6 +655,7 @@ if (command === 'diff') {
   if (typeof output === 'string' && output.length > 0) {
     process.stdout.write(output);
   }
+  markExitCodeForOutput(output, parsed.format);
 } else {
   if (!parsed.target) {
     usage();
@@ -630,6 +674,7 @@ if (command === 'diff') {
     remoteVersion: parsed.remoteVersion,
     preferCdn: parsed.preferCdn,
     offline: parsed.offline,
+    runtime: parsed.runtime,
     jsdoc: parsed.jsdoc,
     jsdocOutput: parsed.jsdocOutput,
     jsdocQuery: parsed.jsdocQuery,
@@ -659,4 +704,5 @@ if (command === 'diff') {
   if (typeof output === 'string' && output.length > 0) {
     process.stdout.write(output);
   }
+  markExitCodeForOutput(output, parsed.format);
 }

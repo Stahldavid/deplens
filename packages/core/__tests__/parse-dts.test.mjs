@@ -91,6 +91,64 @@ describe('parseDtsFile', () => {
     fs.rmSync(pkgDir, { recursive: true, force: true });
   });
 
+  it('should preserve exported aliases when following named re-exports', () => {
+    const pkgDir = path.join(import.meta.dirname, 'fixtures', 'alias-reexport');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, 'index.d.ts'), 'export { Foo as Bar } from "./foo";');
+    fs.writeFileSync(path.join(pkgDir, 'foo.d.ts'), 'export interface Foo { ok: boolean }');
+
+    const result = parseDtsFile(path.join(pkgDir, 'index.d.ts'), ['Bar']);
+
+    expect(result.interfaces).toHaveProperty('Bar');
+    expect(result.interfaces.Bar).toContain('ok: boolean');
+    expect(result.interfaces).not.toHaveProperty('Foo');
+
+    fs.rmSync(pkgDir, { recursive: true, force: true });
+  });
+
+  it('should keep full structured interface and enum data', () => {
+    const tempPath = path.join(import.meta.dirname, 'fixtures', 'wide-types.d.ts');
+    fs.writeFileSync(
+      tempPath,
+      [
+        'export interface Big {',
+        '  a: string;',
+        '  b: string;',
+        '  c: string;',
+        '  d: string;',
+        '  e: string;',
+        '  f: string;',
+        '}',
+        'export enum Many { A, B, C, D, E, F }',
+      ].join('\n')
+    );
+
+    const result = parseDtsFile(tempPath, null);
+
+    expect(result.interfaces.Big).toContain('f: string');
+    expect(result.enums.Many).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+
+    fs.unlinkSync(tempPath);
+  });
+
+  it('should expose named default declarations as the default export', () => {
+    const tempPath = path.join(import.meta.dirname, 'fixtures', 'default-export.d.ts');
+    fs.writeFileSync(
+      tempPath,
+      'export default function create(input: string): number;\nexport default class Client {}\n'
+    );
+
+    const result = parseDtsFile(tempPath, null);
+
+    expect(result.functions.default).toEqual(
+      expect.objectContaining({ params: 'input: string', returnType: 'number' })
+    );
+    expect(result.functions.default.localName).toBe('create');
+    expect(result.classes.default).toEqual({ extends: null, localName: 'Client' });
+
+    fs.unlinkSync(tempPath);
+  });
+
   it('should return null for non-existent file', () => {
     const result = parseDtsFile('/nonexistent/file.d.ts', null);
     expect(result).toBeNull();

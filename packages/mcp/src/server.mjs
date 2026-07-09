@@ -9,19 +9,33 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const PKG_VERSION = '0.2.0';
 const SERVER_NAME = 'deplens-mcp-server';
 
 /** Max characters to emit in a single text response before truncating. */
 const CHARACTER_LIMIT = 100_000;
 
 const DEBUG = process.env.DEPLENS_DEBUG === 'true';
+
+function readPackageVersion() {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(here, '..', 'package.json'), 'utf-8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const PKG_VERSION = readPackageVersion();
 
 function debug(label, payload) {
   if (!DEBUG) return;
@@ -166,6 +180,10 @@ const inspectInputShape = {
     .string()
     .optional()
     .describe('Version to download when remote=true (default: "latest")'),
+  runtime: z
+    .boolean()
+    .optional()
+    .describe('Whether to import/require the package entrypoint for runtime exports. Set false for safer static inspection.'),
   format: FormatEnum
     .optional()
     .describe(
@@ -316,6 +334,7 @@ async function handleInspect(params) {
     includeExamples: params.includeExamples,
     remote: params.remote,
     remoteVersion: params.remoteVersion,
+    runtime: params.runtime,
     jsdoc: params.jsdoc,
     jsdocOutput: params.jsdocOutput,
     jsdocQuery: params.jsdocQuery,
@@ -404,6 +423,10 @@ const diffInputShape = {
     .boolean()
     .optional()
     .describe('Include source code complexity comparison between versions'),
+  runtime: z
+    .boolean()
+    .optional()
+    .describe('Whether to import package entrypoints while diffing. Set false for safer static type-only comparison.'),
   includeChangelog: z
     .boolean()
     .optional()
@@ -428,6 +451,10 @@ const diffOutputShape = {
   output: z.string().nullable(),
   summary: z.record(z.any()).nullable(),
   changes: z.array(z.record(z.any())).nullable(),
+  symbols: z.record(z.any()).nullable(),
+  sourceComparison: z.record(z.any()).nullable(),
+  changelog: z.record(z.any()).nullable(),
+  meta: z.record(z.any()).nullable(),
   error: z.string().optional(),
   warnings: z.array(z.string()).optional(),
 };
@@ -442,6 +469,7 @@ async function handleDiff(params) {
   const from = params.from || 'installed';
   const to = params.to || 'latest';
   const requestedFormat = params.format || 'text';
+  const coreFormat = requestedFormat === 'object' ? 'json' : requestedFormat;
 
   const result = await runDiff({
     package: params.package,
@@ -449,16 +477,27 @@ async function handleDiff(params) {
     to,
     projectDir: rootDir,
     includeSource: Boolean(params.includeSource),
+    runtime: params.runtime !== false,
     includeChangelog: params.includeChangelog !== false,
     filter: params.filter,
-    format: requestedFormat,
+    format: coreFormat,
     verbose: Boolean(params.verbose),
     colors: false, // never emit ANSI codes through MCP
   });
 
-  const summary = result?.diff?.summary ?? result?.summary ?? null;
+  let jsonPayload = null;
+  if ((requestedFormat === 'json' || requestedFormat === 'object') && typeof result?.output === 'string') {
+    try {
+      jsonPayload = JSON.parse(result.output);
+    } catch {
+      jsonPayload = null;
+    }
+  }
+  const summary = result?.diff?.summary ?? result?.summary ?? jsonPayload?.summary ?? null;
   const changes = result?.changes
     ? result.changes
+    : Array.isArray(jsonPayload?.changes)
+      ? jsonPayload.changes
     : result?.diff
       ? [
           ...(result.diff.breaking || []),
@@ -470,12 +509,16 @@ async function handleDiff(params) {
 
   const structured = {
     schemaVersion: 1,
-    package: result?.package || params.package,
-    from: result?.from || from,
-    to: result?.to || to,
+    package: jsonPayload?.package || result?.package || params.package,
+    from: result?.diff?.from?.version || jsonPayload?.from?.version || result?.from || from,
+    to: result?.diff?.to?.version || jsonPayload?.to?.version || result?.to || to,
     output: result?.output ?? null,
     summary,
     changes,
+    symbols: result?.diff?.symbols || jsonPayload?.symbols || null,
+    sourceComparison: result?.diff?.sourceComparison || jsonPayload?.sourceComparison || null,
+    changelog: result?.changelog || jsonPayload?.changelog || null,
+    meta: jsonPayload?.meta || null,
     warnings: Array.isArray(result?.warnings) ? result.warnings : [],
   };
 

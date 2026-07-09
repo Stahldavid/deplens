@@ -71,8 +71,10 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --resolve-from <dir>          Base directory for module resolution (workspaces)
 --remote                      Download package to cache (no install required)
 --remote-version <v>          Version for remote download (default: latest)
---prefer-cdn                  Prefer CDN download (esm.sh/jsdelivr) [default]
---prefer-npm                  Force npm install (no CDN)
+--no-runtime                  Skip importing/requiring the package entrypoint
+--runtime                     Force runtime import (overrides CI remote safety)
+--prefer-cdn                  Prefer lightweight CDN download
+--prefer-npm                  Force npm install [default]
 --docs                        Include README preview
 --list-sections               List available README section names
 --docs-sections <s1,s2>       Extract specific README sections by name
@@ -116,8 +118,10 @@ Flags:
   --format text|json      Output format
   --json                  Shorthand for --format json
   --prefer-cdn            Prefer CDN download (default)
-  --prefer-npm            Force npm install (no CDN)
+  --prefer-npm            Force npm install [default]
   --include-source        Include source complexity metrics in diff
+  --no-runtime            Skip importing downloaded package entrypoints
+  --runtime               Force runtime import (overrides CI safety)
   --no-changelog          Skip remote changelog fetching
   --verbose               Show detailed per-export changes
   --no-color              Disable ANSI colors in text output
@@ -127,9 +131,13 @@ Flags:
 ### Cache management
 
 ```bash
-deplens cache stats              # Show cache statistics
+deplens cache stats              # Fast cache statistics from metadata
+deplens cache stats --exact      # Recalculate recursive sizes
 deplens cache clear [package]    # Clear all or specific package cache
 ```
+
+Fast cache stats avoid walking large cached packages. Older entries that do not
+have size metadata may show `unknown`; run `--exact` when you need precise sizes.
 
 ### History management
 

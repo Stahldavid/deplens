@@ -130,6 +130,11 @@ deplens @tanstack/router --remote --remote-version 1.40.0
 
 `--remote` downloads the package into `~/.deplens-cache/versions/` once and reuses it. Pair with any other flag (`--types`, `--docs`, etc.).
 
+Use `--no-runtime` when inspecting untrusted packages and you only need static
+package/type metadata. Runtime inspection imports the package entrypoint and may
+execute package code. In CI, remote inspections default to the safer static path
+unless `--runtime` is explicitly supplied.
+
 ### 9. Semantic search across exports
 
 ```bash
@@ -197,6 +202,7 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **Python package resolution differs from Node.** When `--language python` is used, Deplens can resolve either a local Python project path or an installed package visible to the chosen Python runtime. If analysis looks stale or wrong, run from the project root that contains `.venv`, `venv`, `pyproject.toml`, or `uv.lock`, or pass `--resolve-from <dir>` pointing there.
 - **`@types/<pkg>` not picked up.** This only happens automatically when the target package itself has no `types`/`typings`/exports-defined `.d.ts`. If types still come back empty, re-run with `--types` and check the `warnings[]` in JSON output.
 - **`--remote` first run is slow.** It hits the npm registry / CDN; subsequent calls hit the cache. `deplens cache stats` shows what's cached; `deplens cache clear [pkg?]` purges it.
+- **Cache sizes can be `unknown`.** `deplens cache stats` is fast by default and avoids recursively walking large package caches. Use `deplens cache stats --exact` when you need precise sizes.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
 - **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
 

@@ -36,6 +36,7 @@ export async function runDiff(options = {}) {
     format = 'text', // "text" | "json"
     verbose = false,
     colors = true,
+    runtime = true,
   } = options;
 
   if (!packageName) {
@@ -92,6 +93,7 @@ export async function runDiff(options = {}) {
     const diff = await compareVersions(versionPair.from.packageDir, versionPair.to.packageDir, {
       filter,
       includeSource,
+      runtime,
     });
     log('');
 
@@ -163,6 +165,7 @@ export async function runDiff(options = {}) {
             package: packageName,
             from: versionPair.from.version,
             to: versionPair.to.version,
+            runtime,
             analyzedAt: new Date().toISOString(),
           },
         }),

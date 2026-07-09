@@ -8,7 +8,9 @@ import ts from 'typescript';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { parseDtsFile } from './parse-dts.mjs';
 import { buildSymbols } from './symbols.mjs';
+import { runSourceAnalysis } from './inspect-source.mjs';
 
 /**
  * Change types and their severity
@@ -314,6 +316,119 @@ function compareSymbols(fromSymbols, toSymbols) {
   };
 }
 
+function buildNameMatcher(filter) {
+  if (!filter) return null;
+  const raw = String(filter);
+  if (raw.startsWith('/') && raw.endsWith('/') && raw.length > 2) {
+    try {
+      const regex = new RegExp(raw.slice(1, -1), 'i');
+      return (name) => regex.test(String(name));
+    } catch {
+      // fall through to substring matching
+    }
+  }
+  if (raw.includes('*')) {
+    const escaped = raw.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    const regex = new RegExp(`^${escaped}$`, 'i');
+    return (name) => regex.test(String(name));
+  }
+  const needle = raw.toLowerCase();
+  return (name) => String(name).toLowerCase().includes(needle);
+}
+
+function filterMapByName(map, matcher) {
+  if (!matcher) return map;
+  return Object.fromEntries(Object.entries(map || {}).filter(([name]) => matcher(name)));
+}
+
+function filterAnalysisByName(analysis, matcher) {
+  if (!matcher || !analysis?.exports) return analysis;
+  const exports = {};
+  for (const category of ['functions', 'classes', 'interfaces', 'types', 'enums', 'namespaces', 'jsdoc']) {
+    exports[category] = filterMapByName(analysis.exports[category], matcher);
+  }
+  return {
+    ...analysis,
+    exports,
+    symbols: (analysis.symbols || []).filter((symbol) => matcher(symbol.exportName || symbol.name)),
+  };
+}
+
+function parseParamText(params) {
+  if (!params || typeof params !== 'string') return [];
+  if (/^\d+ params?$/.test(params)) return [];
+  return params
+    .split(',')
+    .map((rawParam, index) => {
+      const trimmed = rawParam.trim();
+      if (!trimmed) return null;
+      const colonIndex = trimmed.indexOf(':');
+      const rawName = colonIndex === -1 ? trimmed : trimmed.slice(0, colonIndex).trim();
+      const rawType = colonIndex === -1 ? 'any' : trimmed.slice(colonIndex + 1).trim();
+      return {
+        name: rawName.replace(/\?$/, '') || `arg${index + 1}`,
+        type: rawType || 'any',
+        optional: rawName.endsWith('?'),
+      };
+    })
+    .filter(Boolean);
+}
+
+function propertiesFromList(properties) {
+  if (!Array.isArray(properties)) return null;
+  return Object.fromEntries(
+    properties
+      .map((rawProperty) => {
+        const text = String(rawProperty).trim();
+        const colonIndex = text.indexOf(':');
+        if (colonIndex === -1) return null;
+        const rawName = text.slice(0, colonIndex).trim();
+        const name = rawName.replace(/\?$/, '');
+        return [
+          name,
+          {
+            type: text.slice(colonIndex + 1).trim() || 'any',
+            optional: rawName.endsWith('?'),
+          },
+        ];
+      })
+      .filter(Boolean)
+  );
+}
+
+function mergeParsedDtsExports(target, parsed) {
+  if (!parsed) return;
+  for (const [name, info] of Object.entries(parsed.functions || {})) {
+    if (target.functions[name]) continue;
+    target.functions[name] = {
+      params: parseParamText(info.params),
+      returnType: info.returnType || 'void',
+    };
+  }
+  for (const [name, properties] of Object.entries(parsed.interfaces || {})) {
+    if (target.interfaces[name]) continue;
+    target.interfaces[name] = { properties: propertiesFromList(properties) || {} };
+  }
+  for (const [name, type] of Object.entries(parsed.types || {})) {
+    if (target.types[name]) continue;
+    target.types[name] = { type: typeof type === 'string' ? type : normalizeType(type) };
+  }
+  for (const [name, classInfo] of Object.entries(parsed.classes || {})) {
+    if (target.classes[name]) continue;
+    target.classes[name] = {
+      extends: classInfo && typeof classInfo === 'object' ? classInfo.extends || null : classInfo || null,
+      localName: classInfo && typeof classInfo === 'object' ? classInfo.localName || null : null,
+      methods: {},
+    };
+  }
+  for (const [name, members] of Object.entries(parsed.enums || {})) {
+    if (target.enums[name]) continue;
+    target.enums[name] = { members: Array.isArray(members) ? members : [] };
+  }
+  Object.assign(target.namespaces, parsed.namespaces || {});
+  Object.assign(target.jsdoc, parsed.jsdoc || {});
+}
+
 function resolveConditionalExport(entry, preferred = ['types', 'import', 'require', 'default']) {
   if (!entry) return null;
   if (typeof entry === 'string') return entry;
@@ -363,6 +478,9 @@ function runtimeKind(name, value) {
 }
 
 async function inspectRuntimeExports(packageDir, pkg) {
+  if (pkg?.__deplensRuntimeDisabled) {
+    return { runtimeNames: [], categorized: {}, runtimePath: null, runtimeAvailable: false };
+  }
   const entry = findRuntimeEntry(pkg).find((candidate) =>
     fs.existsSync(path.join(packageDir, candidate))
   );
@@ -402,6 +520,9 @@ async function analyzePackageTypes(packageDir, options = {}) {
   }
 
   const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+  if (options.runtime === false || options.noRuntime === true) {
+    pkg.__deplensRuntimeDisabled = true;
+  }
 
   const result = {
     version: pkg.version,
@@ -441,6 +562,20 @@ async function analyzePackageTypes(packageDir, options = {}) {
   }
 
   result.exports = allExports;
+  if (options.includeSource) {
+    const sourceResult = runSourceAnalysis({
+      pkgDir: packageDir,
+      filterRaw: options.filter || null,
+      sourceMaxFiles: options.sourceMaxFiles || 100,
+      sourceIncludeBody: Boolean(options.sourceIncludeBody),
+      forcedLanguage: options.language || null,
+      log: () => {},
+    });
+    const sourceAnalysis = sourceResult.sourceAnalysis || sourceResult.languageAnalysis || null;
+    if (sourceAnalysis && !sourceAnalysis.error) {
+      result.sourceAnalysis = sourceAnalysis;
+    }
+  }
   const runtime = await inspectRuntimeExports(packageDir, pkg);
   result.symbols = buildSymbols({
     packageName: pkg.name,
@@ -472,6 +607,8 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
   );
 
   const fileDir = path.dirname(filePath);
+
+  mergeParsedDtsExports(allExports, parseDtsFile(filePath, null, new Set()));
 
   ts.forEachChild(sourceFile, (node) => {
     // Handle export declarations: export { x } from './module'
@@ -548,6 +685,29 @@ function parseTypesRecursively(filePath, baseDir, allExports, visited) {
       const members = node.members?.map((m) => m.name.getText(sourceFile)) || [];
       allExports.enums[name] = { members };
     }
+
+    // Handle exported const declarations with function types:
+    // export const foo: (input: string) => number;
+    if (ts.isVariableStatement(node)) {
+      const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      if (!isExported) return;
+      for (const declaration of node.declarationList.declarations || []) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.type) continue;
+        const name = declaration.name.text;
+        if (ts.isFunctionTypeNode(declaration.type)) {
+          const params =
+            declaration.type.parameters?.map((p) => ({
+              name: p.name.getText(sourceFile),
+              type: p.type ? p.type.getText(sourceFile) : 'any',
+              optional: !!p.questionToken,
+            })) || [];
+          const returnType = declaration.type.type
+            ? declaration.type.type.getText(sourceFile)
+            : 'void';
+          allExports.functions[name] = { params, returnType };
+        }
+      }
+    }
   });
 }
 
@@ -576,13 +736,16 @@ function resolveModulePath(modulePath, fromDir, baseDir) {
  * Compare two package versions
  */
 export async function compareVersions(fromDir, toDir, options = {}) {
-  const { filter, includeSource = false } = options;
+  const { filter, includeSource = false, runtime = true } = options;
+  const matcher = buildNameMatcher(filter);
 
   // Analyze both versions
-  const [fromAnalysis, toAnalysis] = await Promise.all([
-    analyzePackageTypes(fromDir, { filter, includeSource }),
-    analyzePackageTypes(toDir, { filter, includeSource }),
+  let [fromAnalysis, toAnalysis] = await Promise.all([
+    analyzePackageTypes(fromDir, { filter, includeSource, runtime }),
+    analyzePackageTypes(toDir, { filter, includeSource, runtime }),
   ]);
+  fromAnalysis = filterAnalysisByName(fromAnalysis, matcher);
+  toAnalysis = filterAnalysisByName(toAnalysis, matcher);
 
   const diff = {
     from: {

@@ -82,7 +82,9 @@ Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then t
 | `--resolve-from DIR`          | path   | cwd                | Base directory for Node module resolution. Useful when targeting a sibling workspace.           |
 | `--remote`                    | flag   | off                | Download the package into `~/.deplens-cache/versions/` and inspect that copy.                   |
 | `--remote-version V`          | string | `latest`           | Version to download (only with `--remote`).                                                     |
-| `--prefer-cdn` / `--prefer-npm` | flag | `--prefer-cdn`     | Use CDN tarball (jsdelivr/unpkg) vs `npm pack`. CDN is faster; npm is canonical.                |
+| `--no-runtime`                | flag   | off                | Do not import/require the package entrypoint; use static package/type data only.                |
+| `--runtime`                   | flag   | on                 | Force runtime import when CI remote safety would otherwise skip it.                             |
+| `--prefer-cdn` / `--prefer-npm` | flag | `--prefer-npm`     | Use CDN tarball (jsdelivr/unpkg) vs `npm install`. CDN is faster; npm is canonical.             |
 
 ### Output
 
@@ -111,6 +113,8 @@ Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then t
 | `--format text\|json`         | enum   | `text`        | Output format.                                                                                  |
 | `--json`                      | flag   | off           | Shorthand for `--format json`.                                                                  |
 | `--include-source`            | flag   | off           | Compare per-symbol source complexity between versions.                                          |
+| `--no-runtime`                | flag   | off           | Do not import downloaded package entrypoints while diffing.                                     |
+| `--runtime`                   | flag   | on            | Force runtime import when CI safety would otherwise skip it.                                    |
 | `--no-changelog`              | flag   | off (parse on)| Skip `CHANGELOG.md` parsing (much faster on huge changelogs).                                   |
 | `--verbose`                   | flag   | off           | Show detailed per-symbol changes.                                                               |
 | `--no-color`                  | flag   | off           | Disable ANSI color codes in text output.                                                        |
@@ -123,10 +127,14 @@ Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then t
 
 ```bash
 deplens cache              # alias for cache stats
-deplens cache stats        # summary + top 10 largest cached packages
+deplens cache stats        # fast summary using cached metadata
+deplens cache stats --exact # recalculate recursive directory sizes
 deplens cache clear        # clear all cached versions
 deplens cache clear <pkg>  # clear cache for one package
 ```
+
+Fast stats do not walk every cached package. Entries without metadata may report
+`unknown` size until a future exact stats run or cache refresh records size data.
 
 Cache lives in `~/.deplens-cache/`:
 - `versions/` — packages downloaded via `--remote`

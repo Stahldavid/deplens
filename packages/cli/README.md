@@ -7,7 +7,7 @@ Command-line interface for DepLens.
 ```bash
 npm i -g @deplens/cli
 # or
-npx deplens --help
+npx --yes @deplens/cli --help
 ```
 
 ## Usage
@@ -59,6 +59,8 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 - `--docs-sections <s1,s2>` — extract README sections
 - `--remote` — download package to cache
 - `--remote-version <v>` — remote version override
+- `--no-runtime` — skip importing/requiring the package entrypoint
+- `--runtime` — force runtime import, including in CI remote inspections
 - `--max-exports <n>` — limit exports shown
 - `--max-props <n>` — limit object props shown
 - `--max-examples <n>` — limit examples shown
@@ -73,6 +75,8 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 - `--filter <text>` — filter exports by name
 - `--format text|json` — output format
 - `--include-source` — compare source complexity
+- `--no-runtime` — skip importing downloaded package entrypoints
+- `--runtime` — force runtime import, including in CI
 - `--no-changelog` — skip changelog parsing
 - `--verbose` — show detailed changes
 - `--no-color` — disable ANSI colors

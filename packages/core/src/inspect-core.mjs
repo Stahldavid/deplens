@@ -1102,6 +1102,7 @@ export async function runInspectCore(options) {
   const examplesFor = options?.examplesFor ? String(options.examplesFor) : null;
   const remote = Boolean(options?.remote);
   const remoteVersion = options?.remoteVersion ? String(options.remoteVersion) : null;
+  const runtimeEnabled = options?.runtime !== false && options?.noRuntime !== true;
 
   // New options
   const format =
@@ -1156,6 +1157,7 @@ export async function runInspectCore(options) {
             showTypes,
             remote,
             remoteVersion,
+            runtime: runtimeEnabled,
             offline: Boolean(options?.offline),
             listSections,
             docsSections: docsSections || null,
@@ -1639,8 +1641,10 @@ export async function runInspectCore(options) {
     let moduleDescriptors = {};
     let allExports = [];
     let runtimeLoadError = null;
-    const runtimeAvailable = Boolean(entrypointExists);
-    if (!runtimeAvailable) {
+    const runtimeAvailable = Boolean(entrypointExists && runtimeEnabled);
+    if (!runtimeEnabled) {
+      warn('Runtime export loading skipped by runtime=false/--no-runtime.');
+    } else if (!runtimeAvailable) {
       log('\n⚠️  Entrypoint not found on disk; runtime exports skipped.');
     } else {
       try {
@@ -1772,7 +1776,7 @@ export async function runInspectCore(options) {
         };
 
         // Keep only the requested kinds
-        for (const [key] of Object.keys(categorized)) {
+        for (const key of Object.keys(categorized)) {
           const shouldKeep = Object.entries(kindMap).some(
             ([kind, catKey]) => kindFilter.includes(kind) && catKey === key
           );
@@ -1898,6 +1902,8 @@ export async function runInspectCore(options) {
     if (hasTypeSymbols(typeInfoRaw) && (!runtimeAvailable || runtimeLoadError)) {
       const reason = runtimeLoadError
         ? `runtime export introspection failed: ${runtimeLoadError}`
+        : !runtimeEnabled
+          ? 'runtime export loading is disabled'
         : 'runtime entrypoint is not available on disk';
       warn(`Runtime export introspection unavailable (${reason}); type definitions were found.`);
     }

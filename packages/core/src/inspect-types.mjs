@@ -25,6 +25,26 @@ export function getCacheKey(dtsPath) {
   return `${PARSE_CACHE_VERSION}:${dtsPath}`;
 }
 
+function getFileCacheMetadata(dtsPath) {
+  const stats = fs.statSync(dtsPath);
+  return {
+    path: fs.realpathSync(dtsPath),
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+  };
+}
+
+function isFreshCachePayload(payload, metadata) {
+  return (
+    payload &&
+    payload.cache &&
+    payload.cache.path === metadata.path &&
+    payload.cache.size === metadata.size &&
+    payload.cache.mtimeMs === metadata.mtimeMs &&
+    payload.result
+  );
+}
+
 const memoryCache = new Map(); const MEMORY_CACHE_MAX = 20;
 function getMemory(key) { return memoryCache.get(key) ?? null; }
 function setMemory(key, value) {
@@ -34,21 +54,28 @@ function setMemory(key, value) {
 
 export async function getCachedDtsParse(dtsPath) {
   const cacheKey = getCacheKey(dtsPath);
+  const metadata = getFileCacheMetadata(dtsPath);
   const fromMem = getMemory(cacheKey);
-  if (fromMem) return fromMem;
+  if (isFreshCachePayload(fromMem, metadata)) return fromMem.result;
   const cacheDir = path.join(os.homedir(), '.deplens-cache', 'parse');
   fs.mkdirSync(cacheDir, { recursive: true });
   const safeName = cacheKey.replace(/[/:\\]/g, '_');
   const cacheFile = path.join(cacheDir, safeName + '.json');
   if (fs.existsSync(cacheFile)) {
-    try { const parsed = JSON.parse(fs.readFileSync(cacheFile,'utf8')); setMemory(cacheKey, parsed); return parsed; } catch {}
+    try {
+      const parsed = JSON.parse(fs.readFileSync(cacheFile,'utf8'));
+      if (isFreshCachePayload(parsed, metadata)) {
+        setMemory(cacheKey, parsed);
+        return parsed.result;
+      }
+    } catch {}
   }
 
   const result = await parseDtsFileRecursive(dtsPath, []);
+  const payload = { cache: metadata, result };
 
-
-  fs.writeFileSync(cacheFile, JSON.stringify(result, null, 0));
-  setMemory(cacheKey, result);
+  fs.writeFileSync(cacheFile, JSON.stringify(payload, null, 0));
+  setMemory(cacheKey, payload);
   return result;
 }
 
@@ -61,13 +88,24 @@ async function parseDtsFileRecursive(dtsPath, visited) {
   const named = new Map(reExportResult.named);
   const wildcards = reExportResult.wildcards;
   const extraResults = [];
-  for (const [, targetPath] of named) {
-    try { if (fs.existsSync(targetPath)) { const sub = await parseDtsFileRecursive(targetPath, nextVisited); if (sub) extraResults.push(sub); } } catch {}
+  const aliasMappings = [];
+  for (const [exportedName, target] of named) {
+    const targetPath = typeof target === 'string' ? target : target.sourcePath;
+    const localName = typeof target === 'string' ? exportedName : target.localName;
+    try {
+      if (fs.existsSync(targetPath)) {
+        const sub = await parseDtsFileRecursive(targetPath, nextVisited);
+        if (sub) {
+          extraResults.push(sub);
+          if (localName !== exportedName) aliasMappings.push({ localName, exportedName });
+        }
+      }
+    } catch {}
   }
   for (const basePath of wildcards) {
     try { const resolved = resolveWildcardTarget(basePath); if (resolved && fs.existsSync(resolved)) { const sub = await parseDtsFileRecursive(resolved, nextVisited); if (sub) extraResults.push(sub); } } catch {}
   }
-  const merged = { functions: { ...base.functions }, interfaces: { ...base.interfaces }, types: { ...base.types }, classes: { ...base.classes }, enums: { ...base.enums }, namespaces: { ...base.namespaces }, defaults: { ...base.defaults }, jsdoc: { ...base.jsdoc } };
+  const merged = { functions: { ...base.functions }, interfaces: { ...base.interfaces }, types: { ...base.types }, classes: { ...base.classes }, enums: { ...base.enums }, namespaces: { ...base.namespaces }, defaults: [...(base.defaults || [])], jsdoc: { ...base.jsdoc } };
   for (const r of extraResults) {
     Object.assign(merged.functions, r.functions);
     Object.assign(merged.interfaces, r.interfaces);
@@ -75,6 +113,16 @@ async function parseDtsFileRecursive(dtsPath, visited) {
     Object.assign(merged.classes, r.classes);
     Object.assign(merged.enums, r.enums);
     Object.assign(merged.namespaces, r.namespaces);
+    Object.assign(merged.jsdoc, r.jsdoc);
+    merged.defaults.push(...(r.defaults || []));
+  }
+  for (const { localName, exportedName } of aliasMappings) {
+    for (const bucket of ['functions', 'interfaces', 'types', 'classes', 'enums', 'namespaces', 'jsdoc']) {
+      if (merged[bucket]?.[localName]) {
+        merged[bucket][exportedName] = merged[bucket][localName];
+        delete merged[bucket][localName];
+      }
+    }
   }
   return merged;
 }

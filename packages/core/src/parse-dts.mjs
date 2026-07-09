@@ -95,10 +95,11 @@ function findReExports(dtsPath, filterList) {
         // Named exports
         for (const elem of node.exportClause.elements) {
           const exportedName = elem.name.text;
+          const localName = elem.propertyName?.text || exportedName;
           if (!filterSet || filterSet.has(exportedName.toLowerCase())) {
             const fullPath = resolveDtsPath(moduleSpec);
             if (fullPath) {
-              reExports.set(exportedName, fullPath);
+              reExports.set(exportedName, { sourcePath: fullPath, localName });
             }
           }
         }
@@ -257,15 +258,36 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     typeInfo.jsdoc[name] = doc;
   }
 
+  function copySymbol(source, target, fromName, toName) {
+    if (!source?.[fromName]) return;
+    target[toName] = fromName === toName ? source[fromName] : source[fromName];
+    if (fromName !== toName) delete target[fromName];
+  }
+
+  function mergeReExportedSymbol(subResult, localName, exportedName) {
+    copySymbol(subResult.functions, typeInfo.functions, localName, exportedName);
+    copySymbol(subResult.interfaces, typeInfo.interfaces, localName, exportedName);
+    copySymbol(subResult.types, typeInfo.types, localName, exportedName);
+    copySymbol(subResult.classes, typeInfo.classes, localName, exportedName);
+    copySymbol(subResult.enums, typeInfo.enums, localName, exportedName);
+    copySymbol(subResult.namespaces, typeInfo.namespaces, localName, exportedName);
+    copySymbol(subResult.jsdoc, typeInfo.jsdoc, localName, exportedName);
+    typeInfo.defaults.push(...subResult.defaults);
+  }
+
   function visit(node) {
     // Function declarations
     if (ts.isFunctionDeclaration(node)) {
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-      const name = node.name?.text || (isDefault ? 'default' : null);
+      const name = isDefault ? 'default' : node.name?.text || null;
       if (name && shouldInclude(name)) {
         const params = formatParams(node.parameters);
         const returnType = formatType(node.type, 60);
-        typeInfo.functions[name] = { params, returnType };
+        typeInfo.functions[name] = {
+          params,
+          returnType,
+          ...(isDefault && node.name?.text ? { localName: node.name.text } : {}),
+        };
         attachJSDoc(name, node);
       }
     }
@@ -277,7 +299,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
       const exportName = isDefault ? 'default' : name;
       if (shouldInclude(exportName)) {
         const props = [];
-        node.members.slice(0, 5).forEach((member) => {
+        node.members.forEach((member) => {
           if (ts.isPropertySignature(member) && member.name) {
             const propName = getNodeText(member.name);
             const optional = member.questionToken ? '?' : '';
@@ -306,7 +328,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     // Class declarations
     if (ts.isClassDeclaration(node)) {
       const isDefault = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-      const name = node.name?.text || (isDefault ? 'default' : null);
+      const name = isDefault ? 'default' : node.name?.text || null;
       if (name && shouldInclude(name)) {
         let extendsClause = null;
         if (node.heritageClauses) {
@@ -316,7 +338,10 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
             }
           }
         }
-        typeInfo.classes[name] = extendsClause;
+        typeInfo.classes[name] =
+          isDefault && node.name?.text
+            ? { extends: extendsClause, localName: node.name.text }
+            : extendsClause;
         attachJSDoc(name, node);
       }
     }
@@ -325,7 +350,7 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
     if (ts.isEnumDeclaration(node)) {
       const name = node.name.text;
       if (shouldInclude(name)) {
-        const members = node.members.slice(0, 5).map((member) => getNodeText(member.name));
+        const members = node.members.map((member) => getNodeText(member.name));
         typeInfo.enums[name] = members;
         attachJSDoc(name, node);
       }
@@ -390,17 +415,12 @@ export function parseDtsFile(dtsPath, filterList, visited = new Set()) {
       const { named, wildcards } = findReExports(dtsPath, missing);
 
       // Try named exports first
-      for (const [symbolName, sourcePath] of named) {
-        const subResult = parseDtsFile(sourcePath, [symbolName], visited);
+      for (const [symbolName, target] of named) {
+        const sourcePath = typeof target === 'string' ? target : target.sourcePath;
+        const localName = typeof target === 'string' ? symbolName : target.localName;
+        const subResult = parseDtsFile(sourcePath, [localName], visited);
         if (subResult) {
-          Object.assign(typeInfo.functions, subResult.functions);
-          Object.assign(typeInfo.interfaces, subResult.interfaces);
-          Object.assign(typeInfo.types, subResult.types);
-          Object.assign(typeInfo.classes, subResult.classes);
-          Object.assign(typeInfo.enums, subResult.enums);
-          Object.assign(typeInfo.namespaces, subResult.namespaces);
-          Object.assign(typeInfo.jsdoc, subResult.jsdoc);
-          typeInfo.defaults.push(...subResult.defaults);
+          mergeReExportedSymbol(subResult, localName, symbolName);
         }
       }
 

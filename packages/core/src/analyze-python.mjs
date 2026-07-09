@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/python_ast_tools.py');
 
 const PYTHON_PROJECT_MARKERS = ['pyproject.toml', 'uv.lock', 'requirements.txt', '.venv', 'venv'];
+const commandExistsCache = new Map();
+const pythonCommandsCache = new Map();
 
 function findPythonProjectRoot(startDir) {
   if (!startDir || !fs.existsSync(startDir)) return null;
@@ -42,12 +44,30 @@ function findVenvPython(projectRoot) {
 }
 
 function commandExists(command, args = ['--version']) {
-  const result = spawnSync(command, args, { encoding: 'utf-8' });
-  if (result.error && result.error.code === 'ENOENT') return false;
-  return result.status === 0 || Boolean(result.stdout || result.stderr);
+  const cacheKey = `${command}\0${args.join('\0')}`;
+  if (commandExistsCache.has(cacheKey)) return commandExistsCache.get(cacheKey);
+  const result = spawnSync(command, args, {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 1500,
+  });
+  if (result.error?.code === 'ETIMEDOUT') {
+    commandExistsCache.set(cacheKey, false);
+    return false;
+  }
+  if (result.error && result.error.code === 'ENOENT') {
+    commandExistsCache.set(cacheKey, false);
+    return false;
+  }
+  const exists = result.status === 0 || Boolean(result.stdout || result.stderr);
+  commandExistsCache.set(cacheKey, exists);
+  return exists;
 }
 
 function buildPythonCommands(cwd) {
+  const cacheKey = path.resolve(cwd || process.cwd());
+  if (pythonCommandsCache.has(cacheKey)) return pythonCommandsCache.get(cacheKey);
+
   const projectRoot = findPythonProjectRoot(cwd);
   const venvPython = findVenvPython(projectRoot);
   const hasUvProject =
@@ -63,6 +83,8 @@ function buildPythonCommands(cwd) {
       argsPrefix: [],
       cwd: projectRoot || cwd,
     });
+    pythonCommandsCache.set(cacheKey, commands);
+    return commands;
   }
 
   if (hasUvProject && commandExists('uv')) {
@@ -76,6 +98,8 @@ function buildPythonCommands(cwd) {
   if (process.platform === 'win32') {
     if (commandExists('py', ['-3', '--version'])) {
       commands.push({ command: 'py', argsPrefix: ['-3'], cwd: cwd || projectRoot || process.cwd() });
+      pythonCommandsCache.set(cacheKey, commands);
+      return commands;
     }
   }
 
@@ -86,6 +110,7 @@ function buildPythonCommands(cwd) {
     commands.push({ command: 'python', argsPrefix: [], cwd: cwd || projectRoot || process.cwd() });
   }
 
+  pythonCommandsCache.set(cacheKey, commands);
   return commands;
 }
 
@@ -103,7 +128,13 @@ function runPythonTool(toolArgs, { cwd } = {}) {
       cwd: candidate.cwd,
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024,
+      timeout: 30000,
     });
+
+    if (result.error?.code === 'ETIMEDOUT') {
+      lastFailure = 'Python tool timed out after 30000ms';
+      continue;
+    }
 
     if (result.error && result.error.code === 'ENOENT') {
       lastFailure = result.error.message;

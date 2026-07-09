@@ -1,8 +1,12 @@
 {
   "name": "@deplens/core",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "description": "Core engine for inspecting installed package exports and types",
   "type": "module",
+  "files": [
+    "src",
+    "scripts"
+  ],
   "exports": {
     ".": "./src/index.mjs",
     "./parse-dts": "./src/parse-dts.mjs"

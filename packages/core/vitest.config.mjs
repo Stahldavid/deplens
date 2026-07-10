@@ -5,7 +5,6 @@ export default defineConfig({
   test: {
     include: ['__tests__/*.{test,spec}.{js,mjs,cjs,ts}'],
     testTimeout: 15_000,
-    fileParallelism: process.platform !== 'win32',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],

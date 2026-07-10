@@ -106,8 +106,12 @@ jobs:
           node --input-type=module -e "import('./packages/core/src/index.mjs').then(m => { if (typeof m.runInspect !== 'function') process.exit(1) })"
 
       - name: Test
-        if: ${{ !matrix.smoke }}
+        if: ${{ !matrix.smoke && matrix.os != 'windows-latest' }}
         run: npm test
+
+      - name: Test with isolated files on Windows
+        if: ${{ !matrix.smoke && matrix.os == 'windows-latest' }}
+        run: node scripts/run-windows-ci.mjs
 
   real-package-corpus:
     if: github.event_name == 'schedule'

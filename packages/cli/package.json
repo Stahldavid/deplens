@@ -1,6 +1,6 @@
 {
   "name": "@deplens/cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Inspect exports and types of installed npm packages",
   "type": "module",
   "bin": {

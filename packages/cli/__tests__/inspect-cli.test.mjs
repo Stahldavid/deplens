@@ -70,6 +70,20 @@ describe('inspect CLI', () => {
     expect(output.symbols.every((symbol) => /zodstring/i.test(symbol.exportName))).toBe(true);
   });
 
+  it('reassembles CSV values split by the global PowerShell shim', () => {
+    const output = runCliJson([
+      'zod',
+      '--no-runtime',
+      '--types',
+      '--select=types',
+      'symbols',
+      '--max-symbols=2',
+    ]);
+
+    expect(output.types).toEqual(expect.any(Object));
+    expect(output.symbols).toHaveLength(2);
+  });
+
   it('includes requested docs sections and profile timings in compact JSON', () => {
     const sections = runCliJson(['zod', '--no-runtime', '--list-sections']);
     const profiled = runCliJson(['zod', '--no-runtime', '--profile']);

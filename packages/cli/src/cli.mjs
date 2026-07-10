@@ -644,6 +644,17 @@ const FLAG_OPTIONS = new Set([
   '-v',
 ]);
 
+const LIST_VALUE_OPTIONS = new Set([
+  '--docs-sections',
+  '--jsdoc-symbol',
+  '--jsdoc-sections',
+  '--jsdoc-tags',
+  '--jsdoc-tags-exclude',
+  '--kind',
+  '--conditions',
+  '--select',
+]);
+
 function validateCliArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -669,13 +680,28 @@ function validateCliArgs(args) {
 }
 
 function normalizeCliArgs(args) {
-  return args.flatMap((argument) => {
+  const normalizedEquals = args.flatMap((argument) => {
     if (!argument.startsWith('--') || !argument.includes('=')) return [argument];
     const equalsIndex = argument.indexOf('=');
     const optionName = argument.slice(0, equalsIndex);
     if (!VALUE_OPTIONS.has(optionName)) return [argument];
     return [optionName, argument.slice(equalsIndex + 1)];
   });
+  const normalizedLists = [];
+  for (let index = 0; index < normalizedEquals.length; index += 1) {
+    const argument = normalizedEquals[index];
+    if (!LIST_VALUE_OPTIONS.has(argument)) {
+      normalizedLists.push(argument);
+      continue;
+    }
+    const values = [];
+    while (index + 1 < normalizedEquals.length && !normalizedEquals[index + 1].startsWith('-')) {
+      values.push(normalizedEquals[index + 1]);
+      index += 1;
+    }
+    normalizedLists.push(argument, values.join(','));
+  }
+  return normalizedLists;
 }
 
 const argv = normalizeCliArgs(process.argv.slice(2));

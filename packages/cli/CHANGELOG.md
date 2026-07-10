@@ -1,5 +1,11 @@
 # @deplens/cli
 
+## 1.0.2
+
+### Patch Changes
+
+- Reassemble comma-list option values split into separate arguments by npm's global PowerShell shim, including `--select`, docs sections, kinds, JSDoc lists, and export conditions.
+
 ## 1.0.1
 
 ### Patch Changes

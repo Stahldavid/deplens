@@ -54,11 +54,15 @@ function bracesAreBalanced(content) {
 }
 
 function parseModifiers(prefix) {
-  return unique((prefix.match(/\b(?:public|private|protected|abstract|static|final|sealed|non-sealed|synchronized|native|default|strictfp)\b/g) || []));
+  return unique(
+    prefix.match(
+      /\b(?:public|private|protected|abstract|static|final|sealed|non-sealed|synchronized|native|default|strictfp)\b/g
+    ) || []
+  );
 }
 
 function parseAnnotations(prefix) {
-  return unique((prefix.match(/@\w+(?:\([^)]*\))?/g) || []));
+  return unique(prefix.match(/@\w+(?:\([^)]*\))?/g) || []);
 }
 
 function parseDelimitedTypeList(raw) {
@@ -133,7 +137,8 @@ function parseMemberFunctions(ownerName, ownerBody, ownerOffset, includeBody, ma
 
   let match;
   while ((match = memberRegex.exec(ownerBody))) {
-    const [, prefix = '', rawReturnType = '', name, rawParams = '', rawThrows = '', terminator] = match;
+    const [, prefix = '', rawReturnType = '', name, rawParams = '', rawThrows = '', terminator] =
+      match;
     if (CONTROL_NAMES.has(name)) continue;
 
     const isConstructor = name === ownerName;
@@ -330,20 +335,19 @@ export function analyzeJavaFile(content, options = {}) {
   }
 
   const packageName = source.match(/\bpackage\s+([\w.]+)\s*;/)?.[1] || null;
-  const imports = [...source.matchAll(/^\s*import\s+(static\s+)?([\w.*]+)\s*;/gm)].map(
-    (match) => ({
-      path: match[2],
-      static: Boolean(match[1]),
-      wildcard: match[2].endsWith('.*'),
-    })
-  );
+  const imports = [...source.matchAll(/^\s*import\s+(static\s+)?([\w.*]+)\s*;/gm)].map((match) => ({
+    path: match[2],
+    static: Boolean(match[1]),
+    wildcard: match[2].endsWith('.*'),
+  }));
 
   const classes = [];
   const interfaces = [];
   const enums = [];
 
   for (const declaration of findTypeDeclarations(source)) {
-    if (declaration.kind === 'class') classes.push(parseClass(declaration, includeBody, maxBodyLines));
+    if (declaration.kind === 'class')
+      classes.push(parseClass(declaration, includeBody, maxBodyLines));
     if (declaration.kind === 'interface') {
       interfaces.push(parseInterface(declaration, includeBody, maxBodyLines));
     }

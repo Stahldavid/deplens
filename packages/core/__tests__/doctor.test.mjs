@@ -20,9 +20,7 @@ describe('buildDoctorReport', () => {
             types: { conditionsMatched: ['types'] },
           },
         },
-        symbols: [
-          { name: 'foo', facets: ['runtime', 'types'], availability: 'runtime+types' },
-        ],
+        symbols: [{ name: 'foo', facets: ['runtime', 'types'], availability: 'runtime+types' }],
       },
       { target: 'demo' }
     );
@@ -46,7 +44,11 @@ describe('buildDoctorReport', () => {
           entrypointExists: false,
           runtimeTypesDiverge: true,
           trace: {
-            runtime: { resolver: 'import-meta-resolve', conditionsMatched: [], resolvedPath: 'server' },
+            runtime: {
+              resolver: 'import-meta-resolve',
+              conditionsMatched: [],
+              resolvedPath: 'server',
+            },
             types: { conditionsMatched: [], resolvedPath: 'server.d.ts' },
           },
         },
@@ -56,7 +58,9 @@ describe('buildDoctorReport', () => {
     );
 
     expect(report.status).toBe('issues');
-    expect(report.suggestions).toContain('Use --types for this target; runtime introspection is unavailable.');
+    expect(report.suggestions).toContain(
+      'Use --types for this target; runtime introspection is unavailable.'
+    );
     expect(report.symbols).toMatchObject({ runtime: 0, types: 1 });
   });
 
@@ -72,7 +76,9 @@ describe('buildDoctorReport', () => {
     );
 
     expect(report.status).toBe('issues');
-    expect(report.suggestions).toContain('Try --resolve-from pointing at the package workspace or project root.');
+    expect(report.suggestions).toContain(
+      'Try --resolve-from pointing at the package workspace or project root.'
+    );
     expect(report.suggestions).toContain('If the package is not installed locally, try --remote.');
   });
 });

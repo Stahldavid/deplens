@@ -7,8 +7,8 @@ import fg from 'fast-glob';
 import { resolve as importMetaResolve } from 'import-meta-resolve';
 import { detectLanguage } from './language-detector.mjs';
 import { analyzePythonPackage, resolvePythonPackage } from './analyze-python.mjs';
-import { downloadVersion } from './version-resolver.mjs';
-import {getCachedDtsParse, generateDts, filterTypeInfo} from './inspect-types.mjs';
+import { downloadVersion, resolveVersionAsync } from './version-resolver.mjs';
+import { getCachedDtsParse, generateDts, filterTypeInfo } from './inspect-types.mjs';
 import { buildSymbols } from './symbols.mjs';
 import { buildResolutionTrace } from './resolution-trace.mjs';
 
@@ -543,7 +543,14 @@ function normalizeCjsExports(exportsValue) {
     return { default: exportsValue };
   }
   if (typeof exportsValue === 'object' || typeof exportsValue === 'function') {
-    return { ...exportsValue, default: exportsValue };
+    const namespace = Object.create(null);
+    Object.defineProperties(namespace, Object.getOwnPropertyDescriptors(exportsValue));
+    Object.defineProperty(namespace, 'default', {
+      value: exportsValue,
+      enumerable: true,
+      configurable: true,
+    });
+    return namespace;
   }
   return { default: exportsValue };
 }
@@ -854,9 +861,17 @@ function searchExports(exports, typeInfo, query, minScore = 0.3) {
 
 function hasTypeSymbols(typeInfo) {
   if (!typeInfo) return false;
-  return ['functions', 'interfaces', 'types', 'classes', 'enums'].some(
+  return ['functions', 'interfaces', 'types', 'classes', 'enums', 'variables'].some(
     (key) => Object.keys(typeInfo[key] || {}).length > 0
   );
+}
+
+function comparableModuleStem(filePath) {
+  if (!filePath) return null;
+  return String(filePath)
+    .replace(/\\/g, '/')
+    .replace(/\.d\.(?:ts|cts|mts)$/i, '')
+    .replace(/\.(?:js|cjs|mjs|ts|cts|mts)$/i, '');
 }
 
 function readPackageTextFile(pkgDir, filenameCandidates) {
@@ -1019,8 +1034,6 @@ function formatJsdocEntry(name, doc, options) {
   return `${name}: ${parts.join(' | ')}`.trim();
 }
 
-
-
 // Helper function to inspect object properties recursively
 function inspectObject(obj, currentDepth = 0, maxDepth = 1, maxPropsLimit = 10, indent = '  ') {
   if (currentDepth >= maxDepth || obj === null || obj === undefined) {
@@ -1072,7 +1085,6 @@ function inspectObject(obj, currentDepth = 0, maxDepth = 1, maxPropsLimit = 10, 
 }
 
 export async function runInspectCore(options) {
-
   let sourceAnalysis;
   let detectedLang;
   let languageAnalysis;
@@ -1142,10 +1154,14 @@ export async function runInspectCore(options) {
           version: null,
           description: null,
           exports: null,
+          staticExports: null,
           types: null,
           docs: null,
           sections: null,
           examples: null,
+          symbols: null,
+          sourceAnalysis: null,
+          languageAnalysis: null,
           resolution: null,
           pkgDir: null,
           meta: {
@@ -1208,36 +1224,50 @@ export async function runInspectCore(options) {
         warn(message);
         logErr(`\n❌ Remote download failed: ${message}`);
       } else {
-      log(`\n🌐 Remote: downloading ${basePkgName}@${spec}...`);
-      try {
-        const downloaded = await downloadVersion(basePkgName, spec, {
-          timeout: 120000,
-          preferCdn: Boolean(options?.preferCdn),
-          offline: Boolean(options?.offline),
-        });
-        resolveFrom = downloaded.path;
-        explicitResolveFrom = downloaded.path;
-        remoteCache = {
-          path: downloaded.path,
-          cached: Boolean(downloaded.cached),
-          fetched: Boolean(downloaded.fetched),
-          metadata: downloaded.metadata || null,
-        };
-        log(`   CachePath: ${downloaded.path}`);
-        log(`   Cached: ${downloaded.cached ? 'yes' : 'no'}`);
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        logErr(`\n❌ Remote download failed: ${message}`);
-      }
+        log(`\n🌐 Remote: resolving ${basePkgName}@${spec}...`);
+        try {
+          const exactVersion = options?.offline
+            ? spec
+            : await resolveVersionAsync(basePkgName, spec, baseCwd || process.cwd());
+          log(`   ResolvedVersion: ${exactVersion}`);
+          const downloaded = await downloadVersion(basePkgName, exactVersion, {
+            timeout: 120000,
+            preferCdn: Boolean(options?.preferCdn),
+            offline: Boolean(options?.offline),
+          });
+          resolveFrom = downloaded.path;
+          explicitResolveFrom = downloaded.path;
+          remoteCache = {
+            path: downloaded.path,
+            cached: Boolean(downloaded.cached),
+            fetched: Boolean(downloaded.fetched),
+            metadata: downloaded.metadata || null,
+          };
+          log(`   CachePath: ${downloaded.path}`);
+          log(`   Cached: ${downloaded.cached ? 'yes' : 'no'}`);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (jsonOutput) {
+            jsonOutput.error = `Remote download failed: ${message}`;
+            jsonOutput.warnings.push(jsonOutput.error);
+            jsonOutput.resolution = {
+              target,
+              resolveFrom: resolveFrom || null,
+              resolveCwd: baseCwd || null,
+              resolved: null,
+              entrypointPath: null,
+              entrypointExists: false,
+              cache: null,
+            };
+          }
+          logErr(`\n❌ Remote download failed: ${message}`);
+          if (format === 'object') return jsonOutput;
+          if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
+          return collect ? output.join('\n') : '';
+        }
       }
     }
   }
-  if (baseCwd) {
-    try {
-      process.chdir(baseCwd);
-    } catch (e) {}
-  }
-
   const resolution = await resolveTargetModule(target, baseCwd, resolveFrom, explicitResolveFrom);
   const resolveCwd = resolution.resolveCwd || resolveFrom || baseCwd;
   const require = createRequire(resolveCwd ? path.join(resolveCwd, 'noop.js') : import.meta.url);
@@ -1573,7 +1603,14 @@ export async function runInspectCore(options) {
         }
       }
 
-      const typesResolution = resolveTypesFile(pkg, pkgDir, subpath, basePkg, require, entrypointPath);
+      const typesResolution = resolveTypesFile(
+        pkg,
+        pkgDir,
+        subpath,
+        basePkg,
+        require,
+        entrypointPath
+      );
       typesFile = typesResolution.typesFile;
 
       dtsPath = typesResolution.dtsPath;
@@ -1633,18 +1670,16 @@ export async function runInspectCore(options) {
     // Sempre parsear types para JSON output (mesmo sem --types)
     if (jsonOutput && dtsPath && fs.existsSync(dtsPath)) {
       typeInfoRaw = await getCachedDtsParse(dtsPath);
-
-
     }
 
     let moduleNamespace = {};
     let moduleDescriptors = {};
     let allExports = [];
     let runtimeLoadError = null;
-    const runtimeAvailable = Boolean(entrypointExists && runtimeEnabled);
+    let runtimeAvailable = false;
     if (!runtimeEnabled) {
       warn('Runtime export loading skipped by runtime=false/--no-runtime.');
-    } else if (!runtimeAvailable) {
+    } else if (!entrypointExists) {
       log('\n⚠️  Entrypoint not found on disk; runtime exports skipped.');
     } else {
       try {
@@ -1652,11 +1687,11 @@ export async function runInspectCore(options) {
         moduleNamespace = loadedNamespace;
         moduleDescriptors = Object.getOwnPropertyDescriptors(moduleNamespace);
         allExports = Object.keys(moduleDescriptors);
+        runtimeAvailable = true;
       } catch (e) {
         runtimeLoadError = e instanceof Error ? e.message : String(e);
         // Continue with empty runtime exports
       }
-
     }
 
     // Lógica de Filtro (case-insensitive, supports regex)
@@ -1904,10 +1939,9 @@ export async function runInspectCore(options) {
         ? `runtime export introspection failed: ${runtimeLoadError}`
         : !runtimeEnabled
           ? 'runtime export loading is disabled'
-        : 'runtime entrypoint is not available on disk';
+          : 'runtime entrypoint is not available on disk';
       warn(`Runtime export introspection unavailable (${reason}); type definitions were found.`);
     }
-
 
     if (showTypes || wantJsdoc) {
       if (dtsPath && fs.existsSync(dtsPath)) {
@@ -1916,10 +1950,7 @@ export async function runInspectCore(options) {
           log(`   Source: ${path.basename(dtsPath)}`);
         }
 
-
-
         const typeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
-
 
         // Log functions
         const functionCount = Object.keys(typeInfo.functions).length;
@@ -1977,21 +2008,32 @@ export async function runInspectCore(options) {
 
     // Always include types in JSON output if available
 
-
-
     let symbolTypeInfo = null;
-    if (jsonOutput && dtsPath && fs.existsSync(dtsPath) && !jsonOutput.types) {
+    if (
+      jsonOutput &&
+      (showTypes || wantJsdoc) &&
+      dtsPath &&
+      fs.existsSync(dtsPath) &&
+      !jsonOutput.types
+    ) {
       const typeInfoRaw2 = await getCachedDtsParse(dtsPath);
       const typeInfo = filterTypeInfo(typeInfoRaw2, filter, kindFilter);
       symbolTypeInfo = typeInfo;
       if (typeInfo) {
         jsonOutput.types = {
           source: path.basename(dtsPath),
-          functions: Object.fromEntries(Object.entries(typeInfo.functions).map(([name, info]) => [name, { params: info.params, returnType: info.returnType }])),
+          functions: Object.fromEntries(
+            Object.entries(typeInfo.functions).map(([name, info]) => [
+              name,
+              { params: info.params, returnType: info.returnType },
+            ])
+          ),
           interfaces: typeInfo.interfaces,
           types: typeInfo.types,
           classes: typeInfo.classes,
           enums: typeInfo.enums || {},
+          enumDetails: typeInfo.enumDetails || {},
+          variables: typeInfo.variables || {},
         };
       }
     }
@@ -2013,7 +2055,9 @@ export async function runInspectCore(options) {
         jsonOutput.resolution.typesPath = relativeTypesPath;
         jsonOutput.resolution.typesSource = typesSource || null;
         jsonOutput.resolution.runtimeTypesDiverge = Boolean(
-          relativeRuntimePath && relativeTypesPath && relativeRuntimePath !== relativeTypesPath
+          relativeRuntimePath &&
+          relativeTypesPath &&
+          comparableModuleStem(relativeRuntimePath) !== comparableModuleStem(relativeTypesPath)
         );
         jsonOutput.resolution.trace = buildResolutionTrace({
           pkg,
@@ -2043,6 +2087,32 @@ export async function runInspectCore(options) {
         typesSource,
         typesCondition,
       });
+      if (!showTypes && !wantJsdoc) {
+        jsonOutput.symbols = jsonOutput.symbols.map((symbol) => {
+          if (!symbol.types) return symbol;
+          return {
+            ...symbol,
+            types: {
+              kind: symbol.types.kind,
+              path: symbol.types.path,
+              source: symbol.types.source,
+              condition: symbol.types.condition,
+            },
+          };
+        });
+      }
+      const staticNames = jsonOutput.symbols
+        .filter((symbol) => symbol.facets.includes('types'))
+        .map((symbol) => symbol.exportName);
+      jsonOutput.staticExports = {
+        total: staticNames.length,
+        names: staticNames,
+      };
+      if (remoteCache?.metadata?.source === 'cdn') {
+        warn(
+          'CDN mode fetches selected entry files only and may omit declaration re-exports; use --prefer-npm for a complete package tree.'
+        );
+      }
       if (
         options?.preferCdn &&
         showTypes &&
@@ -2056,10 +2126,9 @@ export async function runInspectCore(options) {
     }
 
     // Source code analysis
-
   } catch (e) {
-      console.error(e.stack);
-      if (jsonOutput) {
+    if (jsonOutput) {
+      jsonOutput.error = e.message;
       jsonOutput.warnings.push(`Error: ${e.message}`);
     } else {
       logErr(`\n❌ Erro: ${e.message}`);
@@ -2090,10 +2159,6 @@ export async function runInspectCore(options) {
     return JSON.stringify(jsonOutput, null, 2);
   }
   return collect ? output.join('\n') : '';
-
 }
-
-
-
 
 export { runDiff } from './diff.mjs';

@@ -25,7 +25,8 @@ function parseInspectArgs(argv) {
   if (docsForIndex !== -1 && argv[docsForIndex + 1]) {
     docsFor = argv[docsForIndex + 1];
   }
-  const includeDocs = argv.includes('--docs') || argv.includes('--include-docs') || Boolean(docsFor);
+  const includeDocs =
+    argv.includes('--docs') || argv.includes('--include-docs') || Boolean(docsFor);
   let examplesFor = null;
   const examplesForIndex = argv.indexOf('--examples-for');
   if (examplesForIndex !== -1 && argv[examplesForIndex + 1]) {
@@ -453,12 +454,93 @@ function markExitCodeForOutput(output, format) {
   }
 }
 
+const VALUE_OPTIONS = new Set([
+  '--docs-for',
+  '--examples-for',
+  '--format',
+  '--search',
+  '--docs-sections',
+  '--max-exports',
+  '--max-props',
+  '--max-examples',
+  '--source-max-files',
+  '--language',
+  '--jsdoc',
+  '--jsdoc-output',
+  '--jsdoc-symbol',
+  '--jsdoc-sections',
+  '--jsdoc-tags',
+  '--jsdoc-tags-exclude',
+  '--jsdoc-truncate',
+  '--jsdoc-max-len',
+  '--filter',
+  '--resolve-from',
+  '--remote-version',
+  '--history-dir',
+  '--kind',
+  '--depth',
+  '--from',
+  '--to',
+  '--project-dir',
+]);
+
+const FLAG_OPTIONS = new Set([
+  '--types',
+  '--docs',
+  '--include-docs',
+  '--examples',
+  '--include-examples',
+  '--remote',
+  '--offline',
+  '--runtime',
+  '--no-runtime',
+  '--json',
+  '--list-sections',
+  '--analyze-source',
+  '--auto-generate-types',
+  '--no-auto-generate-types',
+  '--source-include-body',
+  '--include-source-body',
+  '--prefer-cdn',
+  '--prefer-npm',
+  '--save-history',
+  '--no-save-history',
+  '--include-source',
+  '--no-changelog',
+  '--verbose',
+  '--no-color',
+  '--fast',
+  '--exact',
+  '--force',
+  '--help',
+  '--version',
+  '-h',
+  '-v',
+]);
+
+function validateCliArgs(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (!argument.startsWith('-')) continue;
+    if (VALUE_OPTIONS.has(argument)) {
+      const value = args[index + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Option ${argument} requires a value`);
+      }
+      index += 1;
+      continue;
+    }
+    if (!FLAG_OPTIONS.has(argument)) throw new Error(`Unknown option: ${argument}`);
+  }
+}
+
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
   console.log(cliVersion());
   process.exit(0);
 }
-let command = argv[0] === 'diff' || argv[0] === 'inspect' || argv[0] === 'doctor' ? argv[0] : 'inspect';
+let command =
+  argv[0] === 'diff' || argv[0] === 'inspect' || argv[0] === 'doctor' ? argv[0] : 'inspect';
 if (argv[0] === 'cache') command = 'cache';
 if (argv[0] === 'history') command = 'history';
 
@@ -705,4 +787,10 @@ if (command === 'diff') {
     process.stdout.write(output);
   }
   markExitCodeForOutput(output, parsed.format);
+}
+try {
+  validateCliArgs(argv);
+} catch (error) {
+  console.error(`Error: ${error.message}`);
+  process.exit(1);
 }

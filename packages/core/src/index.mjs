@@ -11,7 +11,9 @@ export {
   getCacheStats,
   pinCache,
   getLatestVersion,
+  getLatestVersionAsync,
   getAllVersions,
+  resolveVersionAsync,
 } from './version-resolver.mjs';
 export { parseDtsFile } from './parse-dts.mjs';
 export {
@@ -32,5 +34,10 @@ export {
 } from './history-manager.mjs';
 
 export { detectLanguage, getSourceFiles } from './language-detector.mjs';
-export { analyzePythonPackage, analyzePythonFile, resolvePythonPackage } from './analyze-python.mjs';
+export {
+  analyzePythonPackage,
+  analyzePythonPackageAsync,
+  analyzePythonFile,
+  resolvePythonPackage,
+} from './analyze-python.mjs';
 export { analyzeJavaPackage, analyzeJavaFile } from './analyze-java.mjs';

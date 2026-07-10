@@ -1,5 +1,24 @@
 # @deplens/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- Rebuild declaration inspection around the TypeScript semantic model, including public re-exports, aliases, overloads, classes, enums, variables, default exports, and dependency-aware parse caching.
+
+  Make version diffs subpath-aware and detect optionality, readonly, overload, constructor, class property, enum member, and enum value changes. Harden remote package resolution with exact versions, atomic cache writes, concurrent download locks, package identity checks, confined metadata paths, offline guarantees, and sanitized npm failures.
+
+  Improve CLI validation and error exit codes, expose compact static export metadata, add public TypeScript declarations, make Python source analysis asynchronous, clarify unsupported language analysis, and strengthen history and changelog handling.
+
+  Default MCP inspection to static analysis, align tool annotations with package downloads, propagate structured errors, cap large symbol payloads, and validate the server through real SDK stdio integration tests.
+
+  Expand CI across supported Node.js versions and Windows, require formatting, types, tests, audit, and package dry-runs before trusted publishing, and update package documentation and the DepLens CLI skill.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @deplens/core@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

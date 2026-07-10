@@ -27,7 +27,10 @@ function writeHistoryEntry(historyDir, packageName, version) {
 
 describe('history CLI', () => {
   it('saves inspect history in text mode', () => {
-    const projectDir = path.join(tmpdir(), `deplens-cli-history-project-${process.pid}-${Date.now()}`);
+    const projectDir = path.join(
+      tmpdir(),
+      `deplens-cli-history-project-${process.pid}-${Date.now()}`
+    );
     const historyDir = path.join(tmpdir(), `deplens-cli-history-save-${process.pid}-${Date.now()}`);
     const packageDir = path.join(projectDir, 'node_modules', 'deplens-history-fixture');
     try {
@@ -77,7 +80,10 @@ describe('history CLI', () => {
   });
 
   it('clears custom history dirs without treating --history-dir as a package name', () => {
-    const historyDir = path.join(tmpdir(), `deplens-cli-history-clear-${process.pid}-${Date.now()}`);
+    const historyDir = path.join(
+      tmpdir(),
+      `deplens-cli-history-clear-${process.pid}-${Date.now()}`
+    );
     try {
       writeHistoryEntry(historyDir, 'zod', '4.3.6');
 
@@ -92,7 +98,10 @@ describe('history CLI', () => {
   });
 
   it('shows scoped package history without mistaking the leading @ for a version separator', () => {
-    const historyDir = path.join(tmpdir(), `deplens-cli-history-scoped-${process.pid}-${Date.now()}`);
+    const historyDir = path.join(
+      tmpdir(),
+      `deplens-cli-history-scoped-${process.pid}-${Date.now()}`
+    );
     try {
       writeHistoryEntry(historyDir, '@posthog/convex', '2.0.32');
 

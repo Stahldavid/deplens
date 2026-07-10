@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import path from 'path';
 import { runDiff } from '../src/diff.mjs';
-import { downloadVersion } from '../src/version-resolver.mjs';
+import { downloadVersion, safePackageRelativePath } from '../src/version-resolver.mjs';
 
 describe('cache offline mode', () => {
   it('fails fast when an exact package version is not cached', async () => {
@@ -20,5 +21,15 @@ describe('cache offline mode', () => {
 
     expect(result.error).toBe('--offline diff requires exact versions, except --from installed');
     expect(JSON.parse(result.output).meta.offline).toBe(true);
+  });
+
+  it('confines package metadata paths to the package directory', () => {
+    const packageDir = path.resolve('safe-package-root');
+
+    expect(safePackageRelativePath(packageDir, './dist/index.d.ts')?.destination).toBe(
+      path.join(packageDir, 'dist', 'index.d.ts')
+    );
+    expect(safePackageRelativePath(packageDir, '../../outside.txt')).toBeNull();
+    expect(safePackageRelativePath(packageDir, 'C:\\outside.txt')).toBeNull();
   });
 });

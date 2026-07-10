@@ -91,8 +91,9 @@ export function buildDoctorReport(inspectResult, options = {}) {
       runtimeSymbols: (inspectResult?.symbols || []).filter((symbol) =>
         symbol.facets?.includes('runtime')
       ).length,
-      typeSymbols: (inspectResult?.symbols || []).filter((symbol) => symbol.facets?.includes('types'))
-        .length,
+      typeSymbols: (inspectResult?.symbols || []).filter((symbol) =>
+        symbol.facets?.includes('types')
+      ).length,
     }
   );
 
@@ -112,7 +113,9 @@ export function buildDoctorReport(inspectResult, options = {}) {
   }
 
   if (!hasTypes && hasPackage) {
-    suggestions.push('Try --types with a package that ships declarations or install the matching @types package.');
+    suggestions.push(
+      'Try --types with a package that ships declarations or install the matching @types package.'
+    );
   }
 
   if (trace?.hasExportsMap && !trace.exportEntryFound) {

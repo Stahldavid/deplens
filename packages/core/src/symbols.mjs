@@ -29,16 +29,30 @@ function runtimeKindForName(name, categorized) {
 function typeEntries(typeInfo) {
   const entries = [];
   for (const [name, info] of Object.entries(typeInfo?.functions || {})) {
+    const params = Array.isArray(info.params)
+      ? info.params
+          .map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.type}`)
+          .join(', ')
+      : info.params || '';
     entries.push({
       name,
       kind: 'function',
-      signature: `${name}(${info.params || ''}): ${info.returnType || 'unknown'}`,
-      params: info.params || '',
+      signature: `${name}(${params}): ${info.returnType || 'unknown'}`,
+      params: info.parameters || info.params || '',
       returnType: info.returnType || null,
+      overloads: info.overloads || [],
     });
   }
   for (const [name, properties] of Object.entries(typeInfo?.interfaces || {})) {
-    entries.push({ name, kind: 'interface', properties });
+    const details = typeInfo?.interfaceDetails?.[name] || null;
+    entries.push({
+      name,
+      kind: 'interface',
+      properties: details?.properties || properties,
+      methods: details?.methods || {},
+      extends: details?.extends || [],
+      typeParameters: details?.typeParameters || [],
+    });
   }
   for (const [name, info] of Object.entries(typeInfo?.types || {})) {
     const definition =
@@ -53,13 +67,31 @@ function typeEntries(typeInfo) {
       kind: 'class',
       extends: extendsClause,
       localName: classInfo && typeof classInfo === 'object' ? classInfo.localName || null : null,
+      constructors: classInfo && typeof classInfo === 'object' ? classInfo.constructors || [] : [],
+      methods: classInfo && typeof classInfo === 'object' ? classInfo.methods || {} : {},
+      properties: classInfo && typeof classInfo === 'object' ? classInfo.properties || {} : {},
+      typeParameters:
+        classInfo && typeof classInfo === 'object' ? classInfo.typeParameters || [] : [],
     });
   }
   for (const [name, members] of Object.entries(typeInfo?.enums || {})) {
-    entries.push({ name, kind: 'enum', members });
+    entries.push({
+      name,
+      kind: 'enum',
+      members,
+      memberValues: typeInfo?.enumDetails?.[name] || {},
+    });
   }
   for (const [name, members] of Object.entries(typeInfo?.namespaces || {})) {
     entries.push({ name, kind: 'namespace', members });
+  }
+  for (const [name, info] of Object.entries(typeInfo?.variables || {})) {
+    entries.push({
+      name,
+      kind: 'constant',
+      signature: info?.type || 'unknown',
+      definition: info?.type || 'unknown',
+    });
   }
   return entries;
 }
@@ -165,6 +197,11 @@ export function buildSymbols({
       extends: entry.extends,
       localName: entry.localName,
       members: entry.members,
+      memberValues: entry.memberValues,
+      overloads: entry.overloads,
+      constructors: entry.constructors,
+      methods: entry.methods,
+      typeParameters: entry.typeParameters,
     };
   }
 
@@ -193,11 +230,15 @@ export function buildSymbols({
 
 export function enrichSymbolsWithSource(symbols = [], sourceAnalysis = null) {
   if (!sourceAnalysis || sourceAnalysis.error) return symbols;
-  const symbolMap = new Map(symbols.map((symbol) => [symbol.exportName || symbol.name, { ...symbol }]));
+  const symbolMap = new Map(
+    symbols.map((symbol) => [symbol.exportName || symbol.name, { ...symbol }])
+  );
 
   for (const entry of sourceEntries(sourceAnalysis)) {
     const exportName = entry.name.includes('.') ? entry.name.split('.')[0] : entry.name;
-    const symbol = symbolMap.get(exportName) || {
+    const existing = symbolMap.get(exportName);
+    if (!existing && !entry.exported) continue;
+    const symbol = existing || {
       name: exportName,
       exportName,
       package: symbols[0]?.package || null,

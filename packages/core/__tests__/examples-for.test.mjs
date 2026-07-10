@@ -9,7 +9,12 @@ function writeDemoPackage(root) {
   mkdirSync(path.join(pkgDir, 'examples'), { recursive: true });
   writeFileSync(
     path.join(pkgDir, 'package.json'),
-    JSON.stringify({ name: 'demo-examples', version: '1.0.0', main: 'index.js', types: 'index.d.ts' })
+    JSON.stringify({
+      name: 'demo-examples',
+      version: '1.0.0',
+      main: 'index.js',
+      types: 'index.d.ts',
+    })
   );
   writeFileSync(
     path.join(pkgDir, 'index.js'),

@@ -306,7 +306,11 @@ export function parseSourceFile(filePath, options = {}) {
 
   function propertyNameText(nameNode) {
     if (!nameNode) return null;
-    if (ts.isIdentifier(nameNode) || ts.isStringLiteral(nameNode) || ts.isNumericLiteral(nameNode)) {
+    if (
+      ts.isIdentifier(nameNode) ||
+      ts.isStringLiteral(nameNode) ||
+      ts.isNumericLiteral(nameNode)
+    ) {
       return nameNode.text;
     }
     return nameNode.getText(sourceFile);
@@ -350,7 +354,8 @@ export function parseSourceFile(filePath, options = {}) {
     for (const property of objectLiteral.properties || []) {
       if (ts.isMethodDeclaration(property)) {
         const name = propertyNameText(property.name);
-        if (name) analyzeFunction(property, name, true, hasModifier(property, ts.SyntaxKind.AsyncKeyword));
+        if (name)
+          analyzeFunction(property, name, true, hasModifier(property, ts.SyntaxKind.AsyncKeyword));
       } else if (ts.isPropertyAssignment(property)) {
         const name = propertyNameText(property.name);
         if (name) analyzeAssignedExport(name, property.initializer);
@@ -360,9 +365,14 @@ export function parseSourceFile(filePath, options = {}) {
 
   function visit(node) {
     // Function declarations
-    if (ts.isFunctionDeclaration(node) && (node.name || hasModifier(node, ts.SyntaxKind.DefaultKeyword))) {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      (node.name || hasModifier(node, ts.SyntaxKind.DefaultKeyword))
+    ) {
       const name = hasModifier(node, ts.SyntaxKind.DefaultKeyword) ? 'default' : node.name.text;
-      const isExported = hasModifier(node, ts.SyntaxKind.ExportKeyword) || hasModifier(node, ts.SyntaxKind.DefaultKeyword);
+      const isExported =
+        hasModifier(node, ts.SyntaxKind.ExportKeyword) ||
+        hasModifier(node, ts.SyntaxKind.DefaultKeyword);
       const isAsync = hasModifier(node, ts.SyntaxKind.AsyncKeyword);
       analyzeFunction(node, name, isExported, isAsync);
     }

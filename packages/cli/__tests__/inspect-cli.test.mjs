@@ -40,12 +40,32 @@ describe('inspect CLI', () => {
   });
 
   it('exits non-zero for unresolved inspect JSON payloads', () => {
-    const result = spawnSync(process.execPath, [cliPath, 'definitely-not-a-real-deplens-pkg', '--json'], {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, 'definitely-not-a-real-deplens-pkg', '--json'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+      }
+    );
 
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout).package).toBeNull();
+  });
+
+  it('rejects unknown options and missing option values', () => {
+    const unknown = spawnSync(process.execPath, [cliPath, 'zod', '--formt', 'json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const missing = spawnSync(process.execPath, [cliPath, 'zod', '--filter', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    expect(unknown.status).toBe(1);
+    expect(unknown.stderr).toContain('Unknown option: --formt');
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('Option --filter requires a value');
   });
 });

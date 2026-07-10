@@ -23,7 +23,7 @@ Use it to reduce API hallucination, verify exports, and quickly answer “does t
 ```bash
 npm i -D @deplens/cli
 # or
-npx deplens --help
+npx --yes @deplens/cli --help
 ```
 
 ## Quickstart
@@ -83,7 +83,7 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --json                       Shorthand for --format json
 
 ## Multi-language & source analysis
---analyze-source              Analyze source code (JS/TS/Python/Java/Rust/Go)
+--analyze-source              Analyze source code (JS/TS/Python/Java)
 --source-max-files <N>        Maximum source files to analyze (default: 10)
 --source-include-body         Include function body snippets in output
 --language <lang>             Force language detection: javascript|typescript|python|java|rust|go
@@ -142,6 +142,9 @@ have size metadata may show `unknown`; run `--exact` when you need precise sizes
 Source analysis recognizes ESM exports, default exported functions, and common
 CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and
 `module.exports = { foo() {} }`.
+
+Rust and Go layouts can be detected, but implementation analysis is not yet available;
+requesting either language returns an explicit warning instead of an empty success.
 
 ### History management
 

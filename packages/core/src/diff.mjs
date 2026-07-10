@@ -140,15 +140,14 @@ export async function runDiff(options = {}) {
     // Format output
     if (format === 'json') {
       const changes = [
-        ...diff.breaking,
-        ...diff.warnings,
-        ...diff.additions,
-        ...diff.info,
+        ...diff.warnings.filter((change) => change.category === 'source'),
         ...(diff.symbols?.changes || []).map((change) => ({
           category: 'symbol',
           type: change.kind,
           severity: change.severity,
           name: change.name,
+          subpath: change.subpath,
+          identity: change.identity,
           detail: change.detail,
           from: change.from,
           to: change.to,

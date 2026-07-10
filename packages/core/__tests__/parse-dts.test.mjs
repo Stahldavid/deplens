@@ -26,12 +26,17 @@ describe('parseDtsFile', () => {
     expect(userProps).toContain('name: string');
   });
 
-  it('should parse classes (structure may be empty for now)', () => {
+  it('should preserve class constructors, methods, and properties', () => {
     const result = parseDtsFile(fixturePath, null);
     expect(result.classes).toBeDefined();
     expect(result.classes).toHaveProperty('Calculator');
-    // Currently class member parsing is limited; just check it's present
-    expect(result.classes.Calculator).toBeNull(); // Known limitation
+    expect(result.classes.Calculator).toEqual(
+      expect.objectContaining({
+        methods: expect.any(Object),
+        properties: expect.any(Object),
+        constructors: expect.any(Array),
+      })
+    );
   });
 
   it('should parse type aliases', () => {
@@ -57,10 +62,7 @@ describe('parseDtsFile', () => {
     const entryPath = path.join(import.meta.dirname, 'fixtures', 'reexport-ts-entry.d.ts');
     const targetPath = path.join(import.meta.dirname, 'fixtures', 'reexport-ts-target.d.ts');
     fs.writeFileSync(entryPath, 'export * from "./reexport-ts-target.ts";');
-    fs.writeFileSync(
-      targetPath,
-      'export declare function reexported(value: string): number;'
-    );
+    fs.writeFileSync(targetPath, 'export declare function reexported(value: string): number;');
 
     const result = parseDtsFile(entryPath, ['reexported']);
     expect(result.functions).toHaveProperty('reexported');
@@ -144,7 +146,9 @@ describe('parseDtsFile', () => {
       expect.objectContaining({ params: 'input: string', returnType: 'number' })
     );
     expect(result.functions.default.localName).toBe('create');
-    expect(result.classes.default).toEqual({ extends: null, localName: 'Client' });
+    expect(result.classes.default).toEqual(
+      expect.objectContaining({ extends: null, localName: 'Client' })
+    );
 
     fs.unlinkSync(tempPath);
   });
@@ -159,7 +163,11 @@ describe('parseDtsFile', () => {
     const result = parseDtsFile(tempPath, ['createClient']);
 
     expect(result.functions.default).toEqual(
-      expect.objectContaining({ params: 'url: string', returnType: 'Client', localName: 'createClient' })
+      expect.objectContaining({
+        params: 'url: string',
+        returnType: 'Client',
+        localName: 'createClient',
+      })
     );
 
     fs.unlinkSync(tempPath);
@@ -207,5 +215,31 @@ describe('parseDtsFile', () => {
     expect(result).toBeDefined();
     expect(result.functions).toEqual({});
     fs.unlinkSync(tempPath);
+  });
+
+  it('should expose only public exports, follow barrels, and preserve overloads', () => {
+    const pkgDir = path.join(import.meta.dirname, 'fixtures', 'semantic-exports');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    try {
+      fs.writeFileSync(path.join(pkgDir, 'index.d.ts'), 'export * from "./api";\n');
+      fs.writeFileSync(
+        path.join(pkgDir, 'api.d.ts'),
+        [
+          'declare function hidden(value: boolean): void;',
+          'export function visible(value: string): string;',
+          'export function overloaded(value: string): string;',
+          'export function overloaded(value: number): number;',
+        ].join('\n')
+      );
+
+      const result = parseDtsFile(path.join(pkgDir, 'index.d.ts'), null);
+
+      expect(result.functions).toHaveProperty('visible');
+      expect(result.functions).toHaveProperty('overloaded');
+      expect(result.functions).not.toHaveProperty('hidden');
+      expect(result.functions.overloaded.overloads).toHaveLength(2);
+    } finally {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
   });
 });

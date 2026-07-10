@@ -52,14 +52,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write        # push the "Version Packages" branch + tags
-      pull-requests: write   # open / update the Version PR
-      id-token: write        # OIDC for npm Trusted Publisher + provenance
+      contents: write # push the "Version Packages" branch + tags
+      pull-requests: write # open / update the Version PR
+      id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0     # changesets needs full history to compute diffs
+          fetch-depth: 0 # changesets needs full history to compute diffs
 
       - name: Setup Node.js
         # Node 24 ships with npm 11.x, required by npm Trusted Publishers.
@@ -75,8 +75,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Run release quality gates
+        run: npm run quality
 
       - name: Create Release PR or Publish
         id: changesets
@@ -113,7 +113,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write   # OIDC for npm Trusted Publisher + provenance
+      id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,8 +127,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Run release quality gates
+        run: npm run quality
 
       - name: Determine package from tag or input
         id: pkg

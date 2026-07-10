@@ -1,6 +1,6 @@
 # @deplens/mcp
 
-Model Context Protocol (MCP) server for DepLens. Exposes two read-only tools over **stdio** transport:
+Model Context Protocol (MCP) server for DepLens. Exposes two package-analysis tools over **stdio** transport:
 
 - `deplens_inspect` — package exports, types (.d.ts), README docs/sections, examples, JSDoc, source analysis
 - `deplens_diff` — semver diff between two versions (uses `CHANGELOG.md` when available)
@@ -39,41 +39,44 @@ This starts an MCP server over stdio.
 
 ## Tools
 
-Both tools are **read-only** (`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`) and always populate `structuredContent` in addition to the text channel.
+Both tools always populate `structuredContent` in addition to the text channel. They are
+marked non-read-only because remote inspection writes a local cache and explicit runtime
+inspection executes package entrypoints.
 
 ### `deplens_inspect`
 
 Inspect an installed (or remotely downloaded) npm package.
 
-| Param              | Type                                                                       | Description                                                                              |
-| ------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `target`           | string **(required)**                                                      | Package name or import path (e.g. `react`, `next/server`, `@scope/pkg`)                  |
-| `subpath`          | string                                                                     | Optional subpath appended to `target`                                                    |
-| `filter`           | string                                                                     | Case-insensitive substring filter, or `/regex/`                                          |
-| `kind`             | `('function'\|'class'\|'object'\|'constant'\|'interface'\|'type')[]`       | Restrict by export kind                                                                  |
-| `showTypes`        | boolean                                                                    | Parse `.d.ts` and include function signatures, interfaces, classes, types, enums         |
-| `includeDocs`      | boolean                                                                    | Include README preview                                                                   |
-| `listSections`     | boolean                                                                    | List README section headers                                                              |
-| `docsSections`     | string[]                                                                   | Extract specific README sections by name (partial match)                                 |
-| `includeExamples`  | boolean                                                                    | Include code from README, `examples/`, and `@example` JSDoc tags                         |
-| `search`           | string                                                                     | Semantic search over export names (token matching + JSDoc)                               |
-| `remote`           | boolean                                                                    | Download into local cache instead of resolving from `rootDir`                            |
-| `remoteVersion`    | string                                                                     | Version to download when `remote=true` (default: `"latest"`)                             |
-| `runtime`          | boolean                                                                    | Import/require package entrypoint for runtime exports. Local inspect defaults on; remote inspect defaults off |
-| `format`           | `'text'\|'json'\|'object'`                                                 | Output format for the text channel. `structuredContent` is always populated.             |
-| `maxExports`       | number (1–10000)                                                           | Max exports to include (default: 100)                                                    |
-| `maxProps`         | number (1–1000)                                                            | Max props per object when `depth>0` (default: 10)                                        |
-| `maxExamples`      | number (1–100)                                                             | Max examples (default: 10)                                                               |
-| `depth`            | number (0–5)                                                               | Object inspection depth (default: 1)                                                     |
-| `resolveFrom`      | string                                                                     | Base directory for module resolution. Defaults to `rootDir`.                             |
-| `rootDir`          | string                                                                     | Working directory (default: `$DEPLENS_ROOT` or `process.cwd()`)                          |
-| `jsdoc`            | `'off'\|'compact'\|'full'`                                                 | JSDoc verbosity mode                                                                     |
-| `jsdocOutput`      | `'off'\|'section'\|'inline'\|'only'`                                       | Where to render JSDoc                                                                    |
-| `jsdocQuery`       | object                                                                     | Fine-grained JSDoc extraction (see Zod schema in [src/server.mjs](./src/server.mjs))     |
-| `analyzeSource`    | boolean                                                                    | Analyze source code (JS/TS/Python/Java/Rust/Go) for implementation details + complexity  |
-| `sourceMaxFiles`   | number (1–500)                                                             | Max source files to analyze (default: 5)                                                 |
-| `sourceIncludeBody` | boolean                                                                   | Include function body snippets                                                           |
-| `language`         | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`               | Force language detection                                                                 |
+| Param               | Type                                                                 | Description                                                                          |
+| ------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `target`            | string **(required)**                                                | Package name or import path (e.g. `react`, `next/server`, `@scope/pkg`)              |
+| `subpath`           | string                                                               | Optional subpath appended to `target`                                                |
+| `filter`            | string                                                               | Case-insensitive substring filter, or `/regex/`                                      |
+| `kind`              | `('function'\|'class'\|'object'\|'constant'\|'interface'\|'type')[]` | Restrict by export kind                                                              |
+| `showTypes`         | boolean                                                              | Parse `.d.ts` and include function signatures, interfaces, classes, types, enums     |
+| `includeDocs`       | boolean                                                              | Include README preview                                                               |
+| `listSections`      | boolean                                                              | List README section headers                                                          |
+| `docsSections`      | string[]                                                             | Extract specific README sections by name (partial match)                             |
+| `includeExamples`   | boolean                                                              | Include code from README, `examples/`, and `@example` JSDoc tags                     |
+| `search`            | string                                                               | Semantic search over export names (token matching + JSDoc)                           |
+| `remote`            | boolean                                                              | Download into local cache instead of resolving from `rootDir`                        |
+| `remoteVersion`     | string                                                               | Version to download when `remote=true` (default: `"latest"`)                         |
+| `runtime`           | boolean                                                              | Explicitly import/require the package entrypoint. Defaults off                       |
+| `format`            | `'text'\|'json'\|'object'`                                           | Output format for the text channel. `structuredContent` is always populated.         |
+| `maxExports`        | number (1–10000)                                                     | Max exports to include (default: 100)                                                |
+| `maxSymbols`        | number (1–5000)                                                      | Max canonical symbols in structured output (default: 250)                            |
+| `maxProps`          | number (1–1000)                                                      | Max props per object when `depth>0` (default: 10)                                    |
+| `maxExamples`       | number (1–100)                                                       | Max examples (default: 10)                                                           |
+| `depth`             | number (0–5)                                                         | Object inspection depth (default: 1)                                                 |
+| `resolveFrom`       | string                                                               | Base directory for module resolution. Defaults to `rootDir`.                         |
+| `rootDir`           | string                                                               | Working directory (default: `$DEPLENS_ROOT` or `process.cwd()`)                      |
+| `jsdoc`             | `'off'\|'compact'\|'full'`                                           | JSDoc verbosity mode                                                                 |
+| `jsdocOutput`       | `'off'\|'section'\|'inline'\|'only'`                                 | Where to render JSDoc                                                                |
+| `jsdocQuery`        | object                                                               | Fine-grained JSDoc extraction (see Zod schema in [src/server.mjs](./src/server.mjs)) |
+| `analyzeSource`     | boolean                                                              | Analyze JS/TS/Python/Java source for implementation details + complexity             |
+| `sourceMaxFiles`    | number (1–500)                                                       | Max source files to analyze (default: 5)                                             |
+| `sourceIncludeBody` | boolean                                                              | Include function body snippets                                                       |
+| `language`          | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`         | Force language detection                                                             |
 
 **Example call:**
 
@@ -100,20 +103,20 @@ Inspect an installed (or remotely downloaded) npm package.
 
 Compare two versions of an npm package.
 
-| Param              | Type                       | Description                                                                                       |
-| ------------------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `package`          | string **(required)**      | Package name to compare                                                                           |
-| `from`             | string                     | Source version: a concrete semver, `"installed"` (default), or `"latest"`                         |
-| `to`               | string                     | Target version: a concrete semver, `"latest"` (default), or `"installed"`                         |
-| `filter`           | string                     | Filter exports by name (substring or `/regex/`)                                                   |
-| `format`           | `'text'\|'json'\|'object'` | Output format for the text channel                                                                |
-| `includeSource`    | boolean                    | Include source code complexity comparison                                                         |
-| `runtime`          | boolean                    | Import package entrypoints while diffing. Defaults off for safer static comparison                 |
-| `preferCdn`        | boolean                    | Prefer lightweight CDN downloads instead of full npm installs                                     |
-| `offline`          | boolean                    | Use only versions already present in the local DepLens cache                                      |
-| `includeChangelog` | boolean                    | Parse `CHANGELOG.md` entries (default: `true`)                                                    |
-| `verbose`          | boolean                    | Show detailed per-symbol changes                                                                  |
-| `rootDir`          | string                     | Working directory for resolution of `from="installed"` (default: `$DEPLENS_ROOT` or `cwd()`)      |
+| Param              | Type                       | Description                                                                                  |
+| ------------------ | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `package`          | string **(required)**      | Package name to compare                                                                      |
+| `from`             | string                     | Source version: a concrete semver, `"installed"` (default), or `"latest"`                    |
+| `to`               | string                     | Target version: a concrete semver, `"latest"` (default), or `"installed"`                    |
+| `filter`           | string                     | Filter exports by name (substring or `/regex/`)                                              |
+| `format`           | `'text'\|'json'\|'object'` | Output format for the text channel                                                           |
+| `includeSource`    | boolean                    | Include source code complexity comparison                                                    |
+| `runtime`          | boolean                    | Import package entrypoints while diffing. Defaults off for safer static comparison           |
+| `preferCdn`        | boolean                    | Prefer lightweight CDN downloads instead of full npm installs                                |
+| `offline`          | boolean                    | Use only versions already present in the local DepLens cache                                 |
+| `includeChangelog` | boolean                    | Parse `CHANGELOG.md` entries (default: `true`)                                               |
+| `verbose`          | boolean                    | Show detailed per-symbol changes                                                             |
+| `rootDir`          | string                     | Working directory for resolution of `from="installed"` (default: `$DEPLENS_ROOT` or `cwd()`) |
 
 **Example call:**
 
@@ -126,10 +129,10 @@ Compare two versions of an npm package.
 
 ## Environment
 
-| Variable        | Effect                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------- |
-| `DEPLENS_ROOT`  | Default `rootDir` if a tool call omits it.                                              |
-| `DEPLENS_DEBUG` | When set to `"true"`, emits debug logs to **stderr** (never `stdout`).                  |
+| Variable        | Effect                                                                 |
+| --------------- | ---------------------------------------------------------------------- |
+| `DEPLENS_ROOT`  | Default `rootDir` if a tool call omits it.                             |
+| `DEPLENS_DEBUG` | When set to `"true"`, emits debug logs to **stderr** (never `stdout`). |
 
 ## Requirements
 

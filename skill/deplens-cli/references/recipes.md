@@ -81,6 +81,7 @@ deplens prisma --docs-sections Installation,Quick,"Getting started" --json
 ```
 
 **Notes:**
+
 - Section matching is case-insensitive and partial — `"Quick"` matches both `"Quick Start"` and `"Quickstart"`.
 - Use `--list-sections` first if the headers are unknown.
 

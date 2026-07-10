@@ -59,7 +59,10 @@ export function saveHistoryEntry(entry, baseDir) {
     savedAt: Date.now(),
   };
 
-  fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf-8');
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(record, null, 2), 'utf-8');
+  if (fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
+  fs.renameSync(temporaryPath, filePath);
   return filePath;
 }
 
@@ -181,6 +184,8 @@ export function compareHistoryEntries(entryA, entryB) {
     return { error: 'Both entries are required' };
   }
 
+  const snapshotA = entryA.data || entryA.result || entryA;
+  const snapshotB = entryB.data || entryB.result || entryB;
   const diff = {
     package: entryA.package,
     versions: { v1: entryA.version, v2: entryB.version },
@@ -204,10 +209,12 @@ export function compareHistoryEntries(entryA, entryB) {
 
   const symbolEntries = (symbolsValue) => {
     if (!Array.isArray(symbolsValue)) return [];
-    return symbolsValue.map((symbol) => ({
-      name: symbol.exportName || symbol.name,
-      kind: symbol.runtime?.kind || symbol.types?.kind || symbol.source?.kind || null,
-    })).filter((symbol) => symbol.name);
+    return symbolsValue
+      .map((symbol) => ({
+        name: symbol.exportName || symbol.name,
+        kind: symbol.runtime?.kind || symbol.types?.kind || symbol.source?.kind || null,
+      }))
+      .filter((symbol) => symbol.name);
   };
 
   const countDiff = (before, after) => {
@@ -237,13 +244,13 @@ export function compareHistoryEntries(entryA, entryB) {
     };
   };
 
-  const exportsA = exportEntries(entryA.exports);
-  const exportsB = exportEntries(entryB.exports);
+  const exportsA = exportEntries(snapshotA.exports);
+  const exportsB = exportEntries(snapshotB.exports);
   const exportDiff = countDiff(exportsA, exportsB);
   diff.exports = exportDiff;
 
-  const symbolsA = symbolEntries(entryA.symbols);
-  const symbolsB = symbolEntries(entryB.symbols);
+  const symbolsA = symbolEntries(snapshotA.symbols);
+  const symbolsB = symbolEntries(snapshotB.symbols);
   if (symbolsA.length > 0 || symbolsB.length > 0) {
     const symbolDiff = countDiff(symbolsA, symbolsB);
     diff.symbols = symbolDiff;
@@ -253,13 +260,21 @@ export function compareHistoryEntries(entryA, entryB) {
   }
 
   // Comparar types info (se houver)
-  const typesA = entryA.types || null;
-  const typesB = entryB.types || null;
+  const typesA = snapshotA.types || null;
+  const typesB = snapshotB.types || null;
 
   if (typesA && typesB) {
     // Estimativa: contagem de símbolos
-    const countA = typeof typesA === 'object' ? Object.keys(typesA).length || 0 : 0;
-    const countB = typeof typesB === 'object' ? Object.keys(typesB).length || 0 : 0;
+    const typeNames = (types) =>
+      new Set(
+        ['functions', 'interfaces', 'types', 'classes', 'enums', 'variables'].flatMap((bucket) =>
+          Object.keys(types?.[bucket] || {})
+        )
+      );
+    const namesA = typeNames(typesA);
+    const namesB = typeNames(typesB);
+    const countA = namesA.size;
+    const countB = namesB.size;
     diff.types.added = Math.max(0, countB - countA);
     diff.types.removed = Math.max(0, countA - countB);
   } else if (typesB && !typesA) {

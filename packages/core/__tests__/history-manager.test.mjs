@@ -41,4 +41,28 @@ describe('compareHistoryEntries', () => {
     expect(diff.summary).toContain('+1 exports');
     expect(diff.summary).toContain('-1 symbol removals');
   });
+
+  it('compares snapshots saved inside the current data envelope', () => {
+    const before = {
+      package: 'demo',
+      version: '1.0.0',
+      data: {
+        exports: { functions: ['before'] },
+        symbols: [{ exportName: 'before', runtime: { kind: 'function' } }],
+      },
+    };
+    const after = {
+      package: 'demo',
+      version: '2.0.0',
+      data: {
+        exports: { functions: ['after'] },
+        symbols: [{ exportName: 'after', runtime: { kind: 'function' } }],
+      },
+    };
+
+    const diff = compareHistoryEntries(before, after);
+
+    expect(diff.exports).toEqual({ added: 1, removed: 1, changed: 0 });
+    expect(diff.symbols).toEqual({ added: 1, removed: 1, changed: 0 });
+  });
 });

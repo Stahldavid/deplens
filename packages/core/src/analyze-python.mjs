@@ -2,10 +2,16 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { execFile, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 
-const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/python_ast_tools.py');
+const execFileAsync = promisify(execFile);
+
+const SCRIPT_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../scripts/python_ast_tools.py'
+);
 
 const PYTHON_PROJECT_MARKERS = ['pyproject.toml', 'uv.lock', 'requirements.txt', '.venv', 'venv'];
 const commandExistsCache = new Map();
@@ -97,7 +103,11 @@ function buildPythonCommands(cwd) {
 
   if (process.platform === 'win32') {
     if (commandExists('py', ['-3', '--version'])) {
-      commands.push({ command: 'py', argsPrefix: ['-3'], cwd: cwd || projectRoot || process.cwd() });
+      commands.push({
+        command: 'py',
+        argsPrefix: ['-3'],
+        cwd: cwd || projectRoot || process.cwd(),
+      });
       pythonCommandsCache.set(cacheKey, commands);
       return commands;
     }
@@ -142,7 +152,9 @@ function runPythonTool(toolArgs, { cwd } = {}) {
     }
 
     if (result.status !== 0) {
-      lastFailure = (result.stderr || result.stdout || '').trim() || `Python tool failed with exit code ${result.status}`;
+      lastFailure =
+        (result.stderr || result.stdout || '').trim() ||
+        `Python tool failed with exit code ${result.status}`;
       continue;
     }
 
@@ -158,13 +170,59 @@ function runPythonTool(toolArgs, { cwd } = {}) {
   return { error: lastFailure || 'Python tool execution failed.' };
 }
 
+async function runPythonToolAsync(toolArgs, { cwd } = {}) {
+  const commands = buildPythonCommands(cwd || process.cwd());
+  if (commands.length === 0) {
+    return { error: 'No Python runtime found (.venv, uv, py, python3, or python).' };
+  }
+  let lastFailure = null;
+  for (const candidate of commands) {
+    const args = [...candidate.argsPrefix, SCRIPT_PATH, ...toolArgs];
+    try {
+      const { stdout } = await execFileAsync(candidate.command, args, {
+        cwd: candidate.cwd,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30000,
+      });
+      return JSON.parse(stdout || '{}');
+    } catch (error) {
+      lastFailure =
+        (error.stderr || error.stdout || '').trim() ||
+        (error.killed ? 'Python tool timed out after 30000ms' : error.message);
+    }
+  }
+  return { error: lastFailure || 'Python tool execution failed.' };
+}
+
 export function analyzePythonPackage(pkgDir, options = {}) {
   const { filter, maxFiles = 5, includeBody = false, maxBodyLines = 10 } = options;
-  const args = ['analyze-package', '--pkg-dir', path.resolve(pkgDir), '--max-files', String(maxFiles)];
+  const args = [
+    'analyze-package',
+    '--pkg-dir',
+    path.resolve(pkgDir),
+    '--max-files',
+    String(maxFiles),
+  ];
   if (filter) args.push('--filter', String(filter));
   if (includeBody) args.push('--include-body');
   if (maxBodyLines) args.push('--max-body-lines', String(maxBodyLines));
   return runPythonTool(args, { cwd: pkgDir });
+}
+
+export async function analyzePythonPackageAsync(pkgDir, options = {}) {
+  const { filter, maxFiles = 5, includeBody = false, maxBodyLines = 10 } = options;
+  const args = [
+    'analyze-package',
+    '--pkg-dir',
+    path.resolve(pkgDir),
+    '--max-files',
+    String(maxFiles),
+  ];
+  if (filter) args.push('--filter', String(filter));
+  if (includeBody) args.push('--include-body');
+  if (maxBodyLines) args.push('--max-body-lines', String(maxBodyLines));
+  return runPythonToolAsync(args, { cwd: pkgDir });
 }
 
 export function analyzePythonFile(content, options = {}) {
@@ -191,6 +249,7 @@ export function resolvePythonPackage(target, options = {}) {
 
 export default {
   analyzePythonPackage,
+  analyzePythonPackageAsync,
   analyzePythonFile,
   resolvePythonPackage,
 };

@@ -1,6 +1,6 @@
 {
   "name": "@deplens/mcp",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Model Context Protocol server for DepLens — inspect installed npm packages (exports, types, docs, examples) and diff versions.",
   "type": "module",
   "main": "./src/server.mjs",
@@ -22,6 +22,7 @@
   },
   "scripts": {
     "build": "echo 'no build'",
+    "test": "vitest run",
     "start": "node bin/deplens-mcp.js",
     "inspector": "npx --yes @modelcontextprotocol/inspector node bin/deplens-mcp.js"
   },
@@ -29,7 +30,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@deplens/core": "0.3.1",
+    "@deplens/core": "0.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.0"
   },

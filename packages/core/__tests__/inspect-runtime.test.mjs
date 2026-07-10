@@ -37,7 +37,9 @@ describe('runtime loading controls', () => {
 
       expect(result.exports.total).toBe(0);
       expect(result.types.functions).toHaveProperty('typed');
-      expect(result.warnings).toContain('Runtime export loading skipped by runtime=false/--no-runtime.');
+      expect(result.warnings).toContain(
+        'Runtime export loading skipped by runtime=false/--no-runtime.'
+      );
 
       expect(() => readFileSync(marker, 'utf-8')).toThrow();
     } finally {

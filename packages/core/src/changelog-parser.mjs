@@ -4,6 +4,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import semver from 'semver';
+
+const MAX_CHANGELOG_BYTES = 2 * 1024 * 1024;
 
 /**
  * Common changelog file names
@@ -46,21 +49,26 @@ export async function findChangelogRemote(packageName, version, timeoutMs = 1000
     `https://unpkg.com/${packageName}@${version}`,
     `https://cdn.jsdelivr.net/npm/${packageName}@${version}`,
   ];
-  for (const base of baseUrls) {
-    for (const name of CHANGELOG_NAMES) {
-      try {
-        const url = `${base}/${name}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (res.ok) {
-          return await res.text();
-        }
-      } catch {
-        // continue to next
-      }
+  const fetchCandidate = async (base, name) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${base}/${name}`, { signal: controller.signal });
+      if (!res.ok) return null;
+      const declaredLength = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_CHANGELOG_BYTES) return null;
+      const text = await res.text();
+      return Buffer.byteLength(text) <= MAX_CHANGELOG_BYTES ? text : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
     }
+  };
+  for (const base of baseUrls) {
+    const results = await Promise.all(CHANGELOG_NAMES.map((name) => fetchCandidate(base, name)));
+    const found = results.find(Boolean);
+    if (found) return found;
   }
   return null;
 }
@@ -70,13 +78,13 @@ export async function findChangelogRemote(packageName, version, timeoutMs = 1000
  */
 const VERSION_PATTERNS = [
   // ## [1.2.3] - 2024-01-01
-  /^##\s*\[?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)\]?(?:\s*[-–—]\s*(.+))?$/i,
+  /^##\s*\[?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?(?:\s*[-–—]\s*(.+))?$/i,
   // ## 1.2.3
-  /^##\s*v?(\d+\.\d+\.\d+(?:-[\w.]+)?)(?:\s+(.+))?$/i,
+  /^##\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s+(.+))?$/i,
   // # Version 1.2.3
-  /^#\s*(?:Version\s+)?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)(?:\s+(.+))?$/i,
+  /^#\s*(?:Version\s+)?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s+(.+))?$/i,
   // ### 1.2.3
-  /^###\s*v?(\d+\.\d+\.\d+(?:-[\w.]+)?)(?:\s+(.+))?$/i,
+  /^###\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s+(.+))?$/i,
 ];
 
 /**
@@ -85,6 +93,9 @@ const VERSION_PATTERNS = [
 function categorizeEntry(line) {
   const lowerLine = line.toLowerCase();
 
+  if (/security|vulnerability|cve/i.test(lowerLine)) {
+    return 'security';
+  }
   if (/breaking|removed|deprecated/i.test(lowerLine)) {
     return 'breaking';
   }
@@ -97,10 +108,6 @@ function categorizeEntry(line) {
   if (/change|update|improve|enhance|refactor/i.test(lowerLine)) {
     return 'changed';
   }
-  if (/security|vulnerability|cve/i.test(lowerLine)) {
-    return 'security';
-  }
-
   return 'other';
 }
 
@@ -241,16 +248,7 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
   const versionList = Object.keys(versions);
 
   // Sort versions (semver-like)
-  versionList.sort((a, b) => {
-    const aParts = a.split('.').map(Number);
-    const bParts = b.split('.').map(Number);
-    for (let i = 0; i < 3; i++) {
-      if ((aParts[i] || 0) !== (bParts[i] || 0)) {
-        return (aParts[i] || 0) - (bParts[i] || 0);
-      }
-    }
-    return 0;
-  });
+  versionList.sort((a, b) => semver.compare(a, b));
 
   // Find versions in range
   const fromIndex = versionList.indexOf(fromVersion);
@@ -265,7 +263,10 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
     };
   }
 
-  const inRange = versionList.slice(fromIndex + 1, toIndex + 1);
+  const ascending = fromIndex < toIndex;
+  const inRange = ascending
+    ? versionList.slice(fromIndex + 1, toIndex + 1)
+    : versionList.slice(toIndex, fromIndex).reverse();
 
   const combined = {
     breaking: [],
@@ -293,6 +294,7 @@ export function getChangesBetweenVersions(changelog, fromVersion, toVersion) {
 
   return {
     exact: true,
+    direction: ascending ? 'upgrade' : 'downgrade',
     from: fromVersion,
     to: toVersion,
     versionsIncluded: inRange,

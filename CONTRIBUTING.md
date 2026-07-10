@@ -39,7 +39,7 @@ The CLI will ask:
    - `minor` — backwards-compatible feature
    - `major` — breaking change
    - For pre-1.0 packages, **a `major` bump still results in a `0.x.y →
-     0.(x+1).0` minor version** (per npm convention). That's fine — flag
+0.(x+1).0` minor version** (per npm convention). That's fine — flag
      breaking changes as `major` regardless.
 3. **Summary line** — one or two sentences. This goes verbatim into the
    `CHANGELOG.md` entry, so write it as you'd want users to read it.
@@ -77,13 +77,13 @@ git push --follow-tags
 The npm Trusted Publisher is configured **per package** at
 `https://www.npmjs.com/package/<name>/access`:
 
-| Field             | Value                |
-| ----------------- | -------------------- |
-| Publisher         | GitHub Actions       |
-| Organization      | `Stahldavid`         |
-| Repository        | `deplens`            |
-| Workflow filename | `publish.yml`        |
-| Environment name  | *(blank)*            |
+| Field             | Value          |
+| ----------------- | -------------- |
+| Publisher         | GitHub Actions |
+| Organization      | `Stahldavid`   |
+| Repository        | `deplens`      |
+| Workflow filename | `publish.yml`  |
+| Environment name  | _(blank)_      |
 
 This must be set for each of `@deplens/core`, `@deplens/cli`, `@deplens/mcp`.
 

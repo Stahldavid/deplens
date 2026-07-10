@@ -21,4 +21,23 @@ describe('getCachedDtsParse', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('invalidates cached parses when a re-exported declaration changes', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-dts-cache-dependency-'));
+    try {
+      const entryPath = path.join(root, 'index.d.ts');
+      const dependencyPath = path.join(root, 'api.d.ts');
+      writeFileSync(entryPath, 'export * from "./api";\n');
+      writeFileSync(dependencyPath, 'export function before(): string;\n');
+      const first = await getCachedDtsParse(entryPath);
+      expect(first.functions).toHaveProperty('before');
+
+      writeFileSync(dependencyPath, 'export function after(): number;\n');
+      const second = await getCachedDtsParse(entryPath);
+      expect(second.functions).not.toHaveProperty('before');
+      expect(second.functions).toHaveProperty('after');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

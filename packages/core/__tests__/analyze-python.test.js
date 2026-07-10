@@ -14,29 +14,29 @@ describe('analyzePythonPackage', () => {
     expect(result.error).toBeUndefined();
     expect(result.files.length).toBeGreaterThan(0);
 
-    const simple = result.files.find(f => f.path.endsWith('py_simple.py'));
+    const simple = result.files.find((f) => f.path.endsWith('py_simple.py'));
     expect(simple).toBeDefined();
-    expect(simple.functions.map(fn => fn.name)).toContain('add');
-    expect(simple.functions.map(fn => fn.name)).toContain('multiply');
+    expect(simple.functions.map((fn) => fn.name)).toContain('add');
+    expect(simple.functions.map((fn) => fn.name)).toContain('multiply');
   });
 
   it('should detect classes and methods', () => {
     const result = analyzePythonPackage(fixturesDir, { maxFiles: 10 });
-    const simple = result.files.find(f => f.path.endsWith('py_simple.py'));
+    const simple = result.files.find((f) => f.path.endsWith('py_simple.py'));
     expect(simple.classes).toHaveLength(1);
     expect(simple.classes[0].name).toBe('Calculator');
-    expect(simple.classes[0].methods.map(m => m.name)).toContain('compute');
+    expect(simple.classes[0].methods.map((m) => m.name)).toContain('compute');
   });
 
   it('should find py_complex.py file (parser may skip complex constructs)', () => {
     const result = analyzePythonPackage(fixturesDir, { maxFiles: 10 });
-    const complexFile = result.files.find(f => f.path.endsWith('py_complex.py'));
+    const complexFile = result.files.find((f) => f.path.endsWith('py_complex.py'));
     expect(complexFile).toBeDefined();
   });
 
   it('should detect imports', () => {
     const result = analyzePythonPackage(fixturesDir, { maxFiles: 10 });
-    const complexFile = result.files.find(f => f.path.endsWith('py_complex.py'));
+    const complexFile = result.files.find((f) => f.path.endsWith('py_complex.py'));
     expect(complexFile.imports.length).toBeGreaterThan(0);
   });
 
@@ -91,8 +91,8 @@ describe('analyzePythonFile', () => {
     const result = analyzePythonFile(code, {});
     expect(result.classes).toHaveLength(1);
     expect(result.classes[0].name).toBe('Service');
-    expect(result.classes[0].methods.map(m => m.name)).toContain('__init__');
-    expect(result.classes[0].methods.map(m => m.name)).toContain('run');
+    expect(result.classes[0].methods.map((m) => m.name)).toContain('__init__');
+    expect(result.classes[0].methods.map((m) => m.name)).toContain('run');
   });
 
   it('should handle syntax errors gracefully', () => {
@@ -132,8 +132,8 @@ describe('analyzePythonFile', () => {
   it('should extract import statements', () => {
     const code = fs.readFileSync(path.join(fixturesDir, 'imports_test.py'), 'utf-8');
     const result = analyzePythonFile(code, {});
-    expect(result.imports.some(i => i.type === 'module' && i.name === 'os')).toBe(true);
-    expect(result.imports.some(i => i.type === 'from' && i.module === 'typing')).toBe(true);
+    expect(result.imports.some((i) => i.type === 'module' && i.name === 'os')).toBe(true);
+    expect(result.imports.some((i) => i.type === 'from' && i.module === 'typing')).toBe(true);
   });
 });
 

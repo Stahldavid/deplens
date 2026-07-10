@@ -51,8 +51,8 @@ function compareFunctionSignatures(from, to) {
   const changes = [];
 
   // Compare parameters
-  const fromParams = from.params || [];
-  const toParams = to.params || [];
+  const fromParams = Array.isArray(from.params) ? from.params : parseParamText(from.params || '');
+  const toParams = Array.isArray(to.params) ? to.params : parseParamText(to.params || '');
 
   // Check for removed required params (BREAKING)
   for (let i = 0; i < fromParams.length; i++) {
@@ -68,6 +68,24 @@ function compareFunctionSignatures(from, to) {
           detail: `Required parameter '${fromParam.name}' removed`,
         });
       }
+    } else if (fromParam.optional && !toParam.optional) {
+      changes.push({
+        type: 'param_became_required',
+        severity: Severity.BREAKING,
+        detail: `Parameter '${toParam.name}' became required`,
+      });
+    } else if (!fromParam.optional && toParam.optional) {
+      changes.push({
+        type: 'param_became_optional',
+        severity: Severity.SAFE,
+        detail: `Parameter '${toParam.name}' became optional`,
+      });
+    } else if (Boolean(fromParam.rest) !== Boolean(toParam.rest)) {
+      changes.push({
+        type: 'param_rest_changed',
+        severity: Severity.BREAKING,
+        detail: `Parameter '${toParam.name}' rest modifier changed`,
+      });
     } else if (normalizeType(fromParam.type) !== normalizeType(toParam.type)) {
       changes.push({
         type: 'param_type_changed',
@@ -108,6 +126,16 @@ function compareFunctionSignatures(from, to) {
     });
   }
 
+  const fromOverloads = from.overloads || [];
+  const toOverloads = to.overloads || [];
+  if (toOverloads.length < fromOverloads.length) {
+    changes.push({
+      type: 'overload_removed',
+      severity: Severity.BREAKING,
+      detail: `Function overload count decreased: ${fromOverloads.length} → ${toOverloads.length}`,
+    });
+  }
+
   return changes;
 }
 
@@ -139,6 +167,24 @@ function compareProperties(fromProps, toProps) {
         severity: toProp.optional ? Severity.SAFE : Severity.BREAKING,
         detail: `Property '${name}${toProp.optional ? '?' : ''}: ${toProp.type}' added`,
       });
+    } else if (fromProp.optional && !toProp.optional) {
+      changes.push({
+        type: 'property_became_required',
+        severity: Severity.BREAKING,
+        detail: `Property '${name}' became required`,
+      });
+    } else if (!fromProp.optional && toProp.optional) {
+      changes.push({
+        type: 'property_became_optional',
+        severity: Severity.WARNING,
+        detail: `Property '${name}' became optional`,
+      });
+    } else if (Boolean(fromProp.readonly) !== Boolean(toProp.readonly)) {
+      changes.push({
+        type: 'property_readonly_changed',
+        severity: Severity.WARNING,
+        detail: `Property '${name}' readonly modifier changed`,
+      });
     } else if (normalizeType(fromProp.type) !== normalizeType(toProp.type)) {
       changes.push({
         type: 'property_type_changed',
@@ -154,10 +200,7 @@ function compareProperties(fromProps, toProps) {
 function normalizeParams(params) {
   if (!params) return [];
   if (typeof params === 'string') {
-    return params
-      .split(',')
-      .map((param) => param.trim())
-      .filter(Boolean);
+    return parseParamText(params);
   }
   return params.map((param) => ({
     name: param.name || '',
@@ -177,6 +220,11 @@ function normalizeSymbolFacet(facet) {
     definition: normalizeType(facet.definition || ''),
     extends: facet.extends || null,
     members: facet.members || null,
+    memberValues: facet.memberValues || null,
+    overloads: facet.overloads || [],
+    constructors: facet.constructors || [],
+    methods: facet.methods || null,
+    typeParameters: facet.typeParameters || [],
   };
 }
 
@@ -219,15 +267,21 @@ function compareSymbolFacets(fromSymbol, toSymbol) {
       changes.push({
         kind: 'kind_changed',
         facet,
-        severity: facet === 'types' ? Severity.WARNING : Severity.BREAKING,
+        severity: Severity.BREAKING,
         detail: `${facet} kind changed: ${fromFacet.kind || 'unknown'} → ${toFacet.kind || 'unknown'}`,
       });
     }
     if (JSON.stringify(fromFacet.params) !== JSON.stringify(toFacet.params)) {
+      const parameterChanges = compareFunctionSignatures(
+        { params: fromFacet.params, returnType: fromFacet.returnType },
+        { params: toFacet.params, returnType: toFacet.returnType }
+      ).filter((change) => change.type.startsWith('param_'));
       changes.push({
         kind: 'params_changed',
         facet,
-        severity: Severity.WARNING,
+        severity: parameterChanges.some((change) => change.severity === Severity.BREAKING)
+          ? Severity.BREAKING
+          : Severity.WARNING,
         detail: `${facet} parameters changed`,
       });
     }
@@ -245,6 +299,93 @@ function compareSymbolFacets(fromSymbol, toSymbol) {
         facet,
         severity: Severity.WARNING,
         detail: `${facet} definition changed`,
+      });
+    }
+    for (const propertyChange of compareProperties(fromFacet.properties, toFacet.properties)) {
+      changes.push({
+        kind: propertyChange.type,
+        facet,
+        severity: propertyChange.severity,
+        detail: propertyChange.detail,
+      });
+    }
+    if (JSON.stringify(fromFacet.extends) !== JSON.stringify(toFacet.extends)) {
+      changes.push({
+        kind: 'extends_changed',
+        facet,
+        severity: Severity.BREAKING,
+        detail: `${facet} inheritance changed`,
+      });
+    }
+    const fromMembers = Array.isArray(fromFacet.members) ? fromFacet.members : [];
+    const toMembers = Array.isArray(toFacet.members) ? toFacet.members : [];
+    for (const member of fromMembers) {
+      if (!toMembers.includes(member)) {
+        changes.push({
+          kind: 'member_removed',
+          facet,
+          severity: Severity.BREAKING,
+          detail: `Member '${member}' was removed`,
+        });
+      }
+    }
+    const changedEnumValue = Object.entries(fromFacet.memberValues || {}).some(
+      ([name, value]) =>
+        Object.prototype.hasOwnProperty.call(toFacet.memberValues || {}, name) &&
+        toFacet.memberValues[name] !== value
+    );
+    if (changedEnumValue) {
+      changes.push({
+        kind: 'enum_values_changed',
+        facet,
+        severity: Severity.BREAKING,
+        detail: `${facet} enum values changed`,
+      });
+    }
+    const fromMethods = fromFacet.methods || {};
+    const toMethods = toFacet.methods || {};
+    for (const methodName of Object.keys(fromMethods)) {
+      if (!(methodName in toMethods)) {
+        changes.push({
+          kind: 'method_removed',
+          facet,
+          severity: Severity.BREAKING,
+          detail: `Method '${methodName}' was removed`,
+        });
+      } else if (
+        JSON.stringify(fromMethods[methodName]) !== JSON.stringify(toMethods[methodName])
+      ) {
+        changes.push({
+          kind: 'method_changed',
+          facet,
+          severity: Severity.WARNING,
+          detail: `Method '${methodName}' changed`,
+        });
+      }
+    }
+    for (const methodName of Object.keys(toMethods)) {
+      if (!(methodName in fromMethods)) {
+        changes.push({
+          kind: 'method_added',
+          facet,
+          severity: Severity.SAFE,
+          detail: `Method '${methodName}' was added`,
+        });
+      }
+    }
+    if (toFacet.constructors.length < fromFacet.constructors.length) {
+      changes.push({
+        kind: 'constructor_removed',
+        facet,
+        severity: Severity.BREAKING,
+        detail: 'A public constructor overload was removed',
+      });
+    } else if (JSON.stringify(fromFacet.constructors) !== JSON.stringify(toFacet.constructors)) {
+      changes.push({
+        kind: 'constructors_changed',
+        facet,
+        severity: Severity.WARNING,
+        detail: 'Public constructors changed',
       });
     }
   }
@@ -307,10 +448,12 @@ function compareSymbols(fromSymbols, toSymbols) {
     summary: {
       breaking: changes.filter((change) => change.severity === Severity.BREAKING).length,
       warnings: changes.filter((change) => change.severity === Severity.WARNING).length,
-      additions: changes.filter((change) => change.kind === 'symbol_added' || change.kind === 'facet_added')
-        .length,
-      removals: changes.filter((change) => change.kind === 'symbol_removed' || change.kind === 'facet_removed')
-        .length,
+      additions: changes.filter(
+        (change) => change.kind === 'symbol_added' || change.kind === 'facet_added'
+      ).length,
+      removals: changes.filter(
+        (change) => change.kind === 'symbol_removed' || change.kind === 'facet_removed'
+      ).length,
     },
   };
 }
@@ -343,7 +486,15 @@ function filterMapByName(map, matcher) {
 function filterAnalysisByName(analysis, matcher) {
   if (!matcher || !analysis?.exports) return analysis;
   const exports = {};
-  for (const category of ['functions', 'classes', 'interfaces', 'types', 'enums', 'namespaces', 'jsdoc']) {
+  for (const category of [
+    'functions',
+    'classes',
+    'interfaces',
+    'types',
+    'enums',
+    'namespaces',
+    'jsdoc',
+  ]) {
     exports[category] = filterMapByName(analysis.exports[category], matcher);
   }
   return {
@@ -356,8 +507,7 @@ function filterAnalysisByName(analysis, matcher) {
 function parseParamText(params) {
   if (!params || typeof params !== 'string') return [];
   if (/^\d+ params?$/.test(params)) return [];
-  return params
-    .split(',')
+  return splitTopLevel(params)
     .map((rawParam, index) => {
       const trimmed = rawParam.trim();
       if (!trimmed) return null;
@@ -365,12 +515,44 @@ function parseParamText(params) {
       const rawName = colonIndex === -1 ? trimmed : trimmed.slice(0, colonIndex).trim();
       const rawType = colonIndex === -1 ? 'any' : trimmed.slice(colonIndex + 1).trim();
       return {
-        name: rawName.replace(/\?$/, '') || `arg${index + 1}`,
+        name: rawName.replace(/^\.\.\./, '').replace(/\?$/, '') || `arg${index + 1}`,
         type: rawType || 'any',
         optional: rawName.endsWith('?'),
+        rest: rawName.startsWith('...'),
       };
     })
     .filter(Boolean);
+}
+
+function splitTopLevel(text) {
+  const parts = [];
+  let current = '';
+  let quote = null;
+  const depth = { '<': 0, '(': 0, '[': 0, '{': 0 };
+  const pairs = { '>': '<', ')': '(', ']': '[', '}': '{' };
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      current += char;
+      if (char === quote && text[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char in depth) depth[char] += 1;
+    if (char in pairs) depth[pairs[char]] = Math.max(0, depth[pairs[char]] - 1);
+    if (char === ',' && Object.values(depth).every((value) => value === 0)) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
 }
 
 function propertiesFromList(properties) {
@@ -400,13 +582,19 @@ function mergeParsedDtsExports(target, parsed) {
   for (const [name, info] of Object.entries(parsed.functions || {})) {
     if (target.functions[name]) continue;
     target.functions[name] = {
-      params: parseParamText(info.params),
+      params: info.parameters || parseParamText(info.params),
       returnType: info.returnType || 'void',
+      overloads: info.overloads || [],
     };
   }
   for (const [name, properties] of Object.entries(parsed.interfaces || {})) {
     if (target.interfaces[name]) continue;
-    target.interfaces[name] = { properties: propertiesFromList(properties) || {} };
+    const details = parsed.interfaceDetails?.[name];
+    target.interfaces[name] = {
+      properties: details?.properties || propertiesFromList(properties) || {},
+      methods: details?.methods || {},
+      extends: details?.extends || [],
+    };
   }
   for (const [name, type] of Object.entries(parsed.types || {})) {
     if (target.types[name]) continue;
@@ -415,17 +603,27 @@ function mergeParsedDtsExports(target, parsed) {
   for (const [name, classInfo] of Object.entries(parsed.classes || {})) {
     if (target.classes[name]) continue;
     target.classes[name] = {
-      extends: classInfo && typeof classInfo === 'object' ? classInfo.extends || null : classInfo || null,
+      extends:
+        classInfo && typeof classInfo === 'object' ? classInfo.extends || null : classInfo || null,
       localName: classInfo && typeof classInfo === 'object' ? classInfo.localName || null : null,
       methods: {},
+      properties: classInfo && typeof classInfo === 'object' ? classInfo.properties || {} : {},
+      constructors: classInfo && typeof classInfo === 'object' ? classInfo.constructors || [] : [],
     };
+    if (classInfo && typeof classInfo === 'object') {
+      target.classes[name].methods = classInfo.methods || {};
+    }
   }
   for (const [name, members] of Object.entries(parsed.enums || {})) {
     if (target.enums[name]) continue;
-    target.enums[name] = { members: Array.isArray(members) ? members : [] };
+    target.enums[name] = {
+      members: Array.isArray(members) ? members : [],
+      memberValues: parsed.enumDetails?.[name] || {},
+    };
   }
   Object.assign(target.namespaces, parsed.namespaces || {});
   Object.assign(target.jsdoc, parsed.jsdoc || {});
+  Object.assign(target.variables, parsed.variables || {});
 }
 
 function resolveConditionalExport(entry, preferred = ['types', 'import', 'require', 'default']) {
@@ -461,10 +659,48 @@ function findTypesEntry(pkg) {
   return candidates.filter(Boolean);
 }
 
+function declarationCandidates(entry) {
+  if (!entry || typeof entry !== 'string') return [];
+  const normalized = entry
+    .replace(/\.cjs$/i, '.d.cts')
+    .replace(/\.mjs$/i, '.d.mts')
+    .replace(/\.js$/i, '.d.ts');
+  return /\.d\.(?:ts|cts|mts)$/i.test(normalized)
+    ? [normalized]
+    : [`${normalized}.d.ts`, `${normalized}.d.cts`, `${normalized}.d.mts`];
+}
+
+function findTypeEntrypoints(pkg) {
+  const entries = [{ subpath: '.', candidates: findTypesEntry(pkg) }];
+  if (!pkg.exports || typeof pkg.exports !== 'object' || Array.isArray(pkg.exports)) {
+    return entries;
+  }
+  const exportKeys = Object.keys(pkg.exports).filter((key) => key.startsWith('.'));
+  for (const subpath of exportKeys) {
+    if (subpath === '.' || subpath === './' || subpath.includes('*')) continue;
+    const target = resolveConditionalExport(pkg.exports[subpath], [
+      'types',
+      'typings',
+      'import',
+      'require',
+      'default',
+    ]);
+    if (target) entries.push({ subpath, candidates: declarationCandidates(target) });
+  }
+  return entries;
+}
+
 function findRuntimeEntry(pkg) {
   const rootExport = typeof pkg.exports === 'object' ? pkg.exports['.'] || pkg.exports : null;
-  const exportRuntime = resolveConditionalExport(rootExport, ['import', 'require', 'node', 'default']);
-  return [exportRuntime, pkg.module, pkg.main, 'index.js', 'index.mjs', 'index.cjs'].filter(Boolean);
+  const exportRuntime = resolveConditionalExport(rootExport, [
+    'import',
+    'require',
+    'node',
+    'default',
+  ]);
+  return [exportRuntime, pkg.module, pkg.main, 'index.js', 'index.mjs', 'index.cjs'].filter(
+    Boolean
+  );
 }
 
 function runtimeKind(name, value) {
@@ -483,7 +719,8 @@ async function inspectRuntimeExports(packageDir, pkg) {
   const entry = findRuntimeEntry(pkg).find((candidate) =>
     fs.existsSync(path.join(packageDir, candidate))
   );
-  if (!entry) return { runtimeNames: [], categorized: {}, runtimePath: null, runtimeAvailable: false };
+  if (!entry)
+    return { runtimeNames: [], categorized: {}, runtimePath: null, runtimeAvailable: false };
   try {
     const mod = await import(pathToFileURL(path.join(packageDir, entry)).href);
     const names = Object.keys(mod);
@@ -532,6 +769,7 @@ async function analyzePackageTypes(packageDir, options = {}) {
       interfaces: {},
       types: {},
       enums: {},
+      variables: {},
     },
   };
 
@@ -543,24 +781,41 @@ async function analyzePackageTypes(packageDir, options = {}) {
     enums: {},
     namespaces: {},
     jsdoc: {},
+    variables: {},
   };
 
-  // Start from the main types entry point
-  const entryPoints = findTypesEntry(pkg);
-
+  const typeEntrypoints = findTypeEntrypoints(pkg);
   let selectedTypesEntry = null;
-  for (const entry of entryPoints) {
-    const fullPath = path.join(packageDir, entry);
-    if (fs.existsSync(fullPath)) {
+  let rootTypeInfo = null;
+  const subpathSymbols = [];
+  for (const typeEntrypoint of typeEntrypoints) {
+    const entry = typeEntrypoint.candidates.find((candidate) =>
+      fs.existsSync(path.resolve(packageDir, candidate))
+    );
+    if (!entry) continue;
+    const fullPath = path.resolve(packageDir, entry);
+    const parsed = await getCachedDtsParse(fullPath);
+    if (!parsed) continue;
+    if (typeEntrypoint.subpath === '.') {
       selectedTypesEntry = entry;
-      mergeParsedDtsExports(allExports, await getCachedDtsParse(fullPath));
-      break;
+      rootTypeInfo = parsed;
+      mergeParsedDtsExports(allExports, parsed);
+    } else {
+      subpathSymbols.push(
+        ...buildSymbols({
+          packageName: pkg.name,
+          subpath: typeEntrypoint.subpath.slice(2),
+          typeInfo: parsed,
+          typesPath: entry,
+          typesSource: 'exports',
+        })
+      );
     }
   }
 
   result.exports = allExports;
   if (options.includeSource) {
-    const sourceResult = runSourceAnalysis({
+    const sourceResult = await runSourceAnalysis({
       pkgDir: packageDir,
       filterRaw: options.filter || null,
       sourceMaxFiles: options.sourceMaxFiles || 100,
@@ -574,17 +829,20 @@ async function analyzePackageTypes(packageDir, options = {}) {
     }
   }
   const runtime = await inspectRuntimeExports(packageDir, pkg);
-  result.symbols = buildSymbols({
-    packageName: pkg.name,
-    subpath: null,
-    runtimeNames: runtime.runtimeNames,
-    categorized: runtime.categorized,
-    runtimePath: runtime.runtimePath,
-    runtimeAvailable: runtime.runtimeAvailable,
-    typeInfo: allExports,
-    typesPath: selectedTypesEntry,
-    typesSource: selectedTypesEntry ? 'package' : null,
-  });
+  result.symbols = [
+    ...buildSymbols({
+      packageName: pkg.name,
+      subpath: null,
+      runtimeNames: runtime.runtimeNames,
+      categorized: runtime.categorized,
+      runtimePath: runtime.runtimePath,
+      runtimeAvailable: runtime.runtimeAvailable,
+      typeInfo: rootTypeInfo,
+      typesPath: selectedTypesEntry,
+      typesSource: selectedTypesEntry ? 'package' : null,
+    }),
+    ...subpathSymbols,
+  ];
   return result;
 }
 
@@ -757,6 +1015,18 @@ export async function compareVersions(fromDir, toDir, options = {}) {
     };
   }
 
+  const legacySummary = { ...diff.summary };
+  if (diff.symbols.fromCount > 0 || diff.symbols.toCount > 0) {
+    const sourceWarnings = diff.warnings.filter((change) => change.category === 'source').length;
+    diff.summary = {
+      breaking: diff.symbols.summary.breaking,
+      warnings: diff.symbols.summary.warnings + sourceWarnings,
+      additions: diff.symbols.summary.additions,
+      removals: diff.symbols.summary.removals,
+      legacy: legacySummary,
+    };
+  }
+
   return diff;
 }
 
@@ -799,6 +1069,18 @@ export function formatDiffAsText(diff, options = {}) {
     lines.push(`${green}${bold}🟢 ADDED (${diff.additions.length}):${reset}`);
     for (const change of diff.additions) {
       lines.push(`${green}   + ${change.name} (${change.category.slice(0, -1)})${reset}`);
+    }
+    lines.push('');
+  }
+
+  const subpathChanges = (diff.symbols?.changes || []).filter(
+    (change) => change.subpath && change.subpath !== '.'
+  );
+  if (subpathChanges.length > 0) {
+    lines.push(`${bold}PUBLIC SUBPATH CHANGES (${subpathChanges.length}):${reset}`);
+    for (const change of subpathChanges) {
+      const marker = change.severity === Severity.BREAKING ? '-' : '+';
+      lines.push(`   ${marker} ${change.subpath}: ${change.detail}`);
     }
     lines.push('');
   }

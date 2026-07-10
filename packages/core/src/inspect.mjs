@@ -22,10 +22,15 @@ export async function runInspect(options) {
       ? typeof rawOutput === 'string'
         ? JSON.parse(rawOutput)
         : rawOutput
-      : await runInspectCore({ ...options, format: 'object', write: undefined, writeError: undefined });
+      : await runInspectCore({
+          ...options,
+          format: 'object',
+          write: undefined,
+          writeError: undefined,
+        });
 
   if (options?.analyzeSource && jsonOutput?.pkgDir) {
-    const sourceResult = runSourceAnalysis({
+    const sourceResult = await runSourceAnalysis({
       pkgDir: jsonOutput.pkgDir,
       filterRaw: options.filter || null,
       sourceMaxFiles: options.sourceMaxFiles || 100,
@@ -38,6 +43,10 @@ export async function runInspect(options) {
       },
     });
 
+    if (sourceResult.warnings?.length) {
+      jsonOutput.warnings.push(...sourceResult.warnings);
+    }
+
     jsonOutput.sourceAnalysis = sourceResult.sourceAnalysis;
     if (Array.isArray(jsonOutput.symbols) && sourceResult.sourceAnalysis) {
       jsonOutput.symbols = enrichSymbolsWithSource(jsonOutput.symbols, sourceResult.sourceAnalysis);
@@ -46,6 +55,9 @@ export async function runInspect(options) {
       language: sourceResult.detectedLang || 'unknown',
       files: sourceResult.languageAnalysis?.summary?.totalFiles || 0,
       summary: sourceResult.languageAnalysis?.summary || {},
+      ...(sourceResult.languageAnalysis?.error
+        ? { error: sourceResult.languageAnalysis.error }
+        : {}),
     };
   }
 

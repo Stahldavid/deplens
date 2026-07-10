@@ -143,7 +143,7 @@ deplens lodash --search "deep merge"
 
 Token-matches the query (with synonym expansion: `validate ↔ parse`, `auth ↔ token`, etc.) against export names and JSDoc; falls back to fuzzy token scoring if no types are available.
 
-### 10. Source-code analysis (JS / TS / Python / Java / Rust / Go)
+### 10. Source-code analysis (JS / TS / Python / Java)
 
 ```bash
 deplens zod --analyze-source --source-max-files 5
@@ -163,7 +163,10 @@ For Python, the current implementation is environment-aware:
 - If neither exists, it falls back to the active system Python (`py`, `python3`, `python`).
 - It parses Python with the real `ast` module rather than regex, so methods, imports, decorators, return annotations, and complexity are structurally extracted.
 
-For Java, the source analysis uses DepLens' built-in structural parser for package/import/class/interface/enum/method extraction rather than regex-driven scanning.
+For Java, source analysis uses a best-effort built-in parser for package/import/class/interface/enum/method extraction.
+
+Rust and Go package layouts are detected, but implementation analysis is not yet available.
+The CLI returns an explicit warning when either language is requested.
 
 ## Output handling
 

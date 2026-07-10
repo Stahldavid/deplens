@@ -36,4 +36,25 @@ describe('changelog parser', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('sorts prereleases and supports downgrade ranges with security categorization', () => {
+    const parsed = parseChangelogString(
+      [
+        '## 2.0.0',
+        '- Fixed CVE-2026-0001 vulnerability',
+        '## 2.0.0-beta-test.1',
+        '- Beta release',
+        '## 1.0.0',
+        '- Initial release',
+      ].join('\n')
+    );
+
+    const upgrade = getChangesBetweenVersions(parsed, '1.0.0', '2.0.0');
+    const downgrade = getChangesBetweenVersions(parsed, '2.0.0', '1.0.0');
+
+    expect(upgrade.versionsIncluded).toEqual(['2.0.0-beta-test.1', '2.0.0']);
+    expect(upgrade.summary.security).toBe(1);
+    expect(downgrade.direction).toBe('downgrade');
+    expect(downgrade.versionsIncluded).toEqual(['2.0.0-beta-test.1', '1.0.0']);
+  });
 });

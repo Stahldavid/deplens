@@ -88,7 +88,9 @@ describe('language-detector', () => {
     });
 
     it('should not crash on non-existent directory', () => {
-      expect(detectLanguage(path.join(os.tmpdir(), 'definitely-does-not-exist-deplens'))).toBeNull();
+      expect(
+        detectLanguage(path.join(os.tmpdir(), 'definitely-does-not-exist-deplens'))
+      ).toBeNull();
     });
   });
 
@@ -100,7 +102,7 @@ describe('language-detector', () => {
 
       const files = getSourceFiles(testRoot, 'python', 10);
       expect(files.length).toBe(2);
-      expect(files.every(f => f.endsWith('.py'))).toBe(true);
+      expect(files.every((f) => f.endsWith('.py'))).toBe(true);
     });
 
     it('should respect maxFiles limit', () => {

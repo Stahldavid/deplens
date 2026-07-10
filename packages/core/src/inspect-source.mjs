@@ -1,6 +1,6 @@
 // inspect-source.mjs — Source code analysis (JS/TS + multi-language)
 import { analyzePackageSource } from './parse-source.mjs';
-import { analyzePythonPackage } from './analyze-python.mjs';
+import { analyzePythonPackageAsync } from './analyze-python.mjs';
 import { analyzeJavaPackage } from './analyze-java.mjs';
 import { detectLanguage } from './language-detector.mjs';
 
@@ -15,7 +15,7 @@ import { detectLanguage } from './language-detector.mjs';
  * @param {(msg: string) => void} args.log
  * @returns {{ sourceAnalysis: any, detectedLang: string|null, languageAnalysis: any }}
  */
-export function runSourceAnalysis({
+export async function runSourceAnalysis({
   pkgDir,
   filterRaw,
   sourceMaxFiles,
@@ -26,6 +26,7 @@ export function runSourceAnalysis({
   let sourceAnalysis = null;
   let detectedLang = null;
   let languageAnalysis = null;
+  const warnings = [];
 
   // Detectar linguagem (ou usar forçada)
   detectedLang = forcedLanguage || detectLanguage(pkgDir);
@@ -55,7 +56,7 @@ export function runSourceAnalysis({
   // Additional language analysis
   if (detectedLang === 'python') {
     try {
-      languageAnalysis = analyzePythonPackage(pkgDir, {
+      languageAnalysis = await analyzePythonPackageAsync(pkgDir, {
         filter: filterRaw,
         maxFiles: sourceMaxFiles,
         includeBody: sourceIncludeBody,
@@ -89,7 +90,12 @@ export function runSourceAnalysis({
       log(`   ❌ Java Analysis error: ${javaErr.message}`);
     }
   }
-  // Future: add Rust, Go here
+  if (detectedLang === 'rust' || detectedLang === 'go') {
+    const message = `${detectedLang} source analysis is not implemented yet`;
+    warnings.push(message);
+    languageAnalysis = { error: message, files: [] };
+    log(`   ⚠️  ${message}`);
+  }
 
-  return { sourceAnalysis, detectedLang, languageAnalysis };
+  return { sourceAnalysis, detectedLang, languageAnalysis, warnings };
 }

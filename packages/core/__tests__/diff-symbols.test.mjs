@@ -8,7 +8,11 @@ function writePackage(root, version, dts, js = '') {
   mkdirSync(root, { recursive: true });
   writeFileSync(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: 'demo-pkg', version, types: 'index.d.ts', type: 'module', main: 'index.js' }, null, 2)
+    JSON.stringify(
+      { name: 'demo-pkg', version, types: 'index.d.ts', type: 'module', main: 'index.js' },
+      null,
+      2
+    )
   );
   writeFileSync(path.join(root, 'index.d.ts'), dts);
   writeFileSync(path.join(root, 'index.js'), js);
@@ -58,6 +62,23 @@ function writeCtsReexportPackage(root, version) {
   writeFileSync(path.join(root, 'foo.d.cts'), 'export interface CjsType { id: string }\n');
 }
 
+function writeSubpathPackage(root, version, rootDts, subpathDts) {
+  mkdirSync(path.join(root, 'subpath'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({
+      name: 'subpath-pkg',
+      version,
+      exports: {
+        '.': { types: './index.d.ts' },
+        './subpath': { types: './subpath/index.d.ts' },
+      },
+    })
+  );
+  writeFileSync(path.join(root, 'index.d.ts'), rootDts);
+  writeFileSync(path.join(root, 'subpath', 'index.d.ts'), subpathDts);
+}
+
 describe('symbol diff', () => {
   it('compares package versions through canonical symbols', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-symbols-'));
@@ -94,7 +115,9 @@ export interface Options { strict: boolean }
           expect.objectContaining({ kind: 'return_changed', name: 'parse', facet: 'types' }),
         ])
       );
-      expect(diff.additions).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'format' })]));
+      expect(diff.additions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'format' })])
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -232,7 +255,9 @@ export interface Options { strict: boolean; mode?: string }
         ])
       );
       expect(diff.warnings).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: 'parse', type: 'param_type_changed' })])
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'parse', type: 'param_type_changed' }),
+        ])
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -295,6 +320,75 @@ export interface Options { strict: boolean; mode?: string }
       expect(diff.symbols.fromCount).toBe(1);
       expect(diff.symbols.toCount).toBe(1);
       expect(diff.symbols.changes).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('compares every explicit public subpath', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-subpaths-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writeSubpathPackage(
+        fromDir,
+        '1.0.0',
+        'export function root(): void;\n',
+        'export function removed(): void;\n'
+      );
+      writeSubpathPackage(
+        toDir,
+        '2.0.0',
+        'export function root(): void;\n',
+        'export function added(): void;\n'
+      );
+
+      const diff = await compareVersions(fromDir, toDir, { runtime: false });
+
+      expect(diff.symbols.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'symbol_removed',
+            name: 'removed',
+            subpath: './subpath',
+          }),
+          expect.objectContaining({ kind: 'symbol_added', name: 'added', subpath: './subpath' }),
+        ])
+      );
+      expect(diff.summary.breaking).toBe(1);
+      expect(diff.summary.additions).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detects breaking optionality, enum, and class member changes', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-member-shapes-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writePackage(
+        fromDir,
+        '1.0.0',
+        'export function parse(value?: string): void;\nexport interface Config { value?: string }\nexport enum Mode { A, B }\nexport class Client { run(): void }\n'
+      );
+      writePackage(
+        toDir,
+        '2.0.0',
+        'export function parse(value: string): void;\nexport interface Config { value: string }\nexport enum Mode { A }\nexport class Client {}\n'
+      );
+
+      const diff = await compareVersions(fromDir, toDir, { runtime: false });
+      const changes = [...diff.breaking, ...diff.warnings, ...diff.symbols.changes];
+
+      expect(changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'parse', severity: 'breaking' }),
+          expect.objectContaining({ name: 'Config', severity: 'breaking' }),
+          expect.objectContaining({ name: 'Mode', severity: 'breaking' }),
+          expect.objectContaining({ name: 'Client', severity: 'breaking' }),
+        ])
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

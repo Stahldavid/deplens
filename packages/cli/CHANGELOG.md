@@ -1,5 +1,11 @@
 # @deplens/cli
 
+## 1.0.3
+
+### Patch Changes
+
+- Normalize the space-flattened list values emitted by npm's PowerShell shim for token-based CSV options.
+
 ## 1.0.2
 
 ### Patch Changes

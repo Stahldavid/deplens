@@ -75,8 +75,7 @@ describe('inspect CLI', () => {
       'zod',
       '--no-runtime',
       '--types',
-      '--select=types',
-      'symbols',
+      '--select=types symbols',
       '--max-symbols=2',
     ]);
 

@@ -655,6 +655,16 @@ const LIST_VALUE_OPTIONS = new Set([
   '--select',
 ]);
 
+const TOKEN_LIST_VALUE_OPTIONS = new Set([
+  '--jsdoc-symbol',
+  '--jsdoc-sections',
+  '--jsdoc-tags',
+  '--jsdoc-tags-exclude',
+  '--kind',
+  '--conditions',
+  '--select',
+]);
+
 function validateCliArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -699,7 +709,10 @@ function normalizeCliArgs(args) {
       values.push(normalizedEquals[index + 1]);
       index += 1;
     }
-    normalizedLists.push(argument, values.join(','));
+    const normalizedValues = TOKEN_LIST_VALUE_OPTIONS.has(argument)
+      ? values.flatMap((value) => value.split(/\s+/).filter(Boolean))
+      : values;
+    normalizedLists.push(argument, normalizedValues.join(','));
   }
   return normalizedLists;
 }

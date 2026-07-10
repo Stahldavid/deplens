@@ -86,8 +86,11 @@ Compact projections keep `staticExports` to a count unless explicitly selected, 
 source analysis, and omit symbol inventories for focused docs/examples/JSDoc requests.
 `project-diff` returns direct dependency changes by default; set `includeTransitive: true`
 for the complete lockfile graph. pnpm peer suffixes are stripped before versions are compared.
-Enriched package API results are compact by default; pass `detail: 'full'` to retain the rich
-`runDiff` result. Source analysis is focused by default and only includes symbols when selected.
+Enriched package API results are compact by default and expose per-package `pagination`; use
+`maxChangesPerPackage` (default 25) and `packageCursors` to page large upgrades independently.
+`maxChanges` remains an alias for the per-package limit. The report includes `detailLevel`; pass
+`detail: 'full'` to retain the rich `runDiff` result. Source analysis is focused by default and
+only includes symbols when selected. Structured JSDoc omits the renderer-only `text` duplicate.
 
 Cache pruning accepts `maxSizeBytes` and `maxEntries`, using `lastUsedAt` for LRU order while
 skipping active lock entries. Semantic compatibility separates isolated nominal identity noise

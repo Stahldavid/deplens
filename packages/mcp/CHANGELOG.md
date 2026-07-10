@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.4
+
+### Patch Changes
+
+- Paginate compact project API changes independently per package, expose the selected detail level, and remove duplicated renderer text from structured JSDoc output.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.4
+
 ## 1.0.3
 
 ### Patch Changes

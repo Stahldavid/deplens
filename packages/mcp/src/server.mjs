@@ -711,12 +711,15 @@ const projectInputShape = {
   timeoutMs: z.number().int().positive().max(600_000).optional(),
   concurrency: z.number().int().positive().max(16).optional(),
   detail: z.enum(['compact', 'full']).optional(),
+  maxChangesPerPackage: z.number().int().positive().max(1000).optional(),
+  packageCursors: z.record(z.union([z.string(), z.number().int().nonnegative()])).optional(),
   format: ProjectFormatEnum.optional(),
 };
 const ProjectInputSchema = z.object(projectInputShape).strict();
 const projectOutputShape = {
   schemaVersion: z.number(),
   kind: z.string(),
+  detailLevel: z.enum(['compact', 'full']),
   from: z.record(z.any()).nullable(),
   to: z.record(z.any()).nullable(),
   summary: z.record(z.any()),

@@ -51,6 +51,7 @@ describe('runtime loading controls', () => {
         ],
       });
       expect(structured.jsdoc.entries).toHaveLength(1);
+      expect(structured.jsdoc.entries[0]).not.toHaveProperty('text');
       expect(structured).not.toHaveProperty('symbols');
       expect(structured).not.toHaveProperty('types');
       expect(structured).not.toHaveProperty('staticExports');

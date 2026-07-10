@@ -188,6 +188,8 @@ describe('inspect CLI', () => {
     expect(help).toContain('--jsdoc-sections');
     expect(help).toContain('--jsdoc-tags-exclude');
     expect(help).toContain('--cursor VALUE         Resume diff pagination');
+    expect(help).toContain('--max-changes-per-package');
+    expect(help).toContain('--package-cursor');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 

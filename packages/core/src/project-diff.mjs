@@ -9,6 +9,7 @@ import { createOperationSignal, errorPayload, throwIfAborted } from './errors.mj
 import { createSafeRecord, setSafeRecord } from './safe-record.mjs';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_PROJECT_CHANGES_PER_PACKAGE = 25;
 const DEPENDENCY_GROUPS = [
   'dependencies',
   'devDependencies',
@@ -256,6 +257,7 @@ export function compareProjectSnapshots(from, to) {
   return {
     schemaVersion: 1,
     kind: 'deplens-project-diff',
+    detailLevel: 'compact',
     from: from?.project || null,
     to: to?.project || null,
     summary: summarizeProjectChanges(changes),
@@ -271,7 +273,7 @@ async function defaultDiffRunner(options) {
   return result;
 }
 
-function compactProjectApi(api) {
+function compactProjectApi(api, options = {}) {
   let payload = api;
   if (!payload?.summary && typeof payload?.output === 'string') {
     try {
@@ -288,11 +290,36 @@ function compactProjectApi(api) {
       ...(payload.warnings?.length ? { warnings: payload.warnings } : {}),
     };
   }
+  const allChanges = Array.isArray(payload?.changes) ? payload.changes : [];
+  const parsedCursor = Number.parseInt(String(options.cursor || '0'), 10);
+  const offset = Number.isFinite(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+  const maxChanges = Math.max(1, Number(options.maxChanges) || DEFAULT_PROJECT_CHANGES_PER_PACKAGE);
+  const upstreamPagination = payload?.pagination;
+  const changes = upstreamPagination ? allChanges : allChanges.slice(offset, offset + maxChanges);
+  const total = Number.isFinite(Number(upstreamPagination?.total))
+    ? Number(upstreamPagination.total)
+    : Number.isFinite(Number(payload?.changeCount))
+      ? Number(payload.changeCount)
+      : allChanges.length;
+  const pageOffset = Number.isFinite(Number(upstreamPagination?.offset))
+    ? Number(upstreamPagination.offset)
+    : offset;
+  const returned = changes.length;
+  const nextCursor =
+    upstreamPagination?.nextCursor ??
+    (pageOffset + returned < total ? String(pageOffset + returned) : null);
   return {
     package: payload?.package || null,
     summary: payload?.summary || null,
-    changes: payload?.changes || [],
+    changes,
     semanticCompatibility: payload?.semanticCompatibility || null,
+    pagination: {
+      total,
+      offset: pageOffset,
+      returned,
+      nextCursor,
+      truncated: returned < total,
+    },
     ...(payload?.sourceComparison ? { sourceComparison: payload.sourceComparison } : {}),
   };
 }
@@ -320,11 +347,17 @@ export async function runProjectDiff(options = {}) {
       ? options.to
       : createProjectSnapshot(options.to, { source: options.toSource });
   const report = compareProjectSnapshots(from, to);
+  report.detailLevel = options.detail === 'full' ? 'full' : 'compact';
   if (!options.includeTransitive) {
     report.changes = report.changes.filter((change) => change.direct);
     report.summary = summarizeProjectChanges(report.changes);
   }
   const diffRunner = options.diffRunner || defaultDiffRunner;
+  const maxChangesPerPackage = Math.max(
+    1,
+    Number(options.maxChangesPerPackage ?? options.maxChanges) ||
+      DEFAULT_PROJECT_CHANGES_PER_PACKAGE
+  );
   const candidates = (options.analyze === false ? [] : report.changes).filter(
     (change) =>
       change.fromVersion && change.toVersion && (options.includeTransitive || change.direct)
@@ -338,6 +371,9 @@ export async function runProjectDiff(options = {}) {
       async (change) => {
         throwIfAborted(operation.signal, 'project-diff');
         try {
+          const cursor = Object.hasOwn(options.packageCursors || {}, change.package)
+            ? String(options.packageCursors[change.package])
+            : '0';
           const api = await diffRunner({
             package: change.package,
             from: change.fromVersion,
@@ -352,8 +388,12 @@ export async function runProjectDiff(options = {}) {
             semantic: options.semantic !== false,
             signal: operation.signal,
             timeoutMs: options.timeoutMs,
+            ...(options.detail === 'full' ? {} : { maxChanges: maxChangesPerPackage, cursor }),
           });
-          change.api = options.detail === 'full' ? api : compactProjectApi(api);
+          change.api =
+            options.detail === 'full'
+              ? api
+              : compactProjectApi(api, { maxChanges: maxChangesPerPackage, cursor });
         } catch (error) {
           Object.assign(
             change,

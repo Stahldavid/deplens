@@ -146,6 +146,8 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--include-transitive`                      | Return and enrich transitive changes; direct changes are the default.     |
 | `--concurrency N`                           | Concurrent package API diffs (default 4).                                 |
 | `--detail compact\|full`                    | Compact API enrichment by default; `full` preserves the rich diff object. |
+| `--max-changes-per-package N`               | Changes returned per package (default 25). `--max-changes` is an alias.   |
+| `--package-cursor PKG=N`                    | Resume one package page; repeat for multiple packages.                    |
 | `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
 | `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
 | `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.      |
@@ -341,3 +343,21 @@ Optional extension fields (only when relevant flags are passed):
 Compact JSON contains one canonical `changes[]` list and symbol counts, avoiding repeated
 full symbol objects. Pass `--verbose` when each change must include complete `from` and `to`
 symbol snapshots. The programmatic `runDiff()` result still exposes the rich internal `diff`.
+
+### `project-diff` payload
+
+The top-level envelope includes `detailLevel`. In compact mode every enriched `change.api`
+contains `package`, `summary`, `changes`, `semanticCompatibility`, and:
+
+```jsonc
+"pagination": {
+  "total": 777,
+  "offset": 10,
+  "returned": 25,
+  "nextCursor": "35",
+  "truncated": true
+}
+```
+
+Use `--package-cursor package-name=35` to fetch the next page for only that package.
+Structured `jsdoc.entries` omit the renderer-only `text` duplicate.

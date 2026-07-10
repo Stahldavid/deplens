@@ -69,12 +69,17 @@ export const OUTPUT_SCHEMAS = Object.freeze({
       instances: { type: 'array' },
     }
   ),
-  'project-diff-v1': schema('project-diff/v1', ['schemaVersion', 'kind', 'summary', 'changes'], {
-    schemaVersion: version(1),
-    kind: kind('deplens-project-diff'),
-    summary: { type: 'object' },
-    changes: { type: 'array' },
-  }),
+  'project-diff-v1': schema(
+    'project-diff/v1',
+    ['schemaVersion', 'kind', 'detailLevel', 'summary', 'changes'],
+    {
+      schemaVersion: version(1),
+      kind: kind('deplens-project-diff'),
+      detailLevel: { enum: ['compact', 'full'] },
+      summary: { type: 'object' },
+      changes: { type: 'array' },
+    }
+  ),
   'baseline-v1': schema('baseline/v1', ['schemaVersion', 'kind', 'snapshot'], {
     schemaVersion: version(1),
     kind: kind('deplens-baseline'),

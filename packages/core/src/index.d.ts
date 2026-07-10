@@ -320,6 +320,7 @@ export interface ProjectChange {
 export interface ProjectDiffReport {
   schemaVersion: 1;
   kind: 'deplens-project-diff';
+  detailLevel: 'compact' | 'full';
   from: ProjectSnapshot['project'] | null;
   to: ProjectSnapshot['project'] | null;
   summary: Record<string, number>;
@@ -342,6 +343,9 @@ export interface ProjectDiffOptions extends OperationOptions {
   semantic?: boolean;
   analyze?: boolean;
   detail?: 'compact' | 'full';
+  maxChanges?: number;
+  maxChangesPerPackage?: number;
+  packageCursors?: Record<string, string | number>;
   onProgress?: (progress: { completed: number; total: number; package: string }) => void;
   diffRunner?: (options: DiffOptions) => Promise<Record<string, unknown>>;
 }

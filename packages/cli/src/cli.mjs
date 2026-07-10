@@ -64,6 +64,21 @@ function parseByteSize(value) {
   return Math.floor(Number(match[1]) * units[(match[2] || 'b').toLowerCase()]);
 }
 
+function parsePackageCursors(values) {
+  const cursors = Object.create(null);
+  for (const value of values) {
+    const delimiter = String(value).lastIndexOf('=');
+    if (delimiter <= 0) throw new Error(`Invalid package cursor: ${value}`);
+    const packageName = String(value).slice(0, delimiter);
+    const cursor = Number.parseInt(String(value).slice(delimiter + 1), 10);
+    if (!Number.isFinite(cursor) || cursor < 0) {
+      throw new Error(`Invalid package cursor: ${value}`);
+    }
+    cursors[packageName] = String(cursor);
+  }
+  return cursors;
+}
+
 function parseInspectArgs(argv) {
   const target = argv[0];
   let filter = argv[1] && !argv[1].startsWith('--') ? argv[1].toLowerCase() : null;
@@ -522,6 +537,8 @@ function usage() {
       '  --include-transitive   Analyze transitive dependency changes\n' +
       '  --no-api               Compare lockfile versions without package API analysis\n' +
       '  --concurrency N        Concurrent package diffs (default: 4)\n' +
+      '  --max-changes-per-package N  Changes returned per enriched package (default: 25)\n' +
+      '  --package-cursor PKG=N  Resume changes for one package (repeatable)\n' +
       '  --detail compact|full  API enrichment detail (default: compact)\n' +
       '  --format text|json|sarif\n'
   );
@@ -620,6 +637,8 @@ const VALUE_OPTIONS = new Set([
   '--cursor',
   '--max-symbols',
   '--max-changes',
+  '--max-changes-per-package',
+  '--package-cursor',
   '--timeout',
   '--concurrency',
 ]);
@@ -1001,6 +1020,10 @@ if (command === 'project-diff') {
   const timeoutMs = Number(argumentValue(argv, '--timeout'));
   const concurrency = Number(argumentValue(argv, '--concurrency'));
   try {
+    const maxChangesPerPackageValue = Number(
+      argumentValue(argv, '--max-changes-per-package', argumentValue(argv, '--max-changes', 25))
+    );
+    const packageCursors = parsePackageCursors(argumentValues(argv, '--package-cursor'));
     const [fromSnapshot, toSnapshot] = await Promise.all([
       loadProjectSnapshot(fromSource, { projectDir, lockfile, timeoutMs }),
       loadProjectSnapshot(toSource, { projectDir, lockfile, timeoutMs }),
@@ -1021,6 +1044,10 @@ if (command === 'project-diff') {
       semantic: !argv.includes('--no-semantic'),
       analyze: !argv.includes('--no-api'),
       detail: argumentValue(argv, '--detail', 'compact'),
+      maxChangesPerPackage: Number.isFinite(maxChangesPerPackageValue)
+        ? Math.max(1, Math.floor(maxChangesPerPackageValue))
+        : 25,
+      packageCursors,
       profile: argv.includes('--profile'),
     });
     process.stdout.write(

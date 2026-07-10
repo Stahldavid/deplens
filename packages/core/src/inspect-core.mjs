@@ -1896,7 +1896,16 @@ export async function runInspectCore(options) {
             mode: jsdocMode,
             output: jsdocOutput,
           });
-          if (jsonOutput) jsonOutput.jsdoc = jsdocPayload;
+          if (jsonOutput) {
+            jsonOutput.jsdoc = {
+              ...jsdocPayload,
+              entries: jsdocPayload.entries.map(({ name, summary, tags }) => ({
+                name,
+                summary,
+                tags,
+              })),
+            };
+          }
           log(`\nJSDoc: (${jsdocPayload.entries.length})`);
           for (const entry of jsdocPayload.entries) log(`   ${entry.text}`);
           if (jsdocPayload.entries.length === 0) log('   No matching JSDoc found.');

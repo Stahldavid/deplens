@@ -76,8 +76,10 @@ Compact `--analyze-source` includes a summary and reports `runtimeLanguage` sepa
 
 `project-diff` returns direct dependency changes by default. Add `--include-transitive` for the
 complete graph. pnpm lockfile versions with nested peer suffixes are normalized safely. API
-enrichment keeps only `package`, `summary`, `changes`, and `semanticCompatibility`; use
-`--detail full` for the complete per-package diff object.
+enrichment keeps only `package`, `summary`, `changes`, `semanticCompatibility`, and `pagination`;
+it defaults to 25 changes per package. Use `--max-changes-per-package N` (or the
+`--max-changes N` alias) and repeat `--package-cursor PKG=N` to resume selected packages.
+The envelope exposes `detailLevel`; use `--detail full` for the complete per-package diff object.
 
 All cache commands support versioned JSON envelopes and honor `--cache-dir`.
 Use `cache prune --max-size 2GB` or `--max-entries 100` to enforce LRU limits. Successful

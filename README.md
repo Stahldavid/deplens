@@ -151,14 +151,19 @@ for a fast lockfile-only pass. pnpm peer suffixes are normalized before comparis
 
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
+deplens project-diff --from HEAD~1 --to working --max-changes-per-package 10 --json
+deplens project-diff --from HEAD~1 --to working --package-cursor @clerk/shared=10 --json
 deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
 deplens project-diff --from-lock old-pnpm-lock.yaml --to-lock pnpm-lock.yaml --no-api
 deplens project-diff --from HEAD~1 --to working --detail full --json
 ```
 
 API enrichment is compact by default: each changed package keeps only `package`, `summary`,
-`changes`, and `semanticCompatibility`. Use `--detail full` for the legacy rich `runDiff`
-object, including `output` and internal analysis snapshots.
+`changes`, `semanticCompatibility`, and `pagination`. It returns at most 25 changes per package;
+set `--max-changes-per-package N` (`--max-changes N` is an alias) and resume individual packages
+with repeatable `--package-cursor PKG=N`. The top-level `detailLevel` records the selected
+projection. Use `--detail full` for the legacy rich `runDiff` object, including `output` and
+internal analysis snapshots.
 
 Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured
 threshold is crossed and can emit SARIF for GitHub code scanning.
@@ -208,6 +213,8 @@ Compact inspect JSON returns only `staticExports.total` by default. Select
 Focused `--list-sections`, `--docs-for`, `--examples-for`, and JSDoc-only requests omit
 symbol inventories unless selected. Compact source analysis includes its summary plus
 separate `runtimeLanguage` and `sourceLanguage` fields.
+Structured JSDoc entries contain canonical `name`, `summary`, and `tags` fields; the rendered
+`text` form is kept only in human-readable output to avoid duplicating documentation in JSON.
 `--analyze-source` is itself a focused request and omits symbols unless they are explicitly
 selected with `--select sourceAnalysis,languageAnalysis,symbols`.
 

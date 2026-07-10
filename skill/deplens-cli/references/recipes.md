@@ -67,7 +67,15 @@ deplens project-diff --from HEAD~1 --to working --json
 ```
 
 Each package's `api` field is compact by default. Use `--no-api` for version-only lockfile changes,
-or `--detail full` only when a complete internal package diff is explicitly required.
+or `--detail full` only when a complete internal package diff is explicitly required. Large package
+diffs return 25 changes plus `api.pagination`; continue one package without expanding the others:
+
+```bash
+deplens project-diff --from HEAD~1 --to working \
+  --max-changes-per-package 10 \
+  --package-cursor @clerk/shared=10 \
+  --json
+```
 
 ---
 

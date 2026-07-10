@@ -158,23 +158,60 @@ describe('project diff', () => {
       detailLevel: 'compact',
       package: 'zod',
       summary: { breaking: 1, warnings: 2 },
-      changes: [{ type: 'symbol_removed', name: 'legacy' }],
+      changes: Array.from({ length: 30 }, (_, index) => ({
+        type: 'symbol_changed',
+        name: `symbol${index}`,
+      })),
       semanticCompatibility: { compatible: false, diagnostics: [{ code: 2322 }] },
       symbols: { fromCount: 100, toCount: 101 },
       warnings: [],
     };
     const diffRunner = vi.fn(async () => richApi);
 
-    const compact = await runProjectDiff({ from, to, diffRunner });
+    const compact = await runProjectDiff({
+      from,
+      to,
+      diffRunner,
+      maxChangesPerPackage: 10,
+    });
+    const nextPage = await runProjectDiff({
+      from,
+      to,
+      diffRunner,
+      maxChangesPerPackage: 10,
+      packageCursors: { zod: '10' },
+    });
     const full = await runProjectDiff({ from, to, diffRunner, detail: 'full' });
 
-    expect(compact.changes[0].api).toEqual({
+    expect(compact).toMatchObject({ detailLevel: 'compact' });
+    expect(compact.changes[0].api).toMatchObject({
       package: 'zod',
       summary: { breaking: 1, warnings: 2 },
-      changes: [{ type: 'symbol_removed', name: 'legacy' }],
+      changes: Array.from({ length: 10 }, (_, index) => ({
+        type: 'symbol_changed',
+        name: `symbol${index}`,
+      })),
       semanticCompatibility: { compatible: false, diagnostics: [{ code: 2322 }] },
+      pagination: {
+        total: 30,
+        offset: 0,
+        returned: 10,
+        nextCursor: '10',
+        truncated: true,
+      },
     });
-    expect(JSON.stringify(compact).length).toBeLessThan(2_000);
+    expect(nextPage.changes[0].api.changes[0]).toMatchObject({ name: 'symbol10' });
+    expect(nextPage.changes[0].api.pagination).toMatchObject({
+      offset: 10,
+      returned: 10,
+      nextCursor: '20',
+      truncated: true,
+    });
+    expect(diffRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ maxChanges: 10, cursor: '10' })
+    );
+    expect(JSON.stringify(compact).length).toBeLessThan(4_000);
+    expect(full.detailLevel).toBe('full');
     expect(full.changes[0].api).toBe(richApi);
   });
 });

@@ -46,8 +46,9 @@ export interface InspectResult {
   version: string | null;
   description: string | null;
   exports: Record<string, unknown> | null;
-  staticExports: { total: number; names: string[] } | null;
+  staticExports: { total: number; names?: string[]; pagination?: Record<string, unknown> } | null;
   types: Record<string, unknown> | null;
+  jsdoc?: Record<string, unknown> | null;
   symbols?: Array<Record<string, unknown>> | null;
   resolution: Record<string, unknown> | null;
   warnings: string[];
@@ -84,11 +85,43 @@ export interface DiffOptions {
 
 export function runDiff(options: DiffOptions): Promise<Record<string, unknown>>;
 export function runDoctor(options: InspectOptions): Promise<string | Record<string, unknown>>;
-export function clearCache(packageName?: string | null, options?: { cacheDir?: string }): void;
-export function getCacheStats(options?: {
-  exact?: boolean;
-  cacheDir?: string;
-}): Record<string, unknown>;
+export interface CacheEnvelope {
+  schemaVersion: 1;
+  kind: string;
+  cacheDir: string;
+}
+
+export interface CacheClearResult extends CacheEnvelope {
+  kind: 'deplens-cache-clear';
+  package: string | null;
+  removed: number;
+}
+
+export interface CacheStatsResult extends CacheEnvelope {
+  kind: 'deplens-cache-stats';
+  entries: number;
+  unknownEntries: number;
+  size: number;
+  sizeFormatted: string;
+  exact: boolean;
+  packages: Array<Record<string, unknown>>;
+}
+
+export interface CachePinResult {
+  schemaVersion: 1;
+  kind: 'deplens-cache-pin';
+  package: string;
+  version: string;
+  path: string;
+  metadata?: Record<string, unknown>;
+  [field: string]: unknown;
+}
+
+export function clearCache(
+  packageName?: string | null,
+  options?: { cacheDir?: string }
+): CacheClearResult;
+export function getCacheStats(options?: { exact?: boolean; cacheDir?: string }): CacheStatsResult;
 export function getDefaultCacheDir(): string;
 
 export interface CacheMaintenanceOptions {
@@ -109,7 +142,8 @@ export interface CacheMaintenanceEntry {
   sizeFormatted?: string;
 }
 
-export interface CacheMigrationResult {
+export interface CacheMigrationResult extends CacheEnvelope {
+  kind: 'deplens-cache-migrate';
   cacheDir: string;
   scanned: number;
   migrated: number;
@@ -121,7 +155,8 @@ export interface CacheMigrationResult {
   entries: CacheMaintenanceEntry[];
 }
 
-export interface CachePruneResult {
+export interface CachePruneResult extends CacheEnvelope {
+  kind: 'deplens-cache-prune';
   cacheDir: string;
   scanned: number;
   candidates: number;
@@ -138,7 +173,7 @@ export function pinCache(
   packageName: string,
   version: string,
   options?: Record<string, unknown>
-): Promise<Record<string, unknown>>;
+): Promise<CachePinResult>;
 export function migrateCache(options?: CacheMaintenanceOptions): CacheMigrationResult;
 export function pruneCache(options?: CacheMaintenanceOptions): CachePruneResult;
 export function getLatestVersion(packageName: string): string;

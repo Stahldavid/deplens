@@ -163,6 +163,7 @@ async function resolveTargetModule(target, cwd, resolveFrom, explicitResolveFrom
       resolved: path.join(explicitResolveFrom, 'package.json'),
       resolveCwd: explicitResolveFrom,
       resolver: 'direct-resolve-from',
+      metadataOnly: true,
     };
   }
 
@@ -568,7 +569,6 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require, resolvedPa
   return { typesFile, dtsPath, source };
 }
 
-/* eslint-disable-next-line no-unused-vars */
 function buildSymbolMatcher(symbols, fallbackFilter) {
   const patterns = [];
   const addPattern = (value) => {
@@ -590,7 +590,7 @@ function buildSymbolMatcher(symbols, fallbackFilter) {
       patterns.push({ type: 'regex', value: new RegExp(`^${escaped}$`, 'i') });
       return;
     }
-    patterns.push({ type: 'substring', value: value.toLowerCase() });
+    patterns.push({ type: 'exact', value: value.toLowerCase() });
   };
 
   if (Array.isArray(symbols)) {
@@ -606,7 +606,7 @@ function buildSymbolMatcher(symbols, fallbackFilter) {
     const lower = name.toLowerCase();
     return patterns.some((pattern) => {
       if (pattern.type === 'regex') return pattern.value.test(name);
-      return lower.includes(pattern.value);
+      return lower === pattern.value;
     });
   };
 }
@@ -843,13 +843,16 @@ function truncateSummary(text, mode, maxLen, truncateMode) {
   return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
 }
 
-/* eslint-disable-next-line no-unused-vars */
 function formatJsdocEntry(name, doc, options) {
   const mode = options.mode || 'compact';
   const truncateMode = options.truncate || 'word';
   const maxLen = options.maxLen;
   const sections =
-    options.sections && options.sections.length > 0 ? options.sections : ['summary', 'tags'];
+    options.sections && options.sections.length > 0
+      ? options.sections
+      : mode === 'full'
+        ? ['summary', 'params', 'returns', 'tags']
+        : ['summary', 'tags'];
   const includeTags = options.tags?.include || null;
   const excludeTags = options.tags?.exclude || null;
 
@@ -899,6 +902,54 @@ function formatJsdocEntry(name, doc, options) {
   }
 
   return `${name}: ${parts.join(' | ')}`.trim();
+}
+
+function selectJsdocTags(tags, options) {
+  const mode = options.mode || 'compact';
+  const sections =
+    options.sections && options.sections.length > 0
+      ? options.sections
+      : mode === 'full'
+        ? ['summary', 'params', 'returns', 'tags']
+        : ['summary', 'tags'];
+  const include = options.tags?.include || null;
+  const exclude = options.tags?.exclude || null;
+
+  return Object.fromEntries(
+    Object.entries(tags || {}).filter(([tagName]) => {
+      if (include && !include.includes(tagName)) return false;
+      if (exclude?.includes(tagName)) return false;
+      if (tagName === 'param') return sections.includes('params');
+      if (tagName === 'returns' || tagName === 'return') return sections.includes('returns');
+      if (!sections.includes('tags')) return false;
+      if (mode === 'compact' && !include && !exclude) {
+        return ['deprecated', 'since', 'experimental'].includes(tagName);
+      }
+      return true;
+    })
+  );
+}
+
+function buildJsdocPayload(typeInfo, options) {
+  const matcher = buildSymbolMatcher(options.symbols, null);
+  const mode = options.mode || 'compact';
+  const sections =
+    options.sections && options.sections.length > 0
+      ? options.sections
+      : mode === 'full'
+        ? ['summary', 'params', 'returns', 'tags']
+        : ['summary', 'tags'];
+  const entries = Object.entries(typeInfo?.jsdoc || {})
+    .filter(([name]) => !matcher || matcher(name))
+    .map(([name, doc]) => ({
+      name,
+      summary: sections.includes('summary')
+        ? truncateSummary(doc.summary || '', mode, options.maxLen, options.truncate || 'word')
+        : '',
+      tags: selectJsdocTags(doc.tags, { ...options, mode, sections }),
+      text: formatJsdocEntry(name, doc, { ...options, mode, sections }),
+    }));
+  return { mode, output: options.output || 'section', entries };
 }
 
 // Helper function to inspect object properties recursively
@@ -1141,11 +1192,13 @@ export async function runInspectCore(options) {
   const resolveCwd = resolution.resolveCwd || resolveFrom || baseCwd;
   const require = createRequire(resolveCwd ? path.join(resolveCwd, 'noop.js') : import.meta.url);
   const resolvedPath = resolution.resolved;
-  const entrypointPath = existingEntrypointPath(
-    typeof resolvedPath === 'string' && resolvedPath.startsWith('file://')
-      ? fileURLToPath(resolvedPath)
-      : resolvedPath
-  );
+  const entrypointPath = resolution.metadataOnly
+    ? null
+    : existingEntrypointPath(
+        typeof resolvedPath === 'string' && resolvedPath.startsWith('file://')
+          ? fileURLToPath(resolvedPath)
+          : resolvedPath
+      );
   const entrypointExists = entrypointPath ? fs.existsSync(entrypointPath) : false;
 
   if (jsonOutput) {
@@ -1156,6 +1209,7 @@ export async function runInspectCore(options) {
       resolved: resolution.resolved || null,
       entrypointPath: entrypointPath || null,
       entrypointExists,
+      metadataOnly: Boolean(resolution.metadataOnly),
       cache: remoteCache,
     };
   }
@@ -1258,7 +1312,7 @@ export async function runInspectCore(options) {
           basePkg,
           require,
           resolveFrom || baseCwd || process.cwd(),
-          entrypointPath
+          entrypointPath || resolution.resolved
         )
       : null;
     const pkg = pkgInfo?.pkg;
@@ -1266,7 +1320,7 @@ export async function runInspectCore(options) {
 
     log('\n🧭 Resolution:');
     log(`   ResolveFrom: ${resolveFrom || baseCwd || 'unknown'}`);
-    log(`   Entrypoint: ${resolution.resolved}`);
+    log(`   Entrypoint: ${entrypointPath || '(metadata only)'}`);
     if (resolution.resolver) {
       log(`   Resolver: ${resolution.resolver}`);
     }
@@ -1279,6 +1333,11 @@ export async function runInspectCore(options) {
     let typesSource;
 
     if (pkg) {
+      if (resolution.metadataOnly) {
+        warn(
+          'Package has no importable runtime entrypoint; package metadata and bin files remain inspectable.'
+        );
+      }
       log('\n📄 Package Info:');
       log(`   Name: ${pkg.name || basePkg}`);
       log(`   Version: ${pkg.version || 'Unknown'}`);
@@ -1830,6 +1889,18 @@ export async function runInspectCore(options) {
           kindFilter,
           matchedSearchNames
         );
+
+        if (wantJsdoc) {
+          const jsdocPayload = buildJsdocPayload(typeInfo, {
+            ...(jsdocQuery || {}),
+            mode: jsdocMode,
+            output: jsdocOutput,
+          });
+          if (jsonOutput) jsonOutput.jsdoc = jsdocPayload;
+          log(`\nJSDoc: (${jsdocPayload.entries.length})`);
+          for (const entry of jsdocPayload.entries) log(`   ${entry.text}`);
+          if (jsdocPayload.entries.length === 0) log('   No matching JSDoc found.');
+        }
 
         // Log functions
         const functionCount = Object.keys(typeInfo.functions).length;

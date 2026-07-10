@@ -69,4 +69,41 @@ describe('inspect orchestration', () => {
       examples: { ranked: [{ code: 'demo()' }] },
     });
   });
+
+  it('separates runtime language from analyzed source language', async () => {
+    mocks.runInspectCore.mockResolvedValue({
+      schemaVersion: 1,
+      package: 'demo-pkg',
+      version: '1.0.0',
+      pkgDir: '/demo',
+      symbols: [],
+      warnings: [],
+    });
+    mocks.runSourceAnalysis.mockResolvedValue({
+      detectedLang: 'javascript',
+      sourceAnalysis: {
+        files: [{ path: 'src/index.ts', functions: [] }],
+        summary: { totalFiles: 1, totalFunctions: 0 },
+      },
+      languageAnalysis: null,
+      warnings: [],
+    });
+
+    const output = await runInspect({
+      target: 'demo-pkg',
+      format: 'object',
+      detail: 'compact',
+      analyzeSource: true,
+    });
+
+    expect(output.languageAnalysis).toMatchObject({
+      runtimeLanguage: 'javascript',
+      sourceLanguage: 'typescript',
+      files: 1,
+    });
+    expect(output.sourceAnalysis).toEqual({
+      files: 1,
+      summary: { totalFiles: 1, totalFunctions: 0 },
+    });
+  });
 });

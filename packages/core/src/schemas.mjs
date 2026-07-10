@@ -26,6 +26,38 @@ export const OUTPUT_SCHEMAS = Object.freeze({
     summary: { type: ['object', 'null'] },
     changes: { type: 'array' },
   }),
+  'doctor-v1': schema('doctor/v1', ['schemaVersion', 'kind', 'status', 'checks'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-doctor'),
+    status: { enum: ['ok', 'issues'] },
+    checks: { type: 'array' },
+  }),
+  'cache-stats-v1': schema('cache/stats/v1', ['schemaVersion', 'kind', 'entries'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-cache-stats'),
+    entries: { type: 'number' },
+  }),
+  'cache-clear-v1': schema('cache/clear/v1', ['schemaVersion', 'kind', 'removed'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-cache-clear'),
+    removed: { type: 'number' },
+  }),
+  'cache-pin-v1': schema('cache/pin/v1', ['schemaVersion', 'kind', 'package', 'version'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-cache-pin'),
+    package: { type: 'string' },
+    version: { type: 'string' },
+  }),
+  'cache-migrate-v1': schema('cache/migrate/v1', ['schemaVersion', 'kind', 'migrated'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-cache-migrate'),
+    migrated: { type: 'number' },
+  }),
+  'cache-prune-v1': schema('cache/prune/v1', ['schemaVersion', 'kind', 'removed'], {
+    schemaVersion: version(1),
+    kind: kind('deplens-cache-prune'),
+    removed: { type: 'number' },
+  }),
   'project-snapshot-v1': schema(
     'project-snapshot/v1',
     ['schemaVersion', 'kind', 'project', 'packages'],

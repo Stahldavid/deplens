@@ -21,12 +21,18 @@ const REQUIRED_ENVELOPE_SECTIONS = [
 ];
 const REPEATED_PAGE_SECTIONS = new Set(['exports', 'staticExports']);
 
-function normalizeSelect(select, include, detail) {
+function normalizeSelect(select, include, detail, focused) {
   if (Array.isArray(select) && select.length > 0) {
     return new Set([...REQUIRED_ENVELOPE_SECTIONS, ...select.map(String)]);
   }
-  if (detail !== 'compact') return null;
-  return new Set([...DEFAULT_COMPACT_SECTIONS, ...(include || []).map(String)]);
+  if (detail !== 'compact' && !focused) return null;
+  const selected = new Set([...DEFAULT_COMPACT_SECTIONS, ...(include || []).map(String)]);
+  if (focused) {
+    selected.delete('symbols');
+    selected.delete('exports');
+    selected.delete('staticExports');
+  }
+  return selected;
 }
 
 function compactSymbol(symbol) {
@@ -40,10 +46,35 @@ function compactSymbol(symbol) {
   };
 }
 
+function compactStaticExports(value, options, offset, maxSymbols) {
+  const names = Array.isArray(value?.names) ? value.names : [];
+  if (!options.select?.includes('staticExports')) {
+    return { total: Number(value?.total) || names.length };
+  }
+  const page = names.slice(offset, offset + maxSymbols);
+  return {
+    total: Number(value?.total) || names.length,
+    names: page,
+    pagination: {
+      total: names.length,
+      offset,
+      returned: page.length,
+      nextCursor: offset + page.length < names.length ? String(offset + page.length) : null,
+    },
+  };
+}
+
+function compactSourceAnalysis(value) {
+  const files = Array.isArray(value?.files)
+    ? value.files.length
+    : Number(value?.files ?? value?.summary?.totalFiles) || 0;
+  return { files, summary: value?.summary || {} };
+}
+
 export function projectInspectResult(payload, options = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   const detail = options.detail === 'full' ? 'full' : 'compact';
-  const selected = normalizeSelect(options.select, options.include, detail);
+  const selected = normalizeSelect(options.select, options.include, detail, options.focused);
   const maxSymbols = Math.max(1, Number(options.maxSymbols) || 250);
   const cursorNumber = Number.parseInt(options.cursor || '0', 10);
   const offset = Number.isFinite(cursorNumber) && cursorNumber >= 0 ? cursorNumber : 0;
@@ -66,7 +97,13 @@ export function projectInspectResult(payload, options = {}) {
     ) {
       continue;
     }
-    result[key] = value;
+    if (detail === 'compact' && key === 'staticExports') {
+      result[key] = compactStaticExports(value, options, offset, maxSymbols);
+    } else if (detail === 'compact' && key === 'sourceAnalysis') {
+      result[key] = compactSourceAnalysis(value);
+    } else {
+      result[key] = value;
+    }
   }
   if (!selected || selected.has('symbols')) {
     result.symbols = detail === 'compact' ? page.map(compactSymbol) : page;

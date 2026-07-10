@@ -9,16 +9,16 @@ End-to-end workflows that combine multiple flags to answer specific kinds of que
 ```bash
 deplens ai \
   --filter generateText \
-  --types \
+  --jsdoc-symbol generateText \
   --jsdoc full \
   --jsdoc-output only \
   --jsdoc-sections summary,params,returns \
   --json
 ```
 
-**Returns:** A focused JSON payload with only the matched symbol's signature and JSDoc — no unrelated exports, no README. Pipe through `jq '.types.functions.generateText'` to get just the signature.
+**Returns:** A focused JSON payload with `jsdoc.entries` and no unrelated export/type/symbol inventories. Read the entry with `jq '.jsdoc.entries[] | select(.name=="generateText")'`.
 
-**Why each flag:** `--filter generateText` narrows runtime exports. `--types` parses `.d.ts`. `--jsdoc full` keeps the full description. `--jsdoc-output only` suppresses every other section. `--json` makes the response parseable.
+**Why each flag:** `--filter generateText` narrows declaration parsing. `--jsdoc-symbol generateText` selects the exact documented export. `--jsdoc full` keeps the full description. `--jsdoc-output only` suppresses inventories. `--json` makes the response parseable.
 
 ---
 

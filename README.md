@@ -145,7 +145,9 @@ Flags:
 ### Project upgrades and CI policy
 
 Compare dependency versions between lockfiles or Git refs. Direct dependencies are
-enriched with semantic API diffs by default; use `--no-api` for a fast lockfile-only pass.
+the only changes returned and enriched with semantic API diffs by default. Add
+`--include-transitive` to include the complete dependency graph, or use `--no-api`
+for a fast lockfile-only pass. pnpm peer suffixes are normalized before comparison.
 
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
@@ -189,6 +191,18 @@ Fast cache stats avoid walking large cached packages. Older entries that do not
 have size metadata may show `unknown`; run `cache migrate --exact` to normalize
 legacy entries and calculate precise metadata. `cache prune` defaults to 90 days,
 supports `--dry-run`, and accepts `--keep-aliases` when tag aliases must be retained.
+All cache JSON commands return versioned `deplens-cache-*` envelopes and honor
+`--cache-dir`, including `stats`, `clear`, `pin`, `migrate`, and `prune`.
+
+Compact inspect JSON returns only `staticExports.total` by default. Select
+`staticExports` explicitly to page names, and follow its nested `pagination` object.
+Focused `--list-sections`, `--docs-for`, `--examples-for`, and JSDoc-only requests omit
+symbol inventories unless selected. Compact source analysis includes its summary plus
+separate `runtimeLanguage` and `sourceLanguage` fields.
+
+Packages that only expose a `bin` entry are reported as `metadataOnly` with
+`entrypointExists: false` and an explicit warning instead of treating `package.json`
+as an importable runtime module.
 
 Source analysis recognizes ESM exports, default exported functions, and common
 CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and
@@ -332,6 +346,8 @@ The JSON response includes a `resolution` block to explain where DepLens resolve
 #### `deplens_diff`
 
 Compare two versions of a package. Useful for upgrade planning and identifying breaking changes.
+Compact semantic results include up to ten diagnostics responsible for
+`semanticCompatible: false`; the total and truncation state remain explicit.
 
 ```json
 {

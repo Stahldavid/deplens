@@ -50,13 +50,14 @@ function pnpmDependencyVersion(value) {
   const raw = value && typeof value === 'object' ? value.version : value;
   if (typeof raw !== 'string') return null;
   if (/^(?:link|workspace|file):/.test(raw)) return null;
-  const npmAlias = raw.startsWith('npm:') ? raw.slice(4) : raw;
-  const versionPart = npmAlias.startsWith('@')
-    ? npmAlias.slice(npmAlias.indexOf('@', npmAlias.indexOf('/') + 1) + 1)
-    : npmAlias.includes('@')
-      ? npmAlias.slice(npmAlias.lastIndexOf('@') + 1)
-      : npmAlias;
-  return versionPart.split('(')[0] || null;
+  const reference = raw.split('(')[0];
+  if (!reference.startsWith('npm:')) return reference || null;
+
+  const aliasTarget = reference.slice(4);
+  const delimiter = aliasTarget.startsWith('@')
+    ? aliasTarget.indexOf('@', aliasTarget.indexOf('/') + 1)
+    : aliasTarget.indexOf('@');
+  return delimiter > 0 ? aliasTarget.slice(delimiter + 1) || null : null;
 }
 
 function pnpmPackageIdentity(key, entry = {}) {
@@ -220,6 +221,17 @@ function classifyVersionChange(fromVersion, toVersion) {
   return 'changed';
 }
 
+function summarizeProjectChanges(changes) {
+  const count = (type) => changes.filter((change) => change.changeType === type).length;
+  return {
+    total: changes.length,
+    added: count('added'),
+    removed: count('removed'),
+    upgraded: count('upgraded'),
+    downgraded: count('downgraded'),
+  };
+}
+
 export function compareProjectSnapshots(from, to) {
   const names = [
     ...new Set([...Object.keys(from?.packages || {}), ...Object.keys(to?.packages || {})]),
@@ -241,19 +253,12 @@ export function compareProjectSnapshots(from, to) {
       ].sort(),
     });
   }
-  const count = (type) => changes.filter((change) => change.changeType === type).length;
   return {
     schemaVersion: 1,
     kind: 'deplens-project-diff',
     from: from?.project || null,
     to: to?.project || null,
-    summary: {
-      total: changes.length,
-      added: count('added'),
-      removed: count('removed'),
-      upgraded: count('upgraded'),
-      downgraded: count('downgraded'),
-    },
+    summary: summarizeProjectChanges(changes),
     changes,
     warnings: [],
   };
@@ -289,6 +294,10 @@ export async function runProjectDiff(options = {}) {
       ? options.to
       : createProjectSnapshot(options.to, { source: options.toSource });
   const report = compareProjectSnapshots(from, to);
+  if (!options.includeTransitive) {
+    report.changes = report.changes.filter((change) => change.direct);
+    report.summary = summarizeProjectChanges(report.changes);
+  }
   const diffRunner = options.diffRunner || defaultDiffRunner;
   const candidates = (options.analyze === false ? [] : report.changes).filter(
     (change) =>

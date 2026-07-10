@@ -126,6 +126,7 @@ export function buildDoctorReport(inspectResult, options = {}) {
 
   return {
     schemaVersion: 1,
+    kind: 'deplens-doctor',
     target: options.target || resolution.target || null,
     package: inspectResult?.package || null,
     version: inspectResult?.version || null,

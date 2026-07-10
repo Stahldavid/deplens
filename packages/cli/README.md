@@ -69,7 +69,15 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 
 In compact JSON, explicit documentation/example flags include their requested section. Cursor pages
 after the first omit the full runtime/static export inventories unless those sections are explicitly
-selected.
+selected. `staticExports` contains only `total` by default; explicitly select it to page names.
+Focused section/docs/example/JSDoc-only commands omit symbols unless `--select symbols` is passed.
+Compact `--analyze-source` includes a summary and reports `runtimeLanguage` separately from
+`sourceLanguage`.
+
+`project-diff` returns direct dependency changes by default. Add `--include-transitive` for the
+complete graph. pnpm lockfile versions with nested peer suffixes are normalized safely.
+
+All cache commands support versioned JSON envelopes and honor `--cache-dir`.
 
 - `--analyze-source` — analyze source complexity
 - `--source-max-files <n>` — max source files to analyze
@@ -106,7 +114,7 @@ JSDoc:
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 22
 - Bun is optional runtime acceleration; npm is the canonical package fetcher.
 
 ## License

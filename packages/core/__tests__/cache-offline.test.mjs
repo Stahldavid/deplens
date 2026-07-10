@@ -44,9 +44,19 @@ describe('cache offline mode', () => {
 
       const cached = await downloadVersion('demo-pkg', '1.2.3', { offline: true, cacheDir });
       expect(cached.cached).toBe(true);
-      expect(getCacheStats({ cacheDir }).entries).toBe(1);
+      expect(getCacheStats({ cacheDir })).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-stats',
+        cacheDir,
+        entries: 1,
+      });
 
-      clearCache('demo-pkg', { cacheDir });
+      expect(clearCache('demo-pkg', { cacheDir })).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-clear',
+        package: 'demo-pkg',
+        removed: 1,
+      });
       expect(getCacheStats({ cacheDir }).entries).toBe(0);
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
@@ -98,7 +108,14 @@ describe('cache offline mode', () => {
       const exactDir = path.join(cacheDir, 'demo-pkg@1.2.3');
       const metadata = JSON.parse(readFileSync(path.join(exactDir, '.deplens-cache.json'), 'utf8'));
 
-      expect(result).toMatchObject({ scanned: 1, migrated: 1, aliasesMoved: 1, invalid: 0 });
+      expect(result).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-migrate',
+        scanned: 1,
+        migrated: 1,
+        aliasesMoved: 1,
+        invalid: 0,
+      });
       expect(metadata).toMatchObject({
         schemaVersion: 1,
         package: 'demo-pkg',
@@ -123,7 +140,13 @@ describe('cache offline mode', () => {
       mkdirSync(path.join(cacheDir, 'invalid-entry'));
 
       const preview = pruneCache({ cacheDir, maxAgeDays: 30, dryRun: true });
-      expect(preview).toMatchObject({ removed: 0, candidates: 2, dryRun: true });
+      expect(preview).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-prune',
+        removed: 0,
+        candidates: 2,
+        dryRun: true,
+      });
       expect(preview.entries.map((entry) => entry.reason).sort()).toEqual(['invalid', 'stale']);
       expect(() =>
         readFileSync(path.join(staleDir, 'node_modules', 'stale-pkg', 'package.json'))

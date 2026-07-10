@@ -86,4 +86,30 @@ describe('compact diff JSON', () => {
     expect(first.pagination.nextCursor).toBe('50');
     expect(second.changes[0].name).toBe('symbol50');
   });
+
+  it('exposes the diagnostics responsible for semantic incompatibility in compact output', () => {
+    const diagnostics = Array.from({ length: 12 }, (_, index) => ({
+      code: 2322,
+      message: `Type mismatch ${index}`,
+      file: `check-${index}.ts`,
+    }));
+    const compact = serializeDiffForJson({
+      from: { name: 'demo', version: '1.0.0' },
+      to: { name: 'demo', version: '2.0.0' },
+      summary: { semanticCompatible: false },
+      semanticCompatibility: {
+        checked: true,
+        compatible: false,
+        direction: 'from-to',
+        diagnostics,
+      },
+    });
+
+    expect(compact.semanticCompatibility).toMatchObject({
+      compatible: false,
+      diagnosticCount: 12,
+      diagnostics: diagnostics.slice(0, 10),
+      diagnosticsTruncated: true,
+    });
+  });
 });

@@ -30,6 +30,7 @@ describe('inspect output projection', () => {
     expect(projected.pagination).toMatchObject({ total: 3, returned: 2, nextCursor: '2' });
     expect(projected).not.toHaveProperty('types');
     expect(projected).not.toHaveProperty('docs');
+    expect(projected.staticExports).toEqual({ total: 3 });
   });
 
   it('keeps rich sections explicitly requested in compact mode', () => {
@@ -55,10 +56,42 @@ describe('inspect output projection', () => {
     });
 
     expect(first.exports).toEqual(payload.exports);
-    expect(first.staticExports).toEqual(payload.staticExports);
+    expect(first.staticExports).toEqual({ total: 3 });
     expect(next).not.toHaveProperty('exports');
     expect(next).not.toHaveProperty('staticExports');
     expect(next.pagination).toMatchObject({ offset: 1, returned: 1, nextCursor: '2' });
+  });
+
+  it('omits inventories for focused documentation requests', () => {
+    const projected = projectInspectResult(payload, {
+      detail: 'compact',
+      include: ['sections'],
+      focused: true,
+    });
+
+    expect(projected.sections).toEqual(payload.sections);
+    expect(projected).not.toHaveProperty('symbols');
+    expect(projected).not.toHaveProperty('pagination');
+    expect(projected).not.toHaveProperty('exports');
+    expect(projected).not.toHaveProperty('staticExports');
+  });
+
+  it('keeps only a source summary in compact output', () => {
+    const projected = projectInspectResult(
+      {
+        ...payload,
+        sourceAnalysis: {
+          files: [{ path: 'src/index.ts', functions: [{ name: 'run' }] }],
+          summary: { totalFiles: 1, totalFunctions: 1, avgComplexity: 2 },
+        },
+      },
+      { detail: 'compact', include: ['sourceAnalysis'] }
+    );
+
+    expect(projected.sourceAnalysis).toEqual({
+      files: 1,
+      summary: { totalFiles: 1, totalFunctions: 1, avgComplexity: 2 },
+    });
   });
 
   it('selects sections and resumes from a cursor', () => {

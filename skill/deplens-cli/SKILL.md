@@ -52,7 +52,7 @@ Is the user asking about a SINGLE version of a package?
 │   ├── Want types from .d.ts?           add --types
 │   ├── Want README / docs?              add --docs OR --list-sections OR --docs-sections X,Y
 │   ├── Want code examples?              add --examples
-│   ├── Want only JSDoc for a symbol?    add --jsdoc-output only --filter <symbol> --jsdoc full
+│   ├── Want only JSDoc for a symbol?    add --jsdoc-output only --jsdoc-symbol <symbol> --jsdoc full
 │   ├── Package not installed locally?   add --remote (--remote-version X.Y.Z optional)
 │   └── Output for an LLM/agent?         add --json
 ├── No, comparing TWO versions → use `deplens diff <pkg> --from X --to Y`
@@ -106,10 +106,11 @@ deplens ai --examples --filter generateText
 ### 6. JSDoc-only output — great for "what does function X do?"
 
 ```bash
-deplens ai --filter generateText --jsdoc full --jsdoc-output only --jsdoc-sections summary,params,returns
+deplens ai --filter generateText --jsdoc-symbol generateText --jsdoc full --jsdoc-output only --jsdoc-sections summary,params,returns
 ```
 
-`--jsdoc-output only` suppresses everything else and emits just the JSDoc for matched symbols.
+`--jsdoc-output only` suppresses inventories and emits a focused `jsdoc.entries` section.
+Plain `--jsdoc-symbol` values are exact; use a glob or `/regex/` for multiple symbols.
 
 ### 7. Diff two versions of a package
 
@@ -125,6 +126,8 @@ Returns: breaking changes, warnings, additions, removals, optional changelog exc
 
 Large JSON diffs are cursor-paginated. Use `--max-changes N --cursor VALUE` to continue.
 Semantic TypeScript assignability is enabled by default; `--no-semantic` is the fast fallback.
+When semantic compatibility is false, compact JSON includes up to ten causal diagnostics plus
+`diagnosticCount` and `diagnosticsTruncated`.
 
 ### 8. Compare a project and enforce a baseline
 
@@ -200,7 +203,7 @@ The CLI defaults to a compact, cursor-paginated schema v2 envelope (full schema 
   "package": "zod",
   "version": "4.3.6",
   "exports": { "total": 3, "functions": [...], "classes": [...], "objects": [...], "constants": [...] },
-  "staticExports": { "total": 280, "names": [...] },
+  "staticExports": { "total": 280 },
   "resolution": { "resolveCwd": "...", "entrypointPath": "...", "entrypointExists": true },
   "meta":    { ... },
   "warnings":[],
@@ -214,14 +217,16 @@ The CLI defaults to a compact, cursor-paginated schema v2 envelope (full schema 
 Use `--detail full` for the complete projected payload, or `--select types,docs,examples,symbols`
 to request specific rich sections. `--select` accepts CSV, repeated flags, and `--select=CSV`.
 Explicit `--list-sections`, `--docs`, `--docs-sections`, and `--examples` flags include their rich
-section even in compact mode. Direct `@deplens/core` calls without projection retain the
+section even in compact mode. Focused `--list-sections`, `--docs-for`, `--examples-for`, and
+JSDoc-only requests omit symbol/export inventories unless selected. Direct `@deplens/core` calls without projection retain the
 legacy schema v1 payload for compatibility; the CLI JSON contract is schema v2.
 
 Selection never removes package identity, resolution, metadata, warnings, or structured errors;
 those fields remain available for reliable agent and CI error handling.
 
-On symbol pages after the first, compact output omits the complete `exports` and `staticExports`
-inventories unless explicitly selected. Read those inventories from page one and follow
+Compact output keeps `staticExports` to `{ "total": N }` by default. Select `staticExports`
+explicitly to receive a separately paginated `names` page. On symbol pages after the first,
+compact output omits export inventories unless explicitly selected. Follow
 `pagination.nextCursor` for additional symbols.
 
 ### Large outputs — keep responses focused
@@ -246,6 +251,9 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
 - **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
 - **Lockfile support.** `project-diff` and `check` accept npm `package-lock.json` v2/v3 and pnpm lockfiles with importers (pnpm v6+). Pass the actual path through `--lockfile`, `--from-lock`, or `--to-lock`.
+- **Direct dependencies are the default.** `project-diff` returns only direct dependency changes unless `--include-transitive` is supplied. pnpm peer suffixes are normalized before version comparison.
+- **Binary-only packages are metadata-only.** A package with `bin` but no importable entrypoint reports `resolution.metadataOnly: true`, `entrypointExists: false`, and a warning.
+- **Cache JSON is versioned.** `stats`, `clear`, `pin`, `migrate`, and `prune` return `deplens-cache-*` envelopes and honor `--cache-dir`.
 
 ## Composition with other tools
 

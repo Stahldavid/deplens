@@ -1,4 +1,6 @@
 import { execFileSync, spawnSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
@@ -26,6 +28,7 @@ describe('inspect CLI', () => {
     });
     expect(output.symbols).toHaveLength(2);
     expect(output.pagination).toMatchObject({ offset: 0, returned: 2, nextCursor: '2' });
+    expect(output.staticExports).toEqual({ total: expect.any(Number) });
   });
 
   it('keeps schema v2 when full JSON detail is requested', () => {
@@ -88,6 +91,8 @@ describe('inspect CLI', () => {
     const profiled = runCliJson(['zod', '--no-runtime', '--profile']);
 
     expect(sections.sections).toEqual(expect.any(Array));
+    expect(sections).not.toHaveProperty('symbols');
+    expect(sections).not.toHaveProperty('staticExports');
     expect(profiled.meta.timings).toMatchObject({
       inspectCoreMs: expect.any(Number),
       totalMs: expect.any(Number),
@@ -190,5 +195,26 @@ describe('inspect CLI', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Option --cache-dir requires a value');
+  });
+
+  it('returns versioned cache envelopes and honors an explicit cache directory', () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cli-cache-'));
+    try {
+      const stats = runCliJson(['cache', 'stats', '--cache-dir', cacheDir]);
+      const cleared = runCliJson(['cache', 'clear', '--cache-dir', cacheDir]);
+
+      expect(stats).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-stats',
+        cacheDir,
+      });
+      expect(cleared).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-clear',
+        cacheDir,
+      });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
   });
 });

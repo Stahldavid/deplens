@@ -57,6 +57,34 @@ describe('project diff', () => {
     }
   });
 
+  it('strips nested pnpm peer suffixes without treating peer names as npm aliases', () => {
+    const snapshot = createProjectSnapshot({
+      lockfileVersion: '9.0',
+      importers: {
+        '.': {
+          dependencies: {
+            '@clerk/shared': {
+              specifier: '^4.25.0',
+              version: '4.25.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)',
+            },
+          },
+        },
+      },
+      packages: {
+        '@clerk/shared@4.25.2': { resolution: { integrity: 'sha512-shared' } },
+        'react-dom@19.2.7': { resolution: { integrity: 'sha512-react-dom' } },
+      },
+    });
+
+    expect(snapshot.packages['@clerk/shared']).toMatchObject({
+      version: '4.25.2',
+      direct: true,
+    });
+    expect(snapshot.instances).not.toContainEqual(
+      expect.objectContaining({ name: '@clerk/shared', version: '19.2.7)' })
+    );
+  });
+
   it('classifies additions, removals, upgrades and downgrades', () => {
     const from = createProjectSnapshot(lockfile('1.0.0', { zod: '3.22.4', old: '2.0.0' }));
     const to = createProjectSnapshot(lockfile('1.0.1', { zod: '4.3.6', added: '1.0.0' }));
@@ -95,5 +123,28 @@ describe('project diff', () => {
     expect(report.changes[0].api.summary.breaking).toBe(1);
     expect(report.summary.breakingPackages).toBe(1);
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completed: 1, total: 1 }));
+  });
+
+  it('returns only direct dependency changes unless transitive changes are requested', async () => {
+    const from = createProjectSnapshot(lockfile('1.0.0', { direct: '1.0.0' }));
+    const to = createProjectSnapshot(lockfile('1.0.1', { direct: '2.0.0' }));
+    from.packages.transitive = { name: 'transitive', version: '1.0.0', direct: false };
+    to.packages.transitive = { name: 'transitive', version: '2.0.0', direct: false };
+
+    const defaultReport = await runProjectDiff({ from, to, analyze: false });
+    const completeReport = await runProjectDiff({
+      from,
+      to,
+      analyze: false,
+      includeTransitive: true,
+    });
+
+    expect(defaultReport.changes.map((change) => change.package)).toEqual(['direct']);
+    expect(defaultReport.summary.total).toBe(1);
+    expect(completeReport.changes.map((change) => change.package)).toEqual([
+      'direct',
+      'transitive',
+    ]);
+    expect(completeReport.summary.total).toBe(2);
   });
 });

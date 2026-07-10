@@ -770,11 +770,18 @@ if (command === 'cache') {
     ...(Number.isFinite(maxAgeDays) ? { maxAgeDays } : {}),
   };
   if (subcmd === 'clear' || subcmd === 'clean') {
-    const pkg = argv[2] || null;
-    clearCache(pkg);
-    console.log(`Cache cleared${pkg ? ` for ${pkg}` : ''}.`);
+    const pkg = argv[2] && !argv[2].startsWith('-') ? argv[2] : null;
+    const result = clearCache(pkg, { cacheDir });
+    if (argv.includes('--json')) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Cache cleared${pkg ? ` for ${pkg}` : ''}.`);
+    }
   } else if (subcmd === 'stats' || subcmd === 'status') {
-    const stats = getCacheStats({ exact: argv.includes('--exact') && !argv.includes('--fast') });
+    const stats = getCacheStats({
+      cacheDir,
+      exact: argv.includes('--exact') && !argv.includes('--fast'),
+    });
     if (argv.includes('--json')) {
       console.log(JSON.stringify(stats, null, 2));
     } else {
@@ -804,11 +811,16 @@ if (command === 'cache') {
       const result = await pinCache(pkg, version, {
         preferCdn: argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm'),
         projectDir: process.cwd(),
+        cacheDir,
       });
-      console.log(`Pinned ${result.package}@${result.version}`);
-      console.log(`CachePath: ${result.path}`);
-      if (result.metadata?.integrity) {
-        console.log(`Integrity: ${result.metadata.integrity}`);
+      if (argv.includes('--json')) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Pinned ${result.package}@${result.version}`);
+        console.log(`CachePath: ${result.path}`);
+        if (result.metadata?.integrity) {
+          console.log(`Integrity: ${result.metadata.integrity}`);
+        }
       }
     } catch (e) {
       console.error(`Failed to pin cache: ${e instanceof Error ? e.message : String(e)}`);

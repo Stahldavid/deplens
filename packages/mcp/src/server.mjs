@@ -337,7 +337,8 @@ const inspectOutputShape = {
   staticExports: z
     .object({
       total: z.number(),
-      names: z.array(z.string()),
+      names: z.array(z.string()).optional(),
+      pagination: z.record(z.any()).optional(),
     })
     .nullable()
     .optional(),
@@ -345,6 +346,7 @@ const inspectOutputShape = {
   docs: z.record(z.any()).nullable().optional(),
   sections: z.array(z.record(z.any())).nullable().optional(),
   examples: z.record(z.any()).nullable().optional(),
+  jsdoc: z.record(z.any()).nullable().optional(),
   symbols: z.array(z.record(z.any())).nullable().optional(),
   pagination: z.record(z.any()).optional(),
   sourceAnalysis: z.record(z.any()).nullable().optional(),
@@ -372,6 +374,7 @@ const emptyInspectStructured = () => ({
   docs: null,
   sections: null,
   examples: null,
+  jsdoc: null,
   symbols: null,
   sourceAnalysis: null,
   languageAnalysis: null,

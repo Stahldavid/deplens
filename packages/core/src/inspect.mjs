@@ -6,6 +6,18 @@ import { enrichSymbolsWithSource } from './symbols.mjs';
 import { projectInspectResult } from './output-projector.mjs';
 import { throwIfAborted } from './errors.mjs';
 
+function inferSourceLanguage(sourceAnalysis, fallback = 'unknown') {
+  const paths = (sourceAnalysis?.files || [])
+    .map((file) => file?.path || file?.file || '')
+    .filter(Boolean);
+  const hasTypeScript = paths.some((file) => /\.(?:ts|tsx|mts|cts)$/i.test(file));
+  const hasJavaScript = paths.some((file) => /\.(?:js|jsx|mjs|cjs)$/i.test(file));
+  if (hasTypeScript && hasJavaScript) return 'javascript+typescript';
+  if (hasTypeScript) return 'typescript';
+  if (hasJavaScript) return 'javascript';
+  return fallback || 'unknown';
+}
+
 export async function runInspect(options) {
   const startedAt = performance.now();
   throwIfAborted(options?.signal, 'inspect');
@@ -58,10 +70,19 @@ export async function runInspect(options) {
     if (Array.isArray(jsonOutput.symbols) && sourceResult.sourceAnalysis) {
       jsonOutput.symbols = enrichSymbolsWithSource(jsonOutput.symbols, sourceResult.sourceAnalysis);
     }
+    const runtimeLanguage = sourceResult.detectedLang || 'unknown';
+    const sourceLanguage = inferSourceLanguage(
+      sourceResult.sourceAnalysis || sourceResult.languageAnalysis,
+      runtimeLanguage
+    );
+    const analysisSummary =
+      sourceResult.languageAnalysis?.summary || sourceResult.sourceAnalysis?.summary || {};
     jsonOutput.languageAnalysis = {
-      language: sourceResult.detectedLang || 'unknown',
-      files: sourceResult.languageAnalysis?.summary?.totalFiles || 0,
-      summary: sourceResult.languageAnalysis?.summary || {},
+      language: sourceLanguage,
+      runtimeLanguage,
+      sourceLanguage,
+      files: Number(analysisSummary.totalFiles) || 0,
+      summary: analysisSummary,
       ...(sourceResult.languageAnalysis?.error
         ? { error: sourceResult.languageAnalysis.error }
         : {}),
@@ -94,8 +115,14 @@ export async function runInspect(options) {
     }
   }
 
+  const focusedOutput = Boolean(
+    options?.listSections ||
+    options?.docsFor ||
+    options?.examplesFor ||
+    options?.jsdocOutput === 'only'
+  );
   const projectedOutput =
-    options?.detail || options?.select || options?.cursor
+    options?.detail || options?.select || options?.cursor || focusedOutput
       ? projectInspectResult(jsonOutput, {
           detail: options.detail,
           select: options.select,
@@ -103,7 +130,10 @@ export async function runInspect(options) {
             ...(options.listSections ? ['sections'] : []),
             ...(options.includeDocs || options.docsFor || options.docsSections ? ['docs'] : []),
             ...(options.includeExamples || options.examplesFor ? ['examples'] : []),
+            ...(options.jsdocOutput && options.jsdocOutput !== 'off' ? ['jsdoc'] : []),
+            ...(options.analyzeSource ? ['sourceAnalysis', 'languageAnalysis'] : []),
           ],
+          focused: focusedOutput,
           maxSymbols: options.maxSymbols || options.maxExports,
           cursor: options.cursor,
         })

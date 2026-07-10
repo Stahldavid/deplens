@@ -78,6 +78,15 @@ await runInspect({
 });
 ```
 
+`jsdocOutput: 'only'` returns a focused `jsdoc.entries` projection in object/JSON mode
+and renders the same entries in text mode. Plain `jsdocQuery.symbols` values match exact
+export names; use `*` or `/regex/` for broader matching.
+
+Compact projections keep `staticExports` to a count unless explicitly selected, summarize
+source analysis, and omit symbol inventories for focused docs/examples/JSDoc requests.
+`project-diff` returns direct dependency changes by default; set `includeTransitive: true`
+for the complete lockfile graph. pnpm peer suffixes are stripped before versions are compared.
+
 ## Notes
 
 - JSDoc is extracted from `.d.ts` declarations, not runtime JS.

@@ -10,6 +10,7 @@ export function createInspectSnapshot(meta = {}) {
     docs: null,
     sections: null,
     examples: null,
+    jsdoc: null,
     symbols: null,
     sourceAnalysis: null,
     languageAnalysis: null,

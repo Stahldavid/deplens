@@ -686,6 +686,8 @@ export async function pinCache(packageName, versionSpec, options = {}) {
     force: options.force || false,
   });
   return {
+    schemaVersion: 1,
+    kind: 'deplens-cache-pin',
     package: packageName,
     version,
     ...result,
@@ -782,6 +784,8 @@ export function migrateCache(options = {}) {
   const dryRun = Boolean(options.dryRun);
   const removeAliases = options.removeAliases !== false;
   const result = {
+    schemaVersion: 1,
+    kind: 'deplens-cache-migrate',
     cacheDir,
     scanned: 0,
     migrated: 0,
@@ -870,6 +874,8 @@ export function pruneCache(options = {}) {
     : 90;
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   const result = {
+    schemaVersion: 1,
+    kind: 'deplens-cache-prune',
     cacheDir,
     scanned: 0,
     candidates: 0,
@@ -927,8 +933,17 @@ export function pruneCache(options = {}) {
  */
 export function clearCache(packageName = null, options = {}) {
   const cacheDir = resolveCacheDir(options.cacheDir);
+  let removed = 0;
   if (packageName) {
-    if (!fs.existsSync(cacheDir)) return;
+    if (!fs.existsSync(cacheDir)) {
+      return {
+        schemaVersion: 1,
+        kind: 'deplens-cache-clear',
+        cacheDir,
+        package: packageName,
+        removed,
+      };
+    }
     const safeName = packageName.replace(/[/@]/g, '_');
     const entries = fs.readdirSync(cacheDir);
     for (const entry of entries) {
@@ -937,13 +952,24 @@ export function clearCache(packageName = null, options = {}) {
           recursive: true,
           force: true,
         });
+        removed += 1;
       }
     }
   } else {
     if (fs.existsSync(cacheDir)) {
+      removed = fs
+        .readdirSync(cacheDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory()).length;
       fs.rmSync(cacheDir, { recursive: true, force: true });
     }
   }
+  return {
+    schemaVersion: 1,
+    kind: 'deplens-cache-clear',
+    cacheDir,
+    package: packageName,
+    removed,
+  };
 }
 
 /**
@@ -953,7 +979,17 @@ export function getCacheStats(options = {}) {
   const { exact = false } = options;
   const cacheDir = resolveCacheDir(options.cacheDir);
   if (!fs.existsSync(cacheDir)) {
-    return { entries: 0, size: 0, packages: [], exact: true };
+    return {
+      schemaVersion: 1,
+      kind: 'deplens-cache-stats',
+      cacheDir,
+      entries: 0,
+      unknownEntries: 0,
+      size: 0,
+      sizeFormatted: '0 B',
+      packages: [],
+      exact: true,
+    };
   }
 
   const entries = fs.readdirSync(cacheDir);
@@ -996,6 +1032,9 @@ export function getCacheStats(options = {}) {
         : 'unknown';
 
   return {
+    schemaVersion: 1,
+    kind: 'deplens-cache-stats',
+    cacheDir,
     entries: packages.length,
     unknownEntries,
     size: totalSize,

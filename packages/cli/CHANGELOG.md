@@ -1,5 +1,18 @@
 # @deplens/cli
 
+## 1.0.4
+
+### Patch Changes
+
+- Fix pnpm project diffs with nested peer suffixes and return direct dependency changes by default.
+
+  Restore JSDoc-only output in text, JSON, and MCP responses; compact static export inventories and focused docs/examples requests; expose compact source summaries with separate runtime/source languages and causal semantic diagnostics.
+
+  Report binary-only packages as metadata-only, version all doctor/cache machine envelopes, honor custom cache directories across cache commands, and add regression coverage for the public agent workflows.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.2
+
 ## 1.0.3
 
 ### Patch Changes

@@ -143,7 +143,7 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--from REF` / `--to REF`                   | Compare npm or pnpm lockfiles from Git refs (`to` defaults to `working`). |
 | `--from-lock FILE` / `--to-lock FILE`       | Compare explicit npm package-lock or pnpm-lock files.                     |
 | `--no-api`                                  | Version-only comparison without registry/cache access.                    |
-| `--include-transitive`                      | Enrich transitive changes in addition to direct dependencies.             |
+| `--include-transitive`                      | Return and enrich transitive changes; direct changes are the default.     |
 | `--concurrency N`                           | Concurrent package API diffs (default 4).                                 |
 | `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
 | `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
@@ -173,6 +173,8 @@ uses a 90-day default when `--max-age-days` is omitted.
 
 Fast stats do not walk every cached package. Entries without metadata may report
 `unknown` size until a future exact stats run or cache refresh records size data.
+JSON cache commands return versioned `deplens-cache-stats`, `deplens-cache-clear`,
+`deplens-cache-pin`, `deplens-cache-migrate`, or `deplens-cache-prune` envelopes.
 
 Cache lives in `~/.deplens-cache/`:
 
@@ -217,7 +219,8 @@ baselines, and policy results use their own versioned schema v1 contracts export
 
 Compact mode automatically retains a rich section explicitly requested through `--docs`,
 `--list-sections`, `--docs-sections`, or `--examples`. After the first cursor page, complete
-`exports` and `staticExports` inventories are omitted unless explicitly named in `--select`.
+`exports` inventories are omitted unless explicitly named in `--select`. Compact
+`staticExports` contains only `total`; selecting it adds a separately paginated `names` page.
 
 ### `inspect` payload
 
@@ -245,8 +248,7 @@ Compact mode automatically retains a rich section explicitly requested through `
     "constants": []
   },
   "staticExports": {
-    "total": 3,
-    "names": ["ZodString", "ZodStringFormat", "_ZodString"]
+    "total": 3
   },
   "types": { // included with --detail full or --select types
     "source": "index.d.cts",
@@ -296,7 +298,7 @@ declaration surface and remains available when runtime loading is disabled. The 
 Optional extension fields (only when relevant flags are passed):
 
 - `sourceAnalysis: { files: number, summary: { totalFunctions, totalClasses, avgComplexity, … } }`
-- `languageAnalysis: { language: 'javascript'|'typescript'|'python'|'java', files: number, summary: { … } }`
+- `languageAnalysis: { language, runtimeLanguage, sourceLanguage, files: number, summary: { … } }`
 - `pkgDir: "/abs/path/to/package/root"` (always populated for chaining with other tooling)
 
 ### `diff` payload

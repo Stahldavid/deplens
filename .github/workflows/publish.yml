@@ -57,14 +57,14 @@ jobs:
       id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # changesets needs full history to compute diffs
 
       - name: Setup Node.js
         # Node 24 ships with npm 11.x, required by npm Trusted Publishers.
         # See https://docs.npmjs.com/trusted-publishers
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
@@ -116,10 +116,10 @@ jobs:
       id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'

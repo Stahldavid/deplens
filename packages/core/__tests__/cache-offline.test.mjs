@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import path from 'path';
 import { runDiff } from '../src/diff.mjs';
 import {
+  clearCache,
   downloadVersion,
+  getCacheStats,
   migrateCache,
   pruneCache,
   safePackageRelativePath,
@@ -33,6 +35,31 @@ describe('cache offline mode', () => {
     await expect(
       downloadVersion('deplens-offline-fixture-does-not-exist', '0.0.0', { offline: true })
     ).rejects.toThrow('--offline was requested');
+  });
+
+  it('uses an explicit cache directory across download, stats, and clear', async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-context-'));
+    try {
+      writeLegacyCacheEntry(cacheDir, 'demo-pkg@1.2.3', 'demo-pkg', '1.2.3');
+
+      const cached = await downloadVersion('demo-pkg', '1.2.3', { offline: true, cacheDir });
+      expect(cached.cached).toBe(true);
+      expect(getCacheStats({ cacheDir }).entries).toBe(1);
+
+      clearCache('demo-pkg', { cacheDir });
+      expect(getCacheStats({ cacheDir }).entries).toBe(0);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('honors cancellation before starting a download', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      downloadVersion('cancelled-pkg', '1.0.0', { signal: controller.signal })
+    ).rejects.toMatchObject({ code: 'ABORTED', phase: 'download' });
   });
 
   it('does not resolve latest in offline diff mode', async () => {

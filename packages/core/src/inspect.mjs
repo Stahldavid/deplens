@@ -3,8 +3,12 @@ import { runInspectCore } from './inspect-core.mjs';
 import { runSourceAnalysis } from './inspect-source.mjs';
 import { saveHistoryEntry } from './history-manager.mjs';
 import { enrichSymbolsWithSource } from './symbols.mjs';
+import { projectInspectResult } from './output-projector.mjs';
+import { throwIfAborted } from './errors.mjs';
 
 export async function runInspect(options) {
+  const startedAt = performance.now();
+  throwIfAborted(options?.signal, 'inspect');
   const format = options?.format || 'text';
   const shouldSaveHistory = Boolean(options?.saveHistory);
   let capturedResult = null;
@@ -14,6 +18,7 @@ export async function runInspect(options) {
       ? { captureResult: (result) => (capturedResult = result) }
       : {}),
   });
+  const coreCompletedAt = performance.now();
 
   // Text mode: pass through core output unchanged unless history needs a
   // structured payload to persist.
@@ -31,6 +36,7 @@ export async function runInspect(options) {
       : capturedResult;
 
   if (options?.analyzeSource && jsonOutput?.pkgDir) {
+    throwIfAborted(options?.signal, 'source-analysis');
     const sourceResult = await runSourceAnalysis({
       pkgDir: jsonOutput.pkgDir,
       filterRaw: options.filter || null,
@@ -62,6 +68,13 @@ export async function runInspect(options) {
     };
   }
 
+  if (options?.profile && jsonOutput?.meta) {
+    jsonOutput.meta.timings = {
+      inspectCoreMs: Number((coreCompletedAt - startedAt).toFixed(2)),
+      totalMs: Number((performance.now() - startedAt).toFixed(2)),
+    };
+  }
+
   if (shouldSaveHistory) {
     try {
       const historyResult = {
@@ -80,11 +93,21 @@ export async function runInspect(options) {
     }
   }
 
+  const projectedOutput =
+    options?.detail || options?.select || options?.cursor
+      ? projectInspectResult(jsonOutput, {
+          detail: options.detail,
+          select: options.select,
+          maxSymbols: options.maxSymbols || options.maxExports,
+          cursor: options.cursor,
+        })
+      : jsonOutput;
+
   if (format === 'object') {
-    return jsonOutput;
+    return projectedOutput;
   }
   if (format !== 'json') {
     return rawOutput;
   }
-  return JSON.stringify(jsonOutput, null, 2);
+  return JSON.stringify(projectedOutput, null, 2);
 }

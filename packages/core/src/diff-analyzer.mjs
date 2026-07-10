@@ -10,6 +10,9 @@ import { pathToFileURL } from 'url';
 import { getCachedDtsParse } from './inspect-types.mjs';
 import { buildSymbols } from './symbols.mjs';
 import { runSourceAnalysis } from './inspect-source.mjs';
+import { listExportSubpaths, resolveExportTarget } from './export-map.mjs';
+import { analyzeSemanticCompatibility, findPackageTypesEntry } from './semantic-compatibility.mjs';
+import { throwIfAborted } from './errors.mjs';
 
 /**
  * Change types and their severity
@@ -626,34 +629,11 @@ function mergeParsedDtsExports(target, parsed) {
   Object.assign(target.variables, parsed.variables || {});
 }
 
-function resolveConditionalExport(entry, preferred = ['types', 'import', 'require', 'default']) {
-  if (!entry) return null;
-  if (typeof entry === 'string') return entry;
-  if (Array.isArray(entry)) {
-    for (const item of entry) {
-      const resolved = resolveConditionalExport(item, preferred);
-      if (resolved) return resolved;
-    }
-    return null;
-  }
-  if (typeof entry !== 'object') return null;
-  for (const condition of preferred) {
-    if (condition in entry) {
-      const resolved = resolveConditionalExport(entry[condition], preferred);
-      if (resolved) return resolved;
-    }
-  }
-  for (const value of Object.values(entry)) {
-    const resolved = resolveConditionalExport(value, preferred);
-    if (resolved) return resolved;
-  }
-  return null;
-}
-
-function findTypesEntry(pkg) {
+function findTypesEntry(pkg, conditions = []) {
   const candidates = [pkg.types, pkg.typings];
-  const rootExport = typeof pkg.exports === 'object' ? pkg.exports['.'] || pkg.exports : null;
-  const exportTypes = resolveConditionalExport(rootExport, ['types', 'typings', 'default']);
+  const exportTypes = resolveExportTarget(pkg, {
+    conditions: ['types', 'typings', ...conditions, 'default'],
+  })?.path;
   if (exportTypes) candidates.push(exportTypes);
   candidates.push('index.d.ts', 'index.d.cts', 'index.d.mts', 'lib/index.d.ts', 'dist/index.d.ts');
   return candidates.filter(Boolean);
@@ -670,34 +650,33 @@ function declarationCandidates(entry) {
     : [`${normalized}.d.ts`, `${normalized}.d.cts`, `${normalized}.d.mts`];
 }
 
-function findTypeEntrypoints(pkg) {
-  const entries = [{ subpath: '.', candidates: findTypesEntry(pkg) }];
+function findTypeEntrypoints(pkg, packageDir, conditions = []) {
+  const semanticEntry = findPackageTypesEntry(packageDir, { conditions });
+  const entries = [
+    {
+      subpath: '.',
+      candidates: [semanticEntry, ...findTypesEntry(pkg, conditions)].filter(Boolean),
+    },
+  ];
   if (!pkg.exports || typeof pkg.exports !== 'object' || Array.isArray(pkg.exports)) {
     return entries;
   }
-  const exportKeys = Object.keys(pkg.exports).filter((key) => key.startsWith('.'));
+  const exportKeys = listExportSubpaths(pkg);
   for (const subpath of exportKeys) {
     if (subpath === '.' || subpath === './' || subpath.includes('*')) continue;
-    const target = resolveConditionalExport(pkg.exports[subpath], [
-      'types',
-      'typings',
-      'import',
-      'require',
-      'default',
-    ]);
+    const target = resolveExportTarget(pkg, {
+      subpath,
+      conditions: ['types', 'typings', ...conditions, 'import', 'require', 'default'],
+    })?.path;
     if (target) entries.push({ subpath, candidates: declarationCandidates(target) });
   }
   return entries;
 }
 
-function findRuntimeEntry(pkg) {
-  const rootExport = typeof pkg.exports === 'object' ? pkg.exports['.'] || pkg.exports : null;
-  const exportRuntime = resolveConditionalExport(rootExport, [
-    'import',
-    'require',
-    'node',
-    'default',
-  ]);
+function findRuntimeEntry(pkg, conditions = []) {
+  const exportRuntime = resolveExportTarget(pkg, {
+    conditions: [...conditions, 'node', 'import', 'require', 'default'],
+  })?.path;
   return [exportRuntime, pkg.module, pkg.main, 'index.js', 'index.mjs', 'index.cjs'].filter(
     Boolean
   );
@@ -712,11 +691,11 @@ function runtimeKind(name, value) {
   return 'constant';
 }
 
-async function inspectRuntimeExports(packageDir, pkg) {
+async function inspectRuntimeExports(packageDir, pkg, conditions = []) {
   if (pkg?.__deplensRuntimeDisabled) {
     return { runtimeNames: [], categorized: {}, runtimePath: null, runtimeAvailable: false };
   }
-  const entry = findRuntimeEntry(pkg).find((candidate) =>
+  const entry = findRuntimeEntry(pkg, conditions).find((candidate) =>
     fs.existsSync(path.join(packageDir, candidate))
   );
   if (!entry)
@@ -750,6 +729,7 @@ async function inspectRuntimeExports(packageDir, pkg) {
  * Analyze types from a package directory - self-contained implementation
  */
 async function analyzePackageTypes(packageDir, options = {}) {
+  throwIfAborted(options.signal, 'type-analysis');
   const pkgJsonPath = path.join(packageDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
     return { error: 'package.json not found', exports: {} };
@@ -784,7 +764,7 @@ async function analyzePackageTypes(packageDir, options = {}) {
     variables: {},
   };
 
-  const typeEntrypoints = findTypeEntrypoints(pkg);
+  const typeEntrypoints = findTypeEntrypoints(pkg, packageDir, options.conditions || []);
   let selectedTypesEntry = null;
   let rootTypeInfo = null;
   const subpathSymbols = [];
@@ -828,7 +808,7 @@ async function analyzePackageTypes(packageDir, options = {}) {
       result.sourceAnalysis = sourceAnalysis;
     }
   }
-  const runtime = await inspectRuntimeExports(packageDir, pkg);
+  const runtime = await inspectRuntimeExports(packageDir, pkg, options.conditions || []);
   result.symbols = [
     ...buildSymbols({
       packageName: pkg.name,
@@ -850,13 +830,21 @@ async function analyzePackageTypes(packageDir, options = {}) {
  * Compare two package versions
  */
 export async function compareVersions(fromDir, toDir, options = {}) {
-  const { filter, includeSource = false, runtime = true } = options;
+  const {
+    filter,
+    includeSource = false,
+    runtime = true,
+    semantic = false,
+    conditions = [],
+    signal,
+  } = options;
+  throwIfAborted(signal, 'diff-analysis');
   const matcher = buildNameMatcher(filter);
 
   // Analyze both versions
   let [fromAnalysis, toAnalysis] = await Promise.all([
-    analyzePackageTypes(fromDir, { filter, includeSource, runtime }),
-    analyzePackageTypes(toDir, { filter, includeSource, runtime }),
+    analyzePackageTypes(fromDir, { filter, includeSource, runtime, conditions, signal }),
+    analyzePackageTypes(toDir, { filter, includeSource, runtime, conditions, signal }),
   ]);
   fromAnalysis = filterAnalysisByName(fromAnalysis, matcher);
   toAnalysis = filterAnalysisByName(toAnalysis, matcher);
@@ -881,6 +869,7 @@ export async function compareVersions(fromDir, toDir, options = {}) {
       removals: 0,
     },
     symbols: compareSymbols(fromAnalysis.symbols || [], toAnalysis.symbols || []),
+    conditions: [...conditions],
   };
 
   // Compare each export category
@@ -1025,6 +1014,12 @@ export async function compareVersions(fromDir, toDir, options = {}) {
       removals: diff.symbols.summary.removals,
       legacy: legacySummary,
     };
+  }
+
+  if (semantic) {
+    throwIfAborted(signal, 'semantic-analysis');
+    diff.semanticCompatibility = analyzeSemanticCompatibility(fromDir, toDir, { conditions });
+    diff.summary.semanticCompatible = diff.semanticCompatibility.compatible;
   }
 
   return diff;

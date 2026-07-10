@@ -40,6 +40,57 @@ describe('DepLens MCP server', () => {
     expect(result.structuredContent.languageAnalysis).toBeNull();
   });
 
+  it('advertises project, policy, doctor, and version workflows', async () => {
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        'deplens_inspect',
+        'deplens_diff',
+        'deplens_doctor',
+        'deplens_project_diff',
+        'deplens_check',
+        'deplens_versions',
+      ])
+    );
+  });
+
+  it('runs doctor and project lockfile diff as structured tools', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-mcp-project-'));
+    try {
+      const before = path.join(root, 'before.json');
+      const after = path.join(root, 'after.json');
+      const lock = (version) => ({
+        name: 'mcp-project',
+        lockfileVersion: 3,
+        packages: {
+          '': { name: 'mcp-project', dependencies: { zod: '*' } },
+          'node_modules/zod': { version },
+        },
+      });
+      writeFileSync(before, JSON.stringify(lock('3.22.4')));
+      writeFileSync(after, JSON.stringify(lock('4.3.6')));
+
+      const doctor = await client.callTool({
+        name: 'deplens_doctor',
+        arguments: { target: 'zod', rootDir: repoRoot, runtime: false, format: 'object' },
+      });
+      const project = await client.callTool({
+        name: 'deplens_project_diff',
+        arguments: { from: before, to: after, rootDir: root, analyze: false, format: 'object' },
+      });
+
+      expect(doctor.isError).not.toBe(true);
+      expect(doctor.structuredContent.package).toBe('zod');
+      expect(project.isError).not.toBe(true);
+      expect(project.structuredContent.changes[0]).toMatchObject({
+        package: 'zod',
+        changeType: 'upgraded',
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns core diff failures as MCP errors', async () => {
     const result = await client.callTool({
       name: 'deplens_diff',

@@ -1,6 +1,10 @@
 import {
   findChangelog,
   findChangelogRemote,
+  createProjectBaseline,
+  createProjectSnapshot,
+  evaluateProjectPolicy,
+  getOutputSchema,
   migrateCache,
   parseChangelogFile,
   parseChangelogString,
@@ -8,8 +12,12 @@ import {
   pruneCache,
   runDiff,
   runInspect,
+  runProjectCheck,
+  runProjectDiff,
   type InspectResult,
   type ParsedChangelog,
+  type ProjectDiffReport,
+  type ProjectSnapshot,
 } from '@deplens/core';
 
 async function verifyPublicTypes() {
@@ -31,6 +39,23 @@ async function verifyPublicTypes() {
   const parsedFile: ParsedChangelog = parseChangelogFile('CHANGELOG.md');
   const migration = migrateCache({ dryRun: true });
   const prune = pruneCache({ dryRun: true, maxAgeDays: 30 });
+  const snapshot: ProjectSnapshot = createProjectSnapshot({
+    lockfileVersion: 3,
+    packages: { '': { name: 'demo' } },
+  });
+  const baseline = createProjectBaseline(snapshot);
+  const projectDiff: ProjectDiffReport = await runProjectDiff({
+    from: snapshot,
+    to: snapshot,
+    analyze: false,
+  });
+  const policy = evaluateProjectPolicy(projectDiff, { failOn: 'breaking' });
+  const check = await runProjectCheck({
+    baseline,
+    current: snapshot,
+    analyze: false,
+  });
+  const schema = getOutputSchema('project-diff', 1);
   return {
     inspection,
     text,
@@ -42,6 +67,12 @@ async function verifyPublicTypes() {
     parsedFile,
     migration,
     prune,
+    snapshot,
+    baseline,
+    projectDiff,
+    policy,
+    check,
+    schema,
   };
 }
 

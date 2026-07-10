@@ -2,6 +2,16 @@
 import { runInspect, runDiff, runDoctor } from '@deplens/core';
 import { clearCache, getCacheStats, migrateCache, pinCache, pruneCache } from '@deplens/core';
 import { listHistory, getHistoryEntry, clearHistory, compareHistoryEntries } from '@deplens/core';
+import {
+  createProjectBaseline,
+  formatPolicyAsSarif,
+  formatPolicyText,
+  formatProjectDiffText,
+  loadProjectPolicy,
+  loadProjectSnapshot,
+  runProjectCheck,
+  runProjectDiff,
+} from '@deplens/core';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,6 +24,20 @@ function cliVersion() {
   } catch {
     return 'unknown';
   }
+}
+
+function argumentValue(argv, name, fallback = null) {
+  const index = argv.indexOf(name);
+  return index !== -1 && argv[index + 1] ? argv[index + 1] : fallback;
+}
+
+function commaList(value) {
+  return value
+    ? String(value)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
 }
 
 function parseInspectArgs(argv) {
@@ -239,6 +263,16 @@ function parseInspectArgs(argv) {
     };
   }
 
+  const detail = argumentValue(argv, '--detail', format === 'json' ? 'compact' : null);
+  const selectedSections = commaList(argumentValue(argv, '--select'));
+  const select = selectedSections.length > 0 ? selectedSections : null;
+  const cursor = argumentValue(argv, '--cursor');
+  const maxSymbolsValue = Number(argumentValue(argv, '--max-symbols'));
+  const timeoutValue = Number(argumentValue(argv, '--timeout'));
+  const conditions = commaList(argumentValue(argv, '--conditions'));
+  const cacheDir = argumentValue(argv, '--cache-dir');
+  const profile = argv.includes('--profile');
+
   return {
     target,
     filter,
@@ -273,6 +307,14 @@ function parseInspectArgs(argv) {
     autoGenerateTypes,
     saveHistory: effectiveSaveHistory,
     historyDir,
+    detail,
+    select,
+    cursor,
+    maxSymbols: Number.isFinite(maxSymbolsValue) ? maxSymbolsValue : undefined,
+    timeoutMs: Number.isFinite(timeoutValue) ? timeoutValue : undefined,
+    conditions,
+    cacheDir,
+    profile,
   };
 }
 
@@ -317,6 +359,13 @@ function parseDiffArgs(argv) {
   const includeChangelog = !argv.includes('--no-changelog');
   const verbose = argv.includes('--verbose');
   const noColor = argv.includes('--no-color');
+  const conditions = commaList(argumentValue(argv, '--conditions'));
+  const timeoutValue = Number(argumentValue(argv, '--timeout'));
+  const cacheDir = argumentValue(argv, '--cache-dir');
+  const semantic = !argv.includes('--no-semantic');
+  const profile = argv.includes('--profile');
+  const maxChangesValue = Number(argumentValue(argv, '--max-changes'));
+  const cursor = argumentValue(argv, '--cursor');
 
   let projectDir = null;
   const projectDirIndex = argv.indexOf('--project-dir');
@@ -338,6 +387,13 @@ function parseDiffArgs(argv) {
     projectDir,
     offline,
     runtime,
+    conditions,
+    timeoutMs: Number.isFinite(timeoutValue) ? timeoutValue : undefined,
+    cacheDir,
+    semantic,
+    maxChanges: Number.isFinite(maxChangesValue) ? maxChangesValue : undefined,
+    cursor,
+    profile,
   };
 }
 
@@ -348,6 +404,8 @@ function usage() {
       '  deplens inspect <pacote> [filtro] [opções]\n' +
       '  deplens diff <pacote> [opções]\n' +
       '  deplens doctor <pacote> [opções]\n' +
+      '  deplens project-diff [--from REF] [--to REF] [opções]\n' +
+      '  deplens check --baseline FILE [opções]\n' +
       '  deplens cache [stats|clear|pin|migrate|prune] [opções]\n\n' +
       'Opções (cache):\n' +
       '  --fast                Fast stats using metadata / directory entries only (default)\n' +
@@ -392,6 +450,13 @@ function usage() {
       '  --resolve-from DIR     Base directory for module resolution\n' +
       '  --jsdoc off|compact|full  JSDoc mode\n' +
       '  --jsdoc-output off|section|inline|only  JSDoc output mode\n' +
+      '  --detail compact|full  Inspect JSON detail (default: compact)\n' +
+      '  --select LIST          Select JSON sections\n' +
+      '  --cursor VALUE         Resume symbol pagination\n' +
+      '  --max-symbols N        Symbols per JSON page\n' +
+      '  --conditions LIST      Export conditions in priority order\n' +
+      '  --timeout MS           Operation timeout\n' +
+      '  --profile              Include phase timings in metadata\n' +
       '\nOpções (diff):\n' +
       '  --from VERSION         Base version (default: installed)\n' +
       '  --to VERSION           Target version (default: latest)\n' +
@@ -407,7 +472,22 @@ function usage() {
       '  --no-changelog         Skip changelog parsing\n' +
       '  --verbose              Show detailed changes\n' +
       '  --no-color             Disable ANSI colors\n' +
-      '  --project-dir DIR      Base directory for installed version\n'
+      '  --project-dir DIR      Base directory for installed version\n' +
+      '  --max-changes N        Changes per JSON page (default: 100)\n' +
+      '\nOpções (project-diff/check):\n' +
+      '  --from REF             Git ref used as project baseline\n' +
+      '  --to REF               Git ref used as project target (default: working)\n' +
+      '  --from-lock FILE       Read the baseline package-lock from a file\n' +
+      '  --to-lock FILE         Read the target package-lock from a file\n' +
+      '  --lockfile FILE        Lockfile path inside refs (default: package-lock.json)\n' +
+      '  --baseline FILE        Baseline file for check\n' +
+      '  --write-baseline       Write/update a baseline instead of checking\n' +
+      '  --config FILE          Policy configuration JSON\n' +
+      '  --fail-on LEVEL        breaking|warning|change|none\n' +
+      '  --include-transitive   Analyze transitive dependency changes\n' +
+      '  --no-api               Compare lockfile versions without package API analysis\n' +
+      '  --concurrency N        Concurrent package diffs (default: 4)\n' +
+      '  --format text|json|sarif\n'
   );
 }
 
@@ -489,6 +569,21 @@ const VALUE_OPTIONS = new Set([
   '--project-dir',
   '--cache-dir',
   '--max-age-days',
+  '--from-lock',
+  '--to-lock',
+  '--lockfile',
+  '--baseline',
+  '--config',
+  '--fail-on',
+  '--output',
+  '--conditions',
+  '--detail',
+  '--select',
+  '--cursor',
+  '--max-symbols',
+  '--max-changes',
+  '--timeout',
+  '--concurrency',
 ]);
 
 const FLAG_OPTIONS = new Set([
@@ -521,6 +616,14 @@ const FLAG_OPTIONS = new Set([
   '--force',
   '--dry-run',
   '--keep-aliases',
+  '--write-baseline',
+  '--include-transitive',
+  '--semantic',
+  '--no-semantic',
+  '--api',
+  '--no-api',
+  '--sarif',
+  '--profile',
   '--help',
   '--version',
   '-h',
@@ -549,7 +652,13 @@ if (argv.includes('--version') || argv.includes('-v')) {
   process.exit(0);
 }
 let command =
-  argv[0] === 'diff' || argv[0] === 'inspect' || argv[0] === 'doctor' ? argv[0] : 'inspect';
+  argv[0] === 'diff' ||
+  argv[0] === 'inspect' ||
+  argv[0] === 'doctor' ||
+  argv[0] === 'project-diff' ||
+  argv[0] === 'check'
+    ? argv[0]
+    : 'inspect';
 if (argv[0] === 'cache') command = 'cache';
 if (argv[0] === 'history') command = 'history';
 
@@ -568,7 +677,12 @@ try {
 
 const commandArgs = command === 'inspect' && argv[0] !== 'inspect' ? argv : argv.slice(1);
 
-const parsed = command === 'diff' ? parseDiffArgs(commandArgs) : parseInspectArgs(commandArgs);
+const parsed =
+  command === 'diff'
+    ? parseDiffArgs(commandArgs)
+    : command === 'inspect' || command === 'doctor'
+      ? parseInspectArgs(commandArgs)
+      : {};
 
 // Cache commands
 if (command === 'cache') {
@@ -746,7 +860,113 @@ if (command === 'history') {
   process.exit(0);
 }
 
-if (command === 'diff') {
+if (command === 'project-diff') {
+  const projectDir = path.resolve(argumentValue(argv, '--project-dir', process.cwd()));
+  const lockfile = argumentValue(argv, '--lockfile', 'package-lock.json');
+  const fromSource = argumentValue(argv, '--from-lock', argumentValue(argv, '--from', 'HEAD~1'));
+  const toSource = argumentValue(argv, '--to-lock', argumentValue(argv, '--to', 'working'));
+  const format = argv.includes('--json') ? 'json' : argumentValue(argv, '--format', 'text');
+  const timeoutMs = Number(argumentValue(argv, '--timeout'));
+  const concurrency = Number(argumentValue(argv, '--concurrency'));
+  try {
+    const [fromSnapshot, toSnapshot] = await Promise.all([
+      loadProjectSnapshot(fromSource, { projectDir, lockfile, timeoutMs }),
+      loadProjectSnapshot(toSource, { projectDir, lockfile, timeoutMs }),
+    ]);
+    const report = await runProjectDiff({
+      from: fromSnapshot,
+      to: toSnapshot,
+      projectDir,
+      cacheDir: argumentValue(argv, '--cache-dir'),
+      timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+      concurrency: Number.isFinite(concurrency) ? concurrency : undefined,
+      conditions: commaList(argumentValue(argv, '--conditions')),
+      includeTransitive: argv.includes('--include-transitive'),
+      includeSource: argv.includes('--include-source'),
+      preferCdn: argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm'),
+      offline: argv.includes('--offline'),
+      runtime: argv.includes('--runtime') && !argv.includes('--no-runtime'),
+      semantic: !argv.includes('--no-semantic'),
+      analyze: !argv.includes('--no-api'),
+      profile: argv.includes('--profile'),
+    });
+    process.stdout.write(
+      format === 'json' ? JSON.stringify(report, null, 2) : formatProjectDiffText(report)
+    );
+    if (report.summary.failedPackages > 0) process.exitCode = 1;
+  } catch (error) {
+    const payload = { error: error instanceof Error ? error.message : String(error) };
+    process.stdout.write(
+      format === 'json' ? JSON.stringify(payload, null, 2) : `Error: ${payload.error}`
+    );
+    process.exitCode = 1;
+  }
+} else if (command === 'check') {
+  const projectDir = path.resolve(argumentValue(argv, '--project-dir', process.cwd()));
+  const lockfile = argumentValue(argv, '--lockfile', 'package-lock.json');
+  const baselinePath = path.resolve(
+    projectDir,
+    argumentValue(argv, '--baseline', argumentValue(argv, '--output', '.deplens-baseline.json'))
+  );
+  const format = argv.includes('--sarif')
+    ? 'sarif'
+    : argv.includes('--json')
+      ? 'json'
+      : argumentValue(argv, '--format', 'text');
+  try {
+    const current = await loadProjectSnapshot(argumentValue(argv, '--to-lock', 'working'), {
+      projectDir,
+      lockfile,
+    });
+    if (argv.includes('--write-baseline')) {
+      const baseline = createProjectBaseline(current);
+      fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
+      process.stdout.write(
+        format === 'json' ? JSON.stringify(baseline, null, 2) : `Baseline written: ${baselinePath}`
+      );
+    } else {
+      if (!fs.existsSync(baselinePath)) {
+        throw new Error(`Baseline not found: ${baselinePath}. Run check --write-baseline first.`);
+      }
+      const configuredPolicy = loadProjectPolicy(argumentValue(argv, '--config'), { projectDir });
+      const failOn = argumentValue(argv, '--fail-on');
+      const timeoutMs = Number(argumentValue(argv, '--timeout'));
+      const concurrency = Number(argumentValue(argv, '--concurrency'));
+      const result = await runProjectCheck({
+        baseline: baselinePath,
+        current,
+        policy: failOn ? { ...configuredPolicy, failOn } : configuredPolicy,
+        projectDir,
+        cacheDir: argumentValue(argv, '--cache-dir'),
+        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+        concurrency: Number.isFinite(concurrency) ? concurrency : undefined,
+        conditions: commaList(argumentValue(argv, '--conditions')),
+        includeTransitive: argv.includes('--include-transitive'),
+        includeSource: argv.includes('--include-source'),
+        preferCdn: argv.includes('--prefer-cdn') && !argv.includes('--prefer-npm'),
+        offline: argv.includes('--offline'),
+        runtime: argv.includes('--runtime') && !argv.includes('--no-runtime'),
+        semantic: !argv.includes('--no-semantic'),
+        analyze: !argv.includes('--no-api'),
+        profile: argv.includes('--profile'),
+      });
+      process.stdout.write(
+        format === 'sarif'
+          ? JSON.stringify(formatPolicyAsSarif(result), null, 2)
+          : format === 'json'
+            ? JSON.stringify(result, null, 2)
+            : formatPolicyText(result)
+      );
+      if (!result.passed) process.exitCode = 1;
+    }
+  } catch (error) {
+    const payload = { error: error instanceof Error ? error.message : String(error) };
+    process.stdout.write(
+      format === 'text' ? `Error: ${payload.error}` : JSON.stringify(payload, null, 2)
+    );
+    process.exitCode = 1;
+  }
+} else if (command === 'diff') {
   if (!parsed.packageName) {
     usage();
     process.exit(1);
@@ -766,6 +986,13 @@ if (command === 'diff') {
     format: parsed.format,
     verbose: parsed.verbose,
     colors: !parsed.noColor,
+    conditions: parsed.conditions,
+    timeoutMs: parsed.timeoutMs,
+    cacheDir: parsed.cacheDir,
+    semantic: parsed.semantic,
+    maxChanges: parsed.maxChanges,
+    cursor: parsed.cursor,
+    profile: parsed.profile,
   });
 
   if (typeof output?.output === 'string' && output.output.length > 0) {
@@ -789,6 +1016,10 @@ if (command === 'diff') {
     resolveFrom: parsed.resolveFrom,
     format: parsed.format,
     cwd: process.cwd(),
+    conditions: parsed.conditions,
+    profile: parsed.profile,
+    timeoutMs: parsed.timeoutMs,
+    cacheDir: parsed.cacheDir,
   });
 
   if (typeof output === 'string' && output.length > 0) {
@@ -838,6 +1069,13 @@ if (command === 'diff') {
     cwd: process.cwd(),
     write: console.log,
     writeError: console.error,
+    detail: parsed.detail,
+    select: parsed.select,
+    cursor: parsed.cursor,
+    maxSymbols: parsed.maxSymbols,
+    timeoutMs: parsed.timeoutMs,
+    cacheDir: parsed.cacheDir,
+    conditions: parsed.conditions,
   });
 
   if (typeof output === 'string' && output.length > 0) {

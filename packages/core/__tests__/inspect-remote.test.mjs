@@ -48,7 +48,10 @@ describe('remote inspection failures', () => {
       format: 'object',
     });
 
-    expect(resolveVersionAsync).toHaveBeenCalledWith('zod', 'latest', process.cwd());
+    expect(resolveVersionAsync).toHaveBeenCalledWith('zod', 'latest', process.cwd(), {
+      signal: undefined,
+      timeoutMs: undefined,
+    });
     expect(downloadVersion).toHaveBeenCalledWith('zod', '4.3.6', expect.any(Object));
   });
 });

@@ -1,9 +1,13 @@
 # @deplens/mcp
 
-Model Context Protocol (MCP) server for DepLens. Exposes two package-analysis tools over **stdio** transport:
+Model Context Protocol (MCP) server for DepLens. Exposes six package-analysis tools over **stdio** transport:
 
 - `deplens_inspect` — package exports, types (.d.ts), README docs/sections, examples, JSDoc, source analysis
 - `deplens_diff` — semver diff between two versions (uses `CHANGELOG.md` when available)
+- `deplens_doctor` — package resolution and runtime/type diagnostics
+- `deplens_project_diff` — project dependency changes between lockfiles or Git refs
+- `deplens_check` — baseline and policy enforcement for dependency upgrades
+- `deplens_versions` — latest and recent npm package versions
 
 Built on the modern `McpServer` / `registerTool` API of the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) (≥ 1.18) with **Zod input validation**, **`structuredContent`** outputs, and proper [tool annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations).
 
@@ -39,7 +43,7 @@ This starts an MCP server over stdio.
 
 ## Tools
 
-Both tools always populate `structuredContent` in addition to the text channel. They are
+All tools always populate `structuredContent` in addition to the text channel. Analysis tools are
 marked non-read-only because remote inspection writes a local cache and explicit runtime
 inspection executes package entrypoints.
 
@@ -77,6 +81,11 @@ Inspect an installed (or remotely downloaded) npm package.
 | `sourceMaxFiles`    | number (1–500)                                                       | Max source files to analyze (default: 5)                                             |
 | `sourceIncludeBody` | boolean                                                              | Include function body snippets                                                       |
 | `language`          | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`         | Force language detection                                                             |
+| `detail`            | `'compact'\|'full'`                                                  | Versioned structured output projection                                               |
+| `cursor`            | string                                                               | Resume symbol pagination                                                             |
+| `conditions`        | string[]                                                             | Export conditions in priority order                                                  |
+| `cacheDir`          | string                                                               | Override the shared version cache                                                    |
+| `timeoutMs`         | number                                                               | Bound registry/download work                                                         |
 
 **Example call:**
 
@@ -117,6 +126,23 @@ Compare two versions of an npm package.
 | `includeChangelog` | boolean                    | Parse `CHANGELOG.md` entries (default: `true`)                                               |
 | `verbose`          | boolean                    | Show detailed per-symbol changes                                                             |
 | `rootDir`          | string                     | Working directory for resolution of `from="installed"` (default: `$DEPLENS_ROOT` or `cwd()`) |
+| `conditions`       | string[]                   | Export conditions in priority order                                                          |
+| `semantic`         | boolean                    | TypeScript assignability validation (default: true)                                          |
+| `maxChanges`       | number                     | Changes per page                                                                             |
+| `cursor`           | string                     | Resume change pagination                                                                     |
+
+### Project tools
+
+`deplens_project_diff` accepts `from`, `to`, `rootDir`, `lockfile`, `analyze`,
+`includeTransitive`, `conditions`, and timeout/cache controls. `from` and `to` can be Git refs,
+lockfile paths, or `working`.
+
+`deplens_check` accepts a baseline path plus optional `config` and `failOn`. It returns a
+structured policy result and marks the MCP result as an error when policy fails. Format `sarif`
+is available for code-scanning integrations.
+
+`deplens_doctor` mirrors the CLI Doctor report. `deplens_versions` is read-only and returns a
+bounded list of published versions.
 
 **Example call:**
 
@@ -136,7 +162,7 @@ Compare two versions of an npm package.
 
 ## Requirements
 
-- Node.js ≥ 18
+- Node.js ≥ 22
 
 ## Development
 

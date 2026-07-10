@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import ts from 'typescript';
+import { appendSafeRecord, createSafeRecord, setSafeRecord } from './safe-record.mjs';
 
 const TYPE_FORMAT_FLAGS =
   ts.TypeFormatFlags.NoTruncation |
@@ -223,8 +224,8 @@ function classDetails(declarations, checker, localName = null) {
     extends: null,
     localName,
     constructors: [],
-    methods: {},
-    properties: {},
+    methods: createSafeRecord(),
+    properties: createSafeRecord(),
     typeParameters: [],
   };
   for (const declaration of declarations.filter(ts.isClassDeclaration)) {
@@ -242,11 +243,10 @@ function classDetails(declarations, checker, localName = null) {
         details.constructors.push(signatureFromDeclaration(member, checker));
       } else if (ts.isMethodDeclaration(member) && member.name) {
         const name = nodeText(member.name, sourceFile);
-        details.methods[name] ??= [];
-        details.methods[name].push(signatureFromDeclaration(member, checker));
+        appendSafeRecord(details.methods, name, signatureFromDeclaration(member, checker));
       } else if (ts.isPropertyDeclaration(member) && member.name) {
         const name = nodeText(member.name, sourceFile);
-        details.properties[name] = {
+        setSafeRecord(details.properties, name, {
           type: member.type ? nodeText(member.type, sourceFile) : 'any',
           optional: Boolean(member.questionToken),
           readonly: Boolean(
@@ -255,7 +255,7 @@ function classDetails(declarations, checker, localName = null) {
           static: Boolean(
             member.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword)
           ),
-        };
+        });
       }
     }
   }
@@ -265,8 +265,8 @@ function classDetails(declarations, checker, localName = null) {
 function interfaceDetails(declarations, checker) {
   const details = {
     extends: [],
-    properties: {},
-    methods: {},
+    properties: createSafeRecord(),
+    methods: createSafeRecord(),
     callSignatures: [],
     typeParameters: [],
   };
@@ -291,13 +291,12 @@ function interfaceDetails(declarations, checker) {
             member.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword)
           ),
         };
-        details.properties[name] = property;
+        setSafeRecord(details.properties, name, property);
         legacyMembers.push(`${name}${property.optional ? '?' : ''}: ${property.type}`);
       } else if (ts.isMethodSignature(member) && member.name) {
         const name = nodeText(member.name, sourceFile);
         const signature = signatureFromDeclaration(member, checker);
-        details.methods[name] ??= [];
-        details.methods[name].push(signature);
+        appendSafeRecord(details.methods, name, signature);
         legacyMembers.push(
           `${name}${member.questionToken ? '?' : ''}(${signature.params}): ${signature.returnType}`
         );
@@ -317,27 +316,26 @@ function interfaceDetails(declarations, checker) {
 
 function jsdocForSymbol(symbol, checker) {
   const summary = ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim();
-  const tags = {};
+  const tags = createSafeRecord();
   for (const tag of symbol.getJsDocTags(checker)) {
-    tags[tag.name] ??= [];
-    tags[tag.name].push(ts.displayPartsToString(tag.text || []).trim());
+    appendSafeRecord(tags, tag.name, ts.displayPartsToString(tag.text || []).trim());
   }
   return summary || Object.keys(tags).length > 0 ? { summary, tags } : null;
 }
 
 function emptyTypeInfo() {
   return {
-    functions: {},
-    interfaces: {},
-    interfaceDetails: {},
-    types: {},
-    classes: {},
-    enums: {},
-    enumDetails: {},
-    namespaces: {},
-    variables: {},
+    functions: createSafeRecord(),
+    interfaces: createSafeRecord(),
+    interfaceDetails: createSafeRecord(),
+    types: createSafeRecord(),
+    classes: createSafeRecord(),
+    enums: createSafeRecord(),
+    enumDetails: createSafeRecord(),
+    namespaces: createSafeRecord(),
+    variables: createSafeRecord(),
     defaults: [],
-    jsdoc: {},
+    jsdoc: createSafeRecord(),
   };
 }
 
@@ -396,58 +394,66 @@ function addExport(typeInfo, exportSymbol, checker) {
     ? nodeText(declarationName, declarationName.getSourceFile())
     : null;
   const doc = jsdocForSymbol(target, checker) || jsdocForSymbol(exportSymbol, checker);
-  if (doc) typeInfo.jsdoc[exportName] = doc;
+  if (doc) setSafeRecord(typeInfo.jsdoc, exportName, doc);
 
   const signatures = signaturesForSymbol(target, declarations, checker);
   if (signatures.length > 0) {
-    typeInfo.functions[exportName] = {
+    setSafeRecord(typeInfo.functions, exportName, {
       ...signatures[0],
       overloads: signatures,
       ...(exportName === 'default' && localName ? { localName } : {}),
-    };
+    });
     return;
   }
 
   if (declarations.some(ts.isClassDeclaration)) {
-    typeInfo.classes[exportName] = classDetails(
-      declarations,
-      checker,
-      exportName === 'default' ? localName : null
+    setSafeRecord(
+      typeInfo.classes,
+      exportName,
+      classDetails(declarations, checker, exportName === 'default' ? localName : null)
     );
     return;
   }
   if (declarations.some(ts.isInterfaceDeclaration)) {
     const { details, legacyMembers } = interfaceDetails(declarations, checker);
-    typeInfo.interfaces[exportName] = legacyMembers;
-    typeInfo.interfaceDetails[exportName] = details;
+    setSafeRecord(typeInfo.interfaces, exportName, legacyMembers);
+    setSafeRecord(typeInfo.interfaceDetails, exportName, details);
     return;
   }
   const typeAlias = declarations.find(ts.isTypeAliasDeclaration);
   if (typeAlias) {
-    typeInfo.types[exportName] = nodeText(typeAlias.type, typeAlias.getSourceFile());
+    setSafeRecord(typeInfo.types, exportName, nodeText(typeAlias.type, typeAlias.getSourceFile()));
     return;
   }
   const enumDeclaration = declarations.find(ts.isEnumDeclaration);
   if (enumDeclaration) {
-    typeInfo.enums[exportName] = enumDeclaration.members.map((member) =>
-      nodeText(member.name, enumDeclaration.getSourceFile())
+    setSafeRecord(
+      typeInfo.enums,
+      exportName,
+      enumDeclaration.members.map((member) =>
+        nodeText(member.name, enumDeclaration.getSourceFile())
+      )
     );
-    typeInfo.enumDetails[exportName] = Object.fromEntries(
-      enumDeclaration.members.map((member) => [
-        nodeText(member.name, enumDeclaration.getSourceFile()),
-        member.initializer ? nodeText(member.initializer, enumDeclaration.getSourceFile()) : null,
-      ])
+    setSafeRecord(
+      typeInfo.enumDetails,
+      exportName,
+      Object.fromEntries(
+        enumDeclaration.members.map((member) => [
+          nodeText(member.name, enumDeclaration.getSourceFile()),
+          member.initializer ? nodeText(member.initializer, enumDeclaration.getSourceFile()) : null,
+        ])
+      )
     );
     return;
   }
   if (declarations.some(ts.isModuleDeclaration)) {
-    typeInfo.namespaces[exportName] = true;
+    setSafeRecord(typeInfo.namespaces, exportName, true);
     return;
   }
 
   const location = declarations[0];
   const type = checker.getTypeOfSymbolAtLocation(target, location);
-  typeInfo.variables[exportName] = { type: typeText(checker, type, location) };
+  setSafeRecord(typeInfo.variables, exportName, { type: typeText(checker, type, location) });
 }
 
 function applyFilter(typeInfo, filterList) {

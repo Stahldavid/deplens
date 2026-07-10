@@ -39,6 +39,31 @@ describe('parseDtsFile', () => {
     );
   });
 
+  it('should treat prototype-like member names as ordinary API names', () => {
+    const tempPath = path.join(import.meta.dirname, 'fixtures', 'prototype-member-names.d.ts');
+    fs.writeFileSync(
+      tempPath,
+      [
+        'export interface PrototypeNames {',
+        '  constructor(input: string): string;',
+        '  toString(): string;',
+        '  __proto__(): boolean;',
+        '}',
+      ].join('\n')
+    );
+
+    try {
+      const result = parseDtsFile(tempPath, null);
+      const methods = result.interfaceDetails.PrototypeNames.methods;
+
+      expect(methods.constructor).toHaveLength(1);
+      expect(methods.toString).toHaveLength(1);
+      expect(methods.__proto__).toHaveLength(1);
+    } finally {
+      fs.unlinkSync(tempPath);
+    }
+  });
+
   it('should parse type aliases', () => {
     const result = parseDtsFile(fixturePath, null);
     expect(result.types).toBeDefined();

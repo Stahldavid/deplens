@@ -16,6 +16,29 @@ function runCliJson(args) {
 }
 
 describe('inspect CLI', () => {
+  it('uses the compact schema v2 projection for JSON by default', () => {
+    const output = runCliJson(['zod', '--no-runtime', '--max-symbols', '2']);
+
+    expect(output).toMatchObject({
+      schemaVersion: 2,
+      kind: 'deplens-inspect',
+      detailLevel: 'compact',
+    });
+    expect(output.symbols).toHaveLength(2);
+    expect(output.pagination).toMatchObject({ offset: 0, returned: 2, nextCursor: '2' });
+  });
+
+  it('keeps schema v2 when full JSON detail is requested', () => {
+    const output = runCliJson(['zod', '--no-runtime', '--detail', 'full', '--max-symbols', '1']);
+
+    expect(output).toMatchObject({
+      schemaVersion: 2,
+      kind: 'deplens-inspect',
+      detailLevel: 'full',
+    });
+    expect(output.symbols).toHaveLength(1);
+  });
+
   it('filters runtime exports by requested kind', () => {
     const output = runCliJson(['zod', '--kind', 'class']);
 

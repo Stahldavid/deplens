@@ -21,6 +21,7 @@ Trigger this skill when the user asks about:
 - **Examples** — "show usage examples for `ai`'s `generateText`"
 - **JSDoc** — "what does the JSDoc say about `parse` in `zod`?"
 - **Version diff** — "what changed between react 18.2 and 18.3?", "is there a breaking change in zod 3.23?"
+- **Project upgrade diff / CI policy** — "which dependency upgrades are breaking?", "validate this lockfile against the baseline"
 - **Source analysis** — "how complex is the `parse` function in `zod`?", "analyze this Python package from its local project/venv", "inspect Java implementation details"
 - **A non-installed package** — "what's in `@tanstack/router` without installing it?"
 
@@ -54,7 +55,8 @@ Is the user asking about a SINGLE version of a package?
 │   ├── Want only JSDoc for a symbol?    add --jsdoc-output only --filter <symbol> --jsdoc full
 │   ├── Package not installed locally?   add --remote (--remote-version X.Y.Z optional)
 │   └── Output for an LLM/agent?         add --json
-└── No, comparing TWO versions → use `deplens diff <pkg> --from X --to Y`
+├── No, comparing TWO versions → use `deplens diff <pkg> --from X --to Y`
+└── Comparing a PROJECT/lockfile → use `deplens project-diff` or `deplens check`
 ```
 
 ## Core workflows
@@ -121,7 +123,21 @@ deplens diff zod --no-changelog               # skip CHANGELOG.md parsing
 
 Returns: breaking changes, warnings, additions, removals, optional changelog excerpt.
 
-### 8. Inspect a package that isn't installed
+Large JSON diffs are cursor-paginated. Use `--max-changes N --cursor VALUE` to continue.
+Semantic TypeScript assignability is enabled by default; `--no-semantic` is the fast fallback.
+
+### 8. Compare a project and enforce a baseline
+
+```bash
+deplens project-diff --from HEAD~1 --to working --json
+deplens check --write-baseline --baseline .deplens-baseline.json
+deplens check --baseline .deplens-baseline.json --fail-on breaking --format sarif
+```
+
+Use `--no-api` for a registry-free lockfile-only comparison. Project analysis defaults to direct
+dependencies; add `--include-transitive` only when the broader cost is justified.
+
+### 9. Inspect a package that isn't installed
 
 ```bash
 deplens @tanstack/router --remote
@@ -135,7 +151,7 @@ package/type metadata. Runtime inspection imports the package entrypoint and may
 execute package code. Remote inspections default to the safer static path unless
 `--runtime` is explicitly supplied.
 
-### 9. Semantic search across exports
+### 10. Semantic search across exports
 
 ```bash
 deplens lodash --search "deep merge"
@@ -143,7 +159,7 @@ deplens lodash --search "deep merge"
 
 Token-matches the query (with synonym expansion: `validate ↔ parse`, `auth ↔ token`, etc.) against export names and JSDoc; falls back to fuzzy token scoring if no types are available.
 
-### 10. Source-code analysis (JS / TS / Python / Java)
+### 11. Source-code analysis (JS / TS / Python / Java)
 
 ```bash
 deplens zod --analyze-source --source-max-files 5
@@ -174,22 +190,30 @@ The CLI returns an explicit warning when either language is requested.
 
 `--json` (or `--format json`) switches to a stable structured payload. **Always prefer JSON when downstream parsing or further reasoning is needed** — the text format is decorated with emojis and section headers that are hard to parse reliably.
 
-The JSON envelope has this top-level shape (full schema in [references/cli-flags.md](./references/cli-flags.md#json-output-schema)):
+The CLI defaults to a compact, cursor-paginated schema v2 envelope (full schema in [references/cli-flags.md](./references/cli-flags.md#json-output-schema)):
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "kind": "deplens-inspect",
+  "detailLevel": "compact",
   "package": "zod",
   "version": "4.3.6",
   "exports": { "total": 3, "functions": [...], "classes": [...], "objects": [...], "constants": [...] },
-  "types":   { "source": "index.d.cts", "functions": {...}, "interfaces": {...}, "classes": {...}, "types": {...}, "enums": {...} },
-  "docs":    { ... },        // only if --docs / --docs-sections / --list-sections
-  "examples":{ ... },        // only if --examples
+  "staticExports": { "total": 280, "names": [...] },
   "resolution": { "resolveCwd": "...", "entrypointPath": "...", "entrypointExists": true },
   "meta":    { ... },
-  "warnings":[]
+  "warnings":[],
+  "symbols": [
+    { "exportName": "parse", "subpath": ".", "facets": ["types"], "availability": "types-only", "kind": "function", "signature": "..." }
+  ],
+  "pagination": { "total": 280, "offset": 0, "returned": 250, "nextCursor": "250" }
 }
 ```
+
+Use `--detail full` for the complete projected payload, or `--select types,docs,examples,symbols`
+to request specific rich sections. Direct `@deplens/core` calls without projection retain the
+legacy schema v1 payload for compatibility; the CLI JSON contract is schema v2.
 
 ### Large outputs — keep responses focused
 

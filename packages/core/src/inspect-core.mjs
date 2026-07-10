@@ -11,6 +11,18 @@ import { downloadVersion, resolveVersionAsync } from './version-resolver.mjs';
 import { getCachedDtsParse, generateDts, filterTypeInfo } from './inspect-types.mjs';
 import { buildSymbols } from './symbols.mjs';
 import { buildResolutionTrace } from './resolution-trace.mjs';
+import { errorPayload, throwIfAborted } from './errors.mjs';
+import { isProbablyClass, loadModuleExports } from './runtime-analyzer.mjs';
+import { createInspectSnapshot } from './analysis-snapshot.mjs';
+import {
+  expandSynonyms,
+  extractMarkdownCodeFences,
+  extractSectionsByName,
+  listReadmeSections,
+  looksLikeCodeBlock,
+  rankReadmeSections,
+  tokenizeSymbolName,
+} from './docs-analyzer.mjs';
 
 function getPackageName(target) {
   if (!target) return target;
@@ -538,52 +550,6 @@ function resolveTypesFile(pkg, pkgDir, subpath, basePkgName, require, resolvedPa
   return { typesFile, dtsPath, source };
 }
 
-function normalizeCjsExports(exportsValue) {
-  if (exportsValue === null || exportsValue === undefined) {
-    return { default: exportsValue };
-  }
-  if (typeof exportsValue === 'object' || typeof exportsValue === 'function') {
-    const namespace = Object.create(null);
-    Object.defineProperties(namespace, Object.getOwnPropertyDescriptors(exportsValue));
-    Object.defineProperty(namespace, 'default', {
-      value: exportsValue,
-      enumerable: true,
-      configurable: true,
-    });
-    return namespace;
-  }
-  return { default: exportsValue };
-}
-
-function detectModuleFormat(resolvedPath, pkg) {
-  const ext = path.extname(resolvedPath);
-  if (ext === '.cjs' || ext === '.cts') return 'cjs';
-  if (ext === '.mjs' || ext === '.mts') return 'esm';
-  if (pkg?.type === 'module') return 'esm';
-  return 'cjs';
-}
-
-function isProbablyClass(fn) {
-  if (typeof fn !== 'function') return false;
-  const source = Function.prototype.toString.call(fn);
-  if (source.startsWith('class ')) return true;
-  if (fn.prototype) {
-    const protoProps = Object.getOwnPropertyNames(fn.prototype).filter((p) => p !== 'constructor');
-    if (protoProps.length > 0) return true;
-  }
-  return false;
-}
-
-async function loadModuleExports(resolvedPath, require, pkg) {
-  const format = detectModuleFormat(resolvedPath, pkg);
-  if (format === 'cjs') {
-    const mod = require(resolvedPath);
-    return { module: normalizeCjsExports(mod), format };
-  }
-  const mod = await import(pathToFileURL(resolvedPath).href);
-  return { module: mod, format };
-}
-
 /* eslint-disable-next-line no-unused-vars */
 function buildSymbolMatcher(symbols, fallbackFilter) {
   const patterns = [];
@@ -625,183 +591,6 @@ function buildSymbolMatcher(symbols, fallbackFilter) {
       return lower.includes(pattern.value);
     });
   };
-}
-
-function looksLikeCodeBlock(s) {
-  if (!s) return false;
-  const text = String(s);
-  // Heuristic: code fences, imports, function/class, const/let, or prompts
-  return (
-    text.includes('```') ||
-    /\b(import|export)\b/.test(text) ||
-    /\b(function|class)\b/.test(text) ||
-    /\b(const|let|var)\b/.test(text) ||
-    /\=\>/.test(text)
-  );
-}
-
-function extractMarkdownCodeFences(markdown, maxBlocks = 12, maxLinesPerBlock = 40) {
-  if (!markdown) return [];
-  const text = String(markdown);
-  const blocks = [];
-  const regex = /```([^\n`]*)\n([\s\S]*?)```/g;
-  let match;
-  while ((match = regex.exec(text)) && blocks.length < maxBlocks) {
-    const lang = String(match[1] || '').trim();
-    const body = String(match[2] || '').trim();
-    if (!body) continue;
-    const limited = body.split('\n').slice(0, maxLinesPerBlock).join('\n').trim();
-    if (!limited) continue;
-    blocks.push({ lang, code: limited });
-  }
-  return blocks;
-}
-
-/**
- * Extract markdown sections (headers) from README
- * Returns array of { level, title, content, codeBlocks }
- */
-function extractMarkdownSections(markdown) {
-  if (!markdown) return [];
-  const lines = String(markdown).split('\n');
-  const sections = [];
-  let currentSection = null;
-  let contentLines = [];
-
-  const flushSection = () => {
-    if (currentSection) {
-      const content = contentLines.join('\n').trim();
-      currentSection.content = content;
-      currentSection.codeBlocks = extractMarkdownCodeFences(content, 5, 30);
-      sections.push(currentSection);
-    }
-  };
-
-  for (const line of lines) {
-    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headerMatch) {
-      flushSection();
-      currentSection = {
-        level: headerMatch[1].length,
-        title: headerMatch[2].trim(),
-        content: '',
-        codeBlocks: [],
-      };
-      contentLines = [];
-    } else if (currentSection) {
-      contentLines.push(line);
-    }
-  }
-  flushSection();
-
-  return sections;
-}
-
-/**
- * List available section names from README
- */
-function listReadmeSections(markdown) {
-  const sections = extractMarkdownSections(markdown);
-  return sections.map((s) => ({
-    level: s.level,
-    title: s.title,
-    hasCode: s.codeBlocks.length > 0,
-    charCount: s.content.length,
-  }));
-}
-
-/**
- * Extract specific sections by name (case-insensitive, partial match)
- */
-function extractSectionsByName(markdown, sectionNames, maxCharsPerSection = 4000) {
-  if (!sectionNames || sectionNames.length === 0) return [];
-  const sections = extractMarkdownSections(markdown);
-  const results = [];
-  const namesLower = sectionNames.map((n) => n.toLowerCase());
-
-  for (const section of sections) {
-    const titleLower = section.title.toLowerCase();
-    const matches = namesLower.some(
-      (name) => titleLower.includes(name) || name.includes(titleLower)
-    );
-    if (matches) {
-      results.push({
-        title: section.title,
-        level: section.level,
-        content: section.content.slice(0, maxCharsPerSection),
-        codeBlocks: section.codeBlocks,
-        truncated: section.content.length > maxCharsPerSection,
-      });
-    }
-  }
-  return results;
-}
-
-function rankReadmeSections(markdown, needle, maxSections = 5, maxCharsPerSection = 4000) {
-  if (!markdown || !needle) return [];
-  const sections = extractMarkdownSections(markdown);
-  const tokens = expandSynonyms(tokenizeSymbolName(needle));
-  const lowerNeedle = String(needle).toLowerCase();
-  const ranked = sections.map((section, index) => {
-    const titleLower = section.title.toLowerCase();
-    const contentLower = section.content.toLowerCase();
-    let score = 0;
-    if (titleLower.includes(lowerNeedle)) score += 50;
-    score += (contentLower.split(lowerNeedle).length - 1) * 20;
-    for (const token of tokens) {
-      if (titleLower.includes(token)) score += 10;
-      score += (contentLower.split(token).length - 1) * 3;
-    }
-    if (section.codeBlocks.some((block) => block.code.toLowerCase().includes(lowerNeedle))) {
-      score += 30;
-    }
-    return { section, index, score };
-  });
-
-  return ranked
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, maxSections)
-    .map(({ section, score }) => ({
-      title: section.title,
-      level: section.level,
-      score,
-      content: section.content.slice(0, maxCharsPerSection),
-      codeBlocks: section.codeBlocks,
-      truncated: section.content.length > maxCharsPerSection,
-    }));
-}
-
-/**
- * Tokenize symbol name (camelCase, snake_case, kebab-case)
- */
-function tokenizeSymbolName(name) {
-  if (!name) return [];
-  // Split on camelCase, snake_case, kebab-case, dots
-  return String(name)
-    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase
-    .replace(/[_\-\.]/g, ' ') // snake_case, kebab-case, dots
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 1); // ignore single chars
-}
-
-function expandSynonyms(tokens) {
-  const map = {
-    validate: ['parse', 'check', 'assert', 'verify', 'safe'],
-    validation: ['parse', 'check', 'assert', 'verify', 'safe'],
-    schema: ['object', 'shape', 'struct'],
-    http: ['fetch', 'request'],
-    auth: ['token', 'session', 'login'],
-  };
-
-  const expanded = new Set(tokens);
-  for (const t of tokens) {
-    const syns = map[t];
-    if (syns) syns.forEach((s) => expanded.add(s));
-  }
-  return Array.from(expanded);
 }
 
 /**
@@ -1106,6 +895,7 @@ function inspectObject(obj, currentDepth = 0, maxDepth = 1, maxPropsLimit = 10, 
 }
 
 export async function runInspectCore(options) {
+  throwIfAborted(options?.signal, 'inspect');
   let sourceAnalysis;
   let detectedLang;
   let languageAnalysis;
@@ -1170,43 +960,25 @@ export async function runInspectCore(options) {
   // JSON output collector (also used for format="object")
   const jsonOutput =
     format === 'json' || format === 'object' || captureResult
-      ? {
-          schemaVersion: 1,
-          package: null,
-          version: null,
-          description: null,
-          exports: null,
-          staticExports: null,
-          types: null,
-          docs: null,
-          sections: null,
-          examples: null,
-          symbols: null,
-          sourceAnalysis: null,
-          languageAnalysis: null,
-          resolution: null,
-          pkgDir: null,
-          meta: {
-            target: target || null,
-            includeDocs,
-            docsFor,
-            includeExamples,
-            examplesFor,
-            showTypes,
-            remote,
-            remoteVersion,
-            runtime: runtimeEnabled,
-            offline: Boolean(options?.offline),
-            listSections,
-            docsSections: docsSections || null,
-            search,
-            format,
-            maxExports,
-            maxProps,
-            maxExamples,
-          },
-          warnings: [],
-        }
+      ? createInspectSnapshot({
+          target: target || null,
+          includeDocs,
+          docsFor,
+          includeExamples,
+          examplesFor,
+          showTypes,
+          remote,
+          remoteVersion,
+          runtime: runtimeEnabled,
+          offline: Boolean(options?.offline),
+          listSections,
+          docsSections: docsSections || null,
+          search,
+          format,
+          maxExports,
+          maxProps,
+          maxExamples,
+        })
       : null;
 
   let resultCaptured = false;
@@ -1258,10 +1030,15 @@ export async function runInspectCore(options) {
         try {
           const exactVersion = options?.offline
             ? spec
-            : await resolveVersionAsync(basePkgName, spec, baseCwd || process.cwd());
+            : await resolveVersionAsync(basePkgName, spec, baseCwd || process.cwd(), {
+                signal: options?.signal,
+                timeoutMs: options?.timeoutMs,
+              });
           log(`   ResolvedVersion: ${exactVersion}`);
           const downloaded = await downloadVersion(basePkgName, exactVersion, {
-            timeout: 120000,
+            timeout: Number(options?.timeoutMs) || 120000,
+            cacheDir: options?.cacheDir,
+            signal: options?.signal,
             preferCdn: Boolean(options?.preferCdn),
             offline: Boolean(options?.offline),
           });
@@ -1278,7 +1055,14 @@ export async function runInspectCore(options) {
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           if (jsonOutput) {
-            jsonOutput.error = `Remote download failed: ${message}`;
+            const structuredError = errorPayload(e, {
+              code: 'REMOTE_DOWNLOAD_FAILED',
+              phase: 'download',
+              retryable: true,
+              details: { package: basePkgName, version: spec },
+            });
+            jsonOutput.error = `Remote download failed: ${structuredError.error}`;
+            jsonOutput.errorInfo = structuredError.errorInfo;
             jsonOutput.warnings.push(jsonOutput.error);
             jsonOutput.resolution = {
               target,
@@ -2087,6 +1871,7 @@ export async function runInspectCore(options) {
           runtimeAvailable,
           typesPath: relativeTypesPath,
           typesSource,
+          explicitConditions: options?.conditions || null,
         });
       }
       const runtimeCondition =

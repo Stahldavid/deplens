@@ -8,6 +8,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { promisify } from 'util';
+import { createOperationSignal, throwIfAborted } from './errors.mjs';
 
 const execFileAsync = promisify(execFile);
 const activeDownloads = new Map();
@@ -15,31 +16,40 @@ const activeDownloads = new Map();
 class UnsafePackagePathError extends Error {}
 
 // Use user's home directory for more reliable caching
-const CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'versions');
+const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.deplens-cache', 'versions');
+
+export function getDefaultCacheDir() {
+  return path.resolve(process.env.DEPLENS_CACHE_DIR || DEFAULT_CACHE_DIR);
+}
+
+function resolveCacheDir(cacheDir) {
+  return path.resolve(cacheDir || getDefaultCacheDir());
+}
 
 /**
  * Ensure cache directory exists
  */
-function ensureCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
+function ensureCacheDir(cacheDir) {
+  const resolved = resolveCacheDir(cacheDir);
+  if (!fs.existsSync(resolved)) {
+    fs.mkdirSync(resolved, { recursive: true });
   }
-  return CACHE_DIR;
+  return resolved;
 }
 
 /**
  * Get cache path for a specific package version
  */
-function getCachePath(packageName, version) {
+function getCachePath(packageName, version, cacheDir) {
   const safeName = packageName.replace(/[/@]/g, '_');
-  return path.join(ensureCacheDir(), `${safeName}@${version}`);
+  return path.join(ensureCacheDir(cacheDir), `${safeName}@${version}`);
 }
 
 /**
  * Check if version is already cached
  */
-function isCached(packageName, version) {
-  const cachePath = getCachePath(packageName, version);
+function isCached(packageName, version, cacheDir) {
+  const cachePath = getCachePath(packageName, version, cacheDir);
   const packageJsonPath = path.join(cachePath, 'node_modules', packageName, 'package.json');
   if (!fs.existsSync(packageJsonPath)) return false;
   try {
@@ -230,26 +240,28 @@ function normalizePackageForUrl(packageName) {
   return packageName;
 }
 
-async function fetchText(url, timeoutMs) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function fetchText(url, timeoutMs, signal) {
+  const operation = createOperationSignal(signal, timeoutMs, 'download');
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    throwIfAborted(operation.signal, 'download');
+    const res = await fetch(url, { signal: operation.signal });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}`);
     }
     return await res.text();
   } finally {
-    clearTimeout(timeout);
+    operation.dispose();
   }
 }
 
-export async function getLatestVersionAsync(packageName) {
+export async function getLatestVersionAsync(packageName, options = {}) {
+  throwIfAborted(options.signal, 'version-resolution');
   assertValidPackageName(packageName);
   try {
     const { stdout } = await runNpmAsync(['view', packageName, 'version'], {
       encoding: 'utf8',
-      timeout: 30000,
+      timeout: Number(options.timeoutMs) || 30000,
+      signal: options.signal,
       maxBuffer: 1024 * 1024,
     });
     return stdout.trim();
@@ -314,10 +326,11 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function acquireCacheLock(cachePath, timeoutMs) {
+async function acquireCacheLock(cachePath, timeoutMs, signal) {
   const lockPath = `${cachePath}.lock`;
   const startedAt = Date.now();
   while (true) {
+    throwIfAborted(signal, 'cache-lock');
     try {
       const descriptor = fs.openSync(lockPath, 'wx');
       fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
@@ -366,7 +379,7 @@ function summarizeProcessError(error) {
     .join(' ');
 }
 
-async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs) {
+async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs, signal) {
   // Strategy:
   // 1) Read package.json from CDN
   // 2) Determine types entry (types/typings) or fallback index.d.ts
@@ -379,8 +392,9 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
   ];
 
   for (const base of baseUrls) {
+    throwIfAborted(signal, 'download');
     try {
-      const pkgJsonText = await fetchText(`${base}/package.json`, timeoutMs);
+      const pkgJsonText = await fetchText(`${base}/package.json`, timeoutMs, signal);
       const pkg = JSON.parse(pkgJsonText);
 
       const packageDir = path.join(cachePath, 'node_modules', packageName);
@@ -400,7 +414,7 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
       const dtsUrl = `${base}/${safeTypesFile.normalized}`;
 
       try {
-        const dtsText = await fetchText(dtsUrl, timeoutMs);
+        const dtsText = await fetchText(dtsUrl, timeoutMs, signal);
         const dtsPath = safeTypesFile.destination;
         fs.mkdirSync(path.dirname(dtsPath), { recursive: true });
         fs.writeFileSync(dtsPath, dtsText, 'utf-8');
@@ -420,7 +434,7 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
         try {
           const safeEntry = safePackageRelativePath(packageDir, entry);
           if (!safeEntry) continue;
-          const entryText = await fetchText(`${base}/${safeEntry.normalized}`, timeoutMs);
+          const entryText = await fetchText(`${base}/${safeEntry.normalized}`, timeoutMs, signal);
           const entryPath = safeEntry.destination;
           fs.mkdirSync(path.dirname(entryPath), { recursive: true });
           fs.writeFileSync(entryPath, entryText, 'utf-8');
@@ -451,12 +465,20 @@ async function tryFetchPackageFromCdn(packageName, version, cachePath, timeoutMs
 async function downloadVersionUnlocked(packageName, version, options = {}) {
   assertValidPackageName(packageName);
   assertSafeVersionSpec(version);
-  const { force = false, timeout = 60000, preferCdn = false, offline = false } = options;
+  const {
+    force = false,
+    timeout = options.timeoutMs || 60000,
+    preferCdn = false,
+    offline = false,
+    cacheDir,
+    signal,
+  } = options;
 
-  const cachePath = getCachePath(packageName, version);
+  throwIfAborted(signal, 'download');
+  const cachePath = getCachePath(packageName, version, cacheDir);
 
   // Return cached if available
-  if (!force && isCached(packageName, version)) {
+  if (!force && isCached(packageName, version, cacheDir)) {
     if (offline || preferCdn || isNpmInstallCache(cachePath)) {
       const packageDir = path.join(cachePath, 'node_modules', packageName);
       const metadata =
@@ -474,10 +496,10 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
   if (offline) {
     throw new Error(`${packageName}@${version} is not cached and --offline was requested`);
   }
-  const releaseLock = await acquireCacheLock(cachePath, timeout);
+  const releaseLock = await acquireCacheLock(cachePath, timeout, signal);
   let stagingPath = null;
   try {
-    if (!force && isCached(packageName, version)) {
+    if (!force && isCached(packageName, version, cacheDir)) {
       const packageDir = path.join(cachePath, 'node_modules', packageName);
       return {
         path: cachePath,
@@ -493,7 +515,13 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
     fs.mkdirSync(stagingPath, { recursive: true });
 
     if (preferCdn && typeof fetch === 'function') {
-      const fetched = await tryFetchPackageFromCdn(packageName, version, stagingPath, timeout);
+      const fetched = await tryFetchPackageFromCdn(
+        packageName,
+        version,
+        stagingPath,
+        timeout,
+        signal
+      );
       if (fetched) {
         const metadata = writeCacheMetadata(
           stagingPath,
@@ -528,6 +556,7 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
         {
           encoding: 'utf8',
           timeout,
+          signal,
           cwd: stagingPath,
           maxBuffer: 10 * 1024 * 1024,
         }
@@ -566,7 +595,7 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
 }
 
 export async function downloadVersion(packageName, version, options = {}) {
-  const key = `${packageName}@${version}`;
+  const key = `${resolveCacheDir(options.cacheDir)}:${packageName}@${version}`;
   if (activeDownloads.has(key)) return activeDownloads.get(key);
   const download = downloadVersionUnlocked(packageName, version, options).finally(() => {
     activeDownloads.delete(key);
@@ -614,9 +643,15 @@ export function resolveVersion(packageName, versionSpec, projectDir = process.cw
   return versionSpec;
 }
 
-export async function resolveVersionAsync(packageName, versionSpec, projectDir = process.cwd()) {
+export async function resolveVersionAsync(
+  packageName,
+  versionSpec,
+  projectDir = process.cwd(),
+  options = {}
+) {
+  throwIfAborted(options.signal, 'version-resolution');
   assertValidPackageName(packageName);
-  if (versionSpec === 'latest') return getLatestVersionAsync(packageName);
+  if (versionSpec === 'latest') return getLatestVersionAsync(packageName, options);
   if (versionSpec === 'installed') {
     const installed = getInstalledVersion(packageName, projectDir);
     if (!installed) throw new Error(`${packageName} is not installed in ${projectDir}`);
@@ -628,6 +663,7 @@ export async function resolveVersionAsync(packageName, versionSpec, projectDir =
       const { stdout } = await runNpmAsync(['view', `${packageName}@${versionSpec}`, 'version'], {
         encoding: 'utf8',
         timeout: 30000,
+        signal: options.signal,
         maxBuffer: 2 * 1024 * 1024,
       });
       return stdout.trim().split(/\r?\n/).at(-1).trim();
@@ -642,7 +678,8 @@ export async function pinCache(packageName, versionSpec, options = {}) {
   const version = await resolveVersionAsync(
     packageName,
     versionSpec,
-    options.projectDir || process.cwd()
+    options.projectDir || process.cwd(),
+    options
   );
   const result = await downloadVersion(packageName, version, {
     ...options,
@@ -663,8 +700,8 @@ export async function downloadVersionPair(packageName, fromSpec, toSpec, options
 
   // Resolve version specs to actual versions
   const [fromVersion, toVersion] = await Promise.all([
-    resolveVersionAsync(packageName, fromSpec, projectDir),
-    resolveVersionAsync(packageName, toSpec, projectDir),
+    resolveVersionAsync(packageName, fromSpec, projectDir, options),
+    resolveVersionAsync(packageName, toSpec, projectDir, options),
   ]);
 
   if (fromVersion === toVersion) {
@@ -740,7 +777,7 @@ function inspectCacheEntry(entryPath, entryName) {
 }
 
 export function migrateCache(options = {}) {
-  const cacheDir = path.resolve(options.cacheDir || CACHE_DIR);
+  const cacheDir = resolveCacheDir(options.cacheDir);
   const exact = Boolean(options.exact);
   const dryRun = Boolean(options.dryRun);
   const removeAliases = options.removeAliases !== false;
@@ -824,7 +861,7 @@ export function migrateCache(options = {}) {
 }
 
 export function pruneCache(options = {}) {
-  const cacheDir = path.resolve(options.cacheDir || CACHE_DIR);
+  const cacheDir = resolveCacheDir(options.cacheDir);
   const dryRun = Boolean(options.dryRun);
   const removeAliases = options.removeAliases !== false;
   const removeInvalid = options.removeInvalid !== false;
@@ -888,22 +925,23 @@ export function pruneCache(options = {}) {
 /**
  * Clear version cache
  */
-export function clearCache(packageName = null) {
+export function clearCache(packageName = null, options = {}) {
+  const cacheDir = resolveCacheDir(options.cacheDir);
   if (packageName) {
-    if (!fs.existsSync(CACHE_DIR)) return;
+    if (!fs.existsSync(cacheDir)) return;
     const safeName = packageName.replace(/[/@]/g, '_');
-    const entries = fs.readdirSync(CACHE_DIR);
+    const entries = fs.readdirSync(cacheDir);
     for (const entry of entries) {
       if (entry.startsWith(safeName + '@')) {
-        fs.rmSync(path.join(CACHE_DIR, entry), {
+        fs.rmSync(path.join(cacheDir, entry), {
           recursive: true,
           force: true,
         });
       }
     }
   } else {
-    if (fs.existsSync(CACHE_DIR)) {
-      fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
     }
   }
 }
@@ -913,16 +951,17 @@ export function clearCache(packageName = null) {
  */
 export function getCacheStats(options = {}) {
   const { exact = false } = options;
-  if (!fs.existsSync(CACHE_DIR)) {
+  const cacheDir = resolveCacheDir(options.cacheDir);
+  if (!fs.existsSync(cacheDir)) {
     return { entries: 0, size: 0, packages: [], exact: true };
   }
 
-  const entries = fs.readdirSync(CACHE_DIR);
+  const entries = fs.readdirSync(cacheDir);
   let totalSize = 0;
   const packages = [];
 
   for (const entry of entries) {
-    const entryPath = path.join(CACHE_DIR, entry);
+    const entryPath = path.join(cacheDir, entry);
     const stats = fs.statSync(entryPath);
     if (stats.isDirectory()) {
       const metadata = readCacheMetadata(entryPath);

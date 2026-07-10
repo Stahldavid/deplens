@@ -78,6 +78,13 @@ async function loadRunDiff() {
   return fn;
 }
 
+async function loadCoreFunction(name) {
+  const core = await loadCore();
+  const fn = core[name] || core.default?.[name];
+  if (typeof fn !== 'function') throw new Error(`${name} not exported by @deplens/core`);
+  return fn;
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -114,6 +121,16 @@ function buildErrorResponse(error, fallbackStructured) {
     structuredContent: {
       ...fallbackStructured,
       error: message,
+      ...(error?.code
+        ? {
+            errorInfo: {
+              code: error.code,
+              phase: error.phase || 'unknown',
+              retryable: Boolean(error.retryable),
+              details: error.details || null,
+            },
+          }
+        : {}),
       warnings: [message],
     },
   };
@@ -272,6 +289,15 @@ const inspectInputShape = {
     .enum(['javascript', 'typescript', 'python', 'java', 'rust', 'go'])
     .optional()
     .describe('Force language detection instead of auto-detecting from the package layout'),
+  detail: z.enum(['compact', 'full']).optional().describe('Structured output detail level'),
+  select: z.array(z.string()).optional().describe('Structured sections to include'),
+  cursor: z.string().optional().describe('Symbol pagination cursor'),
+  conditions: z
+    .array(z.string())
+    .optional()
+    .describe('Package export conditions in priority order'),
+  cacheDir: z.string().optional().describe('Override the DepLens version cache directory'),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
 };
 
 const InspectInputSchema = z.object(inspectInputShape).strict();
@@ -280,9 +306,11 @@ const InspectInputSchema = z.object(inspectInputShape).strict();
 
 const inspectOutputShape = {
   schemaVersion: z.number(),
-  package: z.string().nullable(),
-  version: z.string().nullable(),
-  description: z.string().nullable(),
+  kind: z.string().optional(),
+  detailLevel: z.enum(['compact', 'full']).optional(),
+  package: z.string().nullable().optional(),
+  version: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   resolution: z
     .object({
       target: z.string().nullable(),
@@ -293,8 +321,9 @@ const inspectOutputShape = {
       entrypointExists: z.boolean(),
     })
     .catchall(z.any())
-    .nullable(),
-  pkgDir: z.string().nullable(),
+    .nullable()
+    .optional(),
+  pkgDir: z.string().nullable().optional(),
   exports: z
     .object({
       total: z.number(),
@@ -303,23 +332,27 @@ const inspectOutputShape = {
       objects: z.array(z.string()),
       constants: z.array(z.string()),
     })
-    .nullable(),
+    .nullable()
+    .optional(),
   staticExports: z
     .object({
       total: z.number(),
       names: z.array(z.string()),
     })
-    .nullable(),
-  types: z.record(z.any()).nullable(),
-  docs: z.record(z.any()).nullable(),
-  sections: z.array(z.record(z.any())).nullable(),
-  examples: z.record(z.any()).nullable(),
-  symbols: z.array(z.record(z.any())).nullable(),
-  sourceAnalysis: z.record(z.any()).nullable(),
-  languageAnalysis: z.record(z.any()).nullable(),
-  meta: z.record(z.any()).nullable(),
-  warnings: z.array(z.string()),
+    .nullable()
+    .optional(),
+  types: z.record(z.any()).nullable().optional(),
+  docs: z.record(z.any()).nullable().optional(),
+  sections: z.array(z.record(z.any())).nullable().optional(),
+  examples: z.record(z.any()).nullable().optional(),
+  symbols: z.array(z.record(z.any())).nullable().optional(),
+  pagination: z.record(z.any()).optional(),
+  sourceAnalysis: z.record(z.any()).nullable().optional(),
+  languageAnalysis: z.record(z.any()).nullable().optional(),
+  meta: z.record(z.any()).nullable().optional(),
+  warnings: z.array(z.string()).optional(),
   error: z.string().optional(),
+  errorInfo: z.record(z.any()).optional(),
 };
 
 // Note: the SDK serializes `inspectOutputShape` into JSON Schema for clients
@@ -346,7 +379,7 @@ const emptyInspectStructured = () => ({
   warnings: [],
 });
 
-async function handleInspect(params) {
+async function handleInspect(params, extra = {}) {
   debug('inspect args', params);
   const runInspect = await loadRunInspect();
 
@@ -381,6 +414,14 @@ async function handleInspect(params) {
     maxExports: params.maxExports,
     maxProps: params.maxProps,
     maxExamples: params.maxExamples,
+    maxSymbols: params.maxSymbols,
+    detail: params.detail,
+    select: params.select,
+    cursor: params.cursor,
+    conditions: params.conditions,
+    cacheDir: params.cacheDir,
+    timeoutMs: params.timeoutMs,
+    signal: extra.signal,
   };
 
   const structured = await runInspect({ ...sharedOpts, format: 'object' });
@@ -493,6 +534,18 @@ const diffInputShape = {
     .string()
     .optional()
     .describe('Working directory for the inspection (default: $DEPLENS_ROOT or process.cwd())'),
+  conditions: z
+    .array(z.string())
+    .optional()
+    .describe('Package export conditions in priority order'),
+  cacheDir: z.string().optional().describe('Override the DepLens version cache directory'),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
+  semantic: z
+    .boolean()
+    .optional()
+    .describe('Run TypeScript assignability validation (default: true)'),
+  maxChanges: z.number().int().positive().max(10_000).optional(),
+  cursor: z.string().optional().describe('Change pagination cursor'),
 };
 
 const DiffInputSchema = z.object(diffInputShape).strict();
@@ -508,6 +561,8 @@ const diffOutputShape = {
   changes: z.array(z.record(z.any())).nullable(),
   symbols: z.record(z.any()).nullable(),
   sourceComparison: z.record(z.any()).nullable(),
+  semanticCompatibility: z.record(z.any()).nullable().optional(),
+  pagination: z.record(z.any()).nullable().optional(),
   changelog: z.record(z.any()).nullable(),
   meta: z.record(z.any()).nullable(),
   error: z.string().optional(),
@@ -516,7 +571,7 @@ const diffOutputShape = {
 
 // (See note above on inspectOutputShape — same applies here.)
 
-async function handleDiff(params) {
+async function handleDiff(params, extra = {}) {
   debug('diff args', params);
   const runDiff = await loadRunDiff();
 
@@ -540,6 +595,13 @@ async function handleDiff(params) {
     format: coreFormat,
     verbose: Boolean(params.verbose),
     colors: false, // never emit ANSI codes through MCP
+    conditions: params.conditions,
+    cacheDir: params.cacheDir,
+    timeoutMs: params.timeoutMs,
+    semantic: params.semantic !== false,
+    maxChanges: params.maxChanges,
+    cursor: params.cursor,
+    signal: extra.signal,
   });
 
   let jsonPayload = null;
@@ -578,6 +640,9 @@ async function handleDiff(params) {
     changes,
     symbols: jsonPayload?.symbols || result?.symbols || result?.diff?.symbols || null,
     sourceComparison: result?.diff?.sourceComparison || jsonPayload?.sourceComparison || null,
+    semanticCompatibility:
+      result?.diff?.semanticCompatibility || jsonPayload?.semanticCompatibility || null,
+    pagination: jsonPayload?.pagination || null,
     changelog: result?.changelog || jsonPayload?.changelog || null,
     meta: jsonPayload?.meta || null,
     error: result?.error || jsonPayload?.error,
@@ -619,6 +684,246 @@ async function handleDiff(params) {
 }
 
 // ---------------------------------------------------------------------------
+// Project, policy, doctor, and version tools
+// ---------------------------------------------------------------------------
+
+const ProjectFormatEnum = z.enum(['text', 'json', 'object', 'sarif']);
+const projectInputShape = {
+  from: z
+    .string()
+    .optional()
+    .describe('Git ref or lockfile path for the baseline (default: HEAD~1)'),
+  to: z.string().optional().describe('Git ref or lockfile path for the target (default: working)'),
+  rootDir: z.string().optional(),
+  lockfile: z.string().optional().describe('Lockfile path inside Git refs'),
+  analyze: z.boolean().optional().describe('Enrich direct dependency changes with API diffs'),
+  includeTransitive: z.boolean().optional(),
+  includeSource: z.boolean().optional(),
+  runtime: z.boolean().optional(),
+  semantic: z.boolean().optional(),
+  preferCdn: z.boolean().optional(),
+  offline: z.boolean().optional(),
+  conditions: z.array(z.string()).optional(),
+  cacheDir: z.string().optional(),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
+  concurrency: z.number().int().positive().max(16).optional(),
+  format: ProjectFormatEnum.optional(),
+};
+const ProjectInputSchema = z.object(projectInputShape).strict();
+const projectOutputShape = {
+  schemaVersion: z.number(),
+  kind: z.string(),
+  from: z.record(z.any()).nullable(),
+  to: z.record(z.any()).nullable(),
+  summary: z.record(z.any()),
+  changes: z.array(z.record(z.any())),
+  warnings: z.array(z.string()),
+  error: z.string().optional(),
+  errorInfo: z.record(z.any()).optional(),
+};
+
+const DoctorInputSchema = z
+  .object({
+    target: z.string().min(1),
+    rootDir: z.string().optional(),
+    remote: z.boolean().optional(),
+    remoteVersion: z.string().optional(),
+    runtime: z.boolean().optional(),
+    preferCdn: z.boolean().optional(),
+    offline: z.boolean().optional(),
+    conditions: z.array(z.string()).optional(),
+    cacheDir: z.string().optional(),
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    format: FormatEnum.optional(),
+  })
+  .strict();
+const doctorOutputShape = {
+  schemaVersion: z.number(),
+  target: z.string().nullable(),
+  package: z.string().nullable(),
+  version: z.string().nullable(),
+  status: z.string(),
+  summary: z.record(z.any()),
+  resolution: z.record(z.any()).nullable(),
+  checks: z.array(z.record(z.any())),
+  suggestions: z.array(z.string()),
+  warnings: z.array(z.string()),
+  symbols: z.record(z.any()),
+  error: z.string().optional(),
+};
+
+const CheckInputSchema = z
+  .object({
+    baseline: z.string().min(1).describe('Path to a DepLens baseline JSON file'),
+    rootDir: z.string().optional(),
+    lockfile: z.string().optional(),
+    config: z.string().optional(),
+    failOn: z.enum(['breaking', 'warning', 'change', 'none']).optional(),
+    analyze: z.boolean().optional(),
+    includeTransitive: z.boolean().optional(),
+    includeSource: z.boolean().optional(),
+    runtime: z.boolean().optional(),
+    semantic: z.boolean().optional(),
+    preferCdn: z.boolean().optional(),
+    offline: z.boolean().optional(),
+    conditions: z.array(z.string()).optional(),
+    cacheDir: z.string().optional(),
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    concurrency: z.number().int().positive().max(16).optional(),
+    format: ProjectFormatEnum.optional(),
+  })
+  .strict();
+const checkOutputShape = {
+  schemaVersion: z.number(),
+  kind: z.string(),
+  passed: z.boolean(),
+  failOn: z.string(),
+  summary: z.record(z.any()),
+  violations: z.array(z.record(z.any())),
+  report: z.record(z.any()),
+  policy: z.record(z.any()),
+  error: z.string().optional(),
+};
+
+const VersionsInputSchema = z
+  .object({
+    package: z.string().min(1),
+    limit: z.number().int().positive().max(500).optional(),
+  })
+  .strict();
+const versionsOutputShape = {
+  schemaVersion: z.number(),
+  kind: z.string(),
+  package: z.string(),
+  latest: z.string(),
+  versions: z.array(z.string()),
+  total: z.number(),
+};
+
+function toolResponse(structuredContent, text, isError = false) {
+  return {
+    ...(isError ? { isError: true } : {}),
+    content: [{ type: 'text', text }],
+    structuredContent,
+  };
+}
+
+function progressReporter(extra) {
+  const progressToken = extra?._meta?.progressToken;
+  if (progressToken === undefined || typeof extra?.sendNotification !== 'function')
+    return undefined;
+  return (progress) => {
+    Promise.resolve(
+      extra.sendNotification({
+        method: 'notifications/progress',
+        params: { progressToken, progress: progress.completed, total: progress.total },
+      })
+    ).catch(() => {});
+  };
+}
+
+async function handleDoctor(params, extra = {}) {
+  const runDoctor = await loadCoreFunction('runDoctor');
+  const rootDir = params.rootDir || process.env.DEPLENS_ROOT || process.cwd();
+  const report = await runDoctor({
+    ...params,
+    cwd: rootDir,
+    format: 'object',
+    signal: extra.signal,
+  });
+  return toolResponse(report, `Doctor ${report.status}: ${params.target}`, Boolean(report.error));
+}
+
+async function handleProjectDiff(params, extra = {}) {
+  const [loadProjectSnapshot, runProjectDiff, formatProjectDiffText] = await Promise.all([
+    loadCoreFunction('loadProjectSnapshot'),
+    loadCoreFunction('runProjectDiff'),
+    loadCoreFunction('formatProjectDiffText'),
+  ]);
+  const rootDir = params.rootDir || process.env.DEPLENS_ROOT || process.cwd();
+  const lockfile = params.lockfile || 'package-lock.json';
+  const [from, to] = await Promise.all([
+    loadProjectSnapshot(params.from || 'HEAD~1', { projectDir: rootDir, lockfile }),
+    loadProjectSnapshot(params.to || 'working', { projectDir: rootDir, lockfile }),
+  ]);
+  const report = await runProjectDiff({
+    ...params,
+    from,
+    to,
+    projectDir: rootDir,
+    analyze: params.analyze !== false,
+    signal: extra.signal,
+    onProgress: progressReporter(extra),
+  });
+  const text =
+    params.format === 'json' ? JSON.stringify(report, null, 2) : formatProjectDiffText(report);
+  return toolResponse(report, truncateIfNeeded(text).text, report.summary.failedPackages > 0);
+}
+
+async function handleCheck(params, extra = {}) {
+  const [
+    loadProjectSnapshot,
+    runProjectCheck,
+    loadProjectPolicy,
+    formatPolicyText,
+    formatPolicyAsSarif,
+  ] = await Promise.all([
+    loadCoreFunction('loadProjectSnapshot'),
+    loadCoreFunction('runProjectCheck'),
+    loadCoreFunction('loadProjectPolicy'),
+    loadCoreFunction('formatPolicyText'),
+    loadCoreFunction('formatPolicyAsSarif'),
+  ]);
+  const rootDir = params.rootDir || process.env.DEPLENS_ROOT || process.cwd();
+  const current = await loadProjectSnapshot('working', {
+    projectDir: rootDir,
+    lockfile: params.lockfile || 'package-lock.json',
+  });
+  const configured = loadProjectPolicy(params.config, { projectDir: rootDir });
+  const result = await runProjectCheck({
+    ...params,
+    baseline: path.resolve(rootDir, params.baseline),
+    current,
+    projectDir: rootDir,
+    analyze: params.analyze !== false,
+    policy: params.failOn ? { ...configured, failOn: params.failOn } : configured,
+    signal: extra.signal,
+    onProgress: progressReporter(extra),
+  });
+  const text =
+    params.format === 'sarif'
+      ? JSON.stringify(formatPolicyAsSarif(result), null, 2)
+      : params.format === 'json'
+        ? JSON.stringify(result, null, 2)
+        : formatPolicyText(result);
+  return toolResponse(result, truncateIfNeeded(text).text, !result.passed);
+}
+
+async function handleVersions(params) {
+  const [getAllVersions, getLatestVersionAsync] = await Promise.all([
+    loadCoreFunction('getAllVersions'),
+    loadCoreFunction('getLatestVersionAsync'),
+  ]);
+  const [versions, latest] = await Promise.all([
+    Promise.resolve(getAllVersions(params.package)),
+    getLatestVersionAsync(params.package),
+  ]);
+  const limit = params.limit || 50;
+  const structured = {
+    schemaVersion: 1,
+    kind: 'deplens-versions',
+    package: params.package,
+    latest,
+    versions: versions.slice(-limit).reverse(),
+    total: versions.length,
+  };
+  return toolResponse(
+    structured,
+    `${params.package}: latest ${latest}, ${versions.length} versions`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Server registration
 // ---------------------------------------------------------------------------
 
@@ -633,6 +938,10 @@ const server = new McpServer(
       'DepLens exposes tools for inspecting npm packages already resolvable from the working directory:\n' +
       '  • deplens_inspect — package exports, types (.d.ts), README docs/sections, examples, JSDoc, source analysis\n' +
       '  • deplens_diff   — semver diff between two versions (uses CHANGELOG.md when available)\n' +
+      '  • deplens_doctor — package resolution and type/runtime diagnostics\n' +
+      '  • deplens_project_diff — dependency changes between lockfiles or Git refs\n' +
+      '  • deplens_check — enforce a saved dependency baseline and policy\n' +
+      '  • deplens_versions — list published package versions\n' +
       'Both honor a working directory via the `rootDir` parameter or the DEPLENS_ROOT env var. ' +
       'For ad-hoc inspection of a non-installed package, pass `remote: true` to download it into a local cache.',
   }
@@ -698,11 +1007,69 @@ const diffToolConfig = {
   },
 };
 
+const doctorToolConfig = {
+  title: 'Diagnose npm package resolution',
+  description: 'Run DepLens Doctor and return structured resolution, type, and symbol checks.',
+  inputSchema: DoctorInputSchema.shape,
+  outputSchema: doctorOutputShape,
+  annotations: {
+    title: 'Diagnose npm package resolution',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
+const projectDiffToolConfig = {
+  title: 'Diff project dependencies',
+  description:
+    'Compare npm package-lock snapshots from files or Git refs and optionally analyze API compatibility.',
+  inputSchema: projectInputShape,
+  outputSchema: projectOutputShape,
+  annotations: {
+    title: 'Diff project dependencies',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
+const checkToolConfig = {
+  title: 'Check dependency policy',
+  description:
+    'Compare the working package-lock with a DepLens baseline and enforce project policy.',
+  inputSchema: CheckInputSchema.shape,
+  outputSchema: checkOutputShape,
+  annotations: {
+    title: 'Check dependency policy',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
+const versionsToolConfig = {
+  title: 'List npm package versions',
+  description: 'Return the latest and recent published versions for an npm package.',
+  inputSchema: VersionsInputSchema.shape,
+  outputSchema: versionsOutputShape,
+  annotations: {
+    title: 'List npm package versions',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
 // Primary, spec-compliant snake_case names.
-server.registerTool('deplens_inspect', inspectToolConfig, async (rawArgs) => {
+server.registerTool('deplens_inspect', inspectToolConfig, async (rawArgs, extra) => {
   try {
     const parsed = InspectInputSchema.parse(rawArgs ?? {});
-    return await handleInspect(parsed);
+    return await handleInspect(parsed, extra);
   } catch (error) {
     return buildErrorResponse(error, {
       ...emptyInspectStructured(),
@@ -711,10 +1078,10 @@ server.registerTool('deplens_inspect', inspectToolConfig, async (rawArgs) => {
   }
 });
 
-server.registerTool('deplens_diff', diffToolConfig, async (rawArgs) => {
+server.registerTool('deplens_diff', diffToolConfig, async (rawArgs, extra) => {
   try {
     const parsed = DiffInputSchema.parse(rawArgs ?? {});
-    return await handleDiff(parsed);
+    return await handleDiff(parsed, extra);
   } catch (error) {
     return buildErrorResponse(error, {
       schemaVersion: 1,
@@ -725,6 +1092,74 @@ server.registerTool('deplens_diff', diffToolConfig, async (rawArgs) => {
       summary: null,
       changes: null,
       warnings: [],
+    });
+  }
+});
+
+server.registerTool('deplens_doctor', doctorToolConfig, async (rawArgs, extra) => {
+  try {
+    return await handleDoctor(DoctorInputSchema.parse(rawArgs ?? {}), extra);
+  } catch (error) {
+    return buildErrorResponse(error, {
+      schemaVersion: 1,
+      target: rawArgs?.target ?? null,
+      package: null,
+      version: null,
+      status: 'issues',
+      summary: {},
+      resolution: null,
+      checks: [],
+      suggestions: [],
+      warnings: [],
+      symbols: {},
+    });
+  }
+});
+
+server.registerTool('deplens_project_diff', projectDiffToolConfig, async (rawArgs, extra) => {
+  try {
+    return await handleProjectDiff(ProjectInputSchema.parse(rawArgs ?? {}), extra);
+  } catch (error) {
+    return buildErrorResponse(error, {
+      schemaVersion: 1,
+      kind: 'deplens-project-diff',
+      from: null,
+      to: null,
+      summary: {},
+      changes: [],
+      warnings: [],
+    });
+  }
+});
+
+server.registerTool('deplens_check', checkToolConfig, async (rawArgs, extra) => {
+  try {
+    return await handleCheck(CheckInputSchema.parse(rawArgs ?? {}), extra);
+  } catch (error) {
+    return buildErrorResponse(error, {
+      schemaVersion: 1,
+      kind: 'deplens-policy-result',
+      passed: false,
+      failOn: rawArgs?.failOn ?? 'breaking',
+      summary: {},
+      violations: [],
+      report: {},
+      policy: {},
+    });
+  }
+});
+
+server.registerTool('deplens_versions', versionsToolConfig, async (rawArgs) => {
+  try {
+    return await handleVersions(VersionsInputSchema.parse(rawArgs ?? {}));
+  } catch (error) {
+    return buildErrorResponse(error, {
+      schemaVersion: 1,
+      kind: 'deplens-versions',
+      package: rawArgs?.package ?? '',
+      latest: '',
+      versions: [],
+      total: 0,
     });
   }
 });

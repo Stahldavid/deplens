@@ -80,6 +80,32 @@ function writeSubpathPackage(root, version, rootDts, subpathDts) {
 }
 
 describe('symbol diff', () => {
+  it('diffs interfaces whose method names collide with Object.prototype', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-prototype-names-'));
+    try {
+      const fromDir = path.join(root, 'from');
+      const toDir = path.join(root, 'to');
+      writePackage(
+        fromDir,
+        '1.0.0',
+        'export interface Schema { constructor(input: string): string; toString(): string; }\n'
+      );
+      writePackage(
+        toDir,
+        '2.0.0',
+        'export interface Schema { constructor(input: number): string; toString(): string; }\n'
+      );
+
+      const diff = await compareVersions(fromDir, toDir, { runtime: false });
+
+      expect(diff.symbols.changes).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'Schema', facet: 'types' })])
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('compares package versions through canonical symbols', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-diff-symbols-'));
     try {

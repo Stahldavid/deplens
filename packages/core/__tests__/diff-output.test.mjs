@@ -53,4 +53,37 @@ describe('compact diff JSON', () => {
     expect(verbose).toMatchObject({ schemaVersion: 2, detailLevel: 'verbose' });
     expect(verbose.changes[0]).toHaveProperty('from.types.methods.method0');
   });
+
+  it('paginates large change sets while preserving the total count', () => {
+    const changes = Array.from({ length: 240 }, (_, index) => ({
+      kind: 'symbol_removed',
+      severity: 'breaking',
+      name: `symbol${index}`,
+      subpath: '.',
+      detail: `symbol${index} was removed`,
+    }));
+    const diff = {
+      from: { name: 'demo', version: '1.0.0' },
+      to: { name: 'demo', version: '2.0.0' },
+      summary: { breaking: 240, warnings: 0, additions: 0, removals: 240 },
+      symbols: {
+        fromCount: 240,
+        toCount: 0,
+        summary: { breaking: 240, warnings: 0, additions: 0, removals: 240 },
+        changes,
+      },
+    };
+
+    const first = serializeDiffForJson(diff, { packageName: 'demo', maxChanges: 50 });
+    const second = serializeDiffForJson(diff, {
+      packageName: 'demo',
+      maxChanges: 50,
+      cursor: '50',
+    });
+
+    expect(first.changeCount).toBe(240);
+    expect(first.changes).toHaveLength(50);
+    expect(first.pagination.nextCursor).toBe('50');
+    expect(second.changes[0].name).toBe('symbol50');
+  });
 });

@@ -9,6 +9,8 @@ deplens <pacote> [filtro] [opções]
 deplens inspect <pacote> [filtro] [opções]
 deplens diff <pacote> [opções]
 deplens cache [stats|clear|pin|migrate|prune] [opções]
+deplens project-diff [--from REF] [--to REF] [opções]
+deplens check --baseline FILE [opções]
 deplens history [list|show|compare|clear] [args…]
 ```
 
@@ -89,10 +91,18 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 ### Output
 
-| Flag                  | Type | Default | Effect                         |
-| --------------------- | ---- | ------- | ------------------------------ |
-| `--format text\|json` | enum | `text`  | Output format.                 |
-| `--json`              | flag | off     | Shorthand for `--format json`. |
+| Flag                     | Type   | Default                     | Effect                               |
+| ------------------------ | ------ | --------------------------- | ------------------------------------ |
+| `--format text\|json`    | enum   | `text`                      | Output format.                       |
+| `--json`                 | flag   | off                         | Shorthand for `--format json`.       |
+| `--detail compact\|full` | enum   | compact                     | Versioned inspect JSON projection.   |
+| `--select LIST`          | list   | compact defaults            | Select structured output sections.   |
+| `--max-symbols N`        | int    | 250                         | Symbols per page.                    |
+| `--cursor VALUE`         | string | `0`                         | Resume symbol/change pagination.     |
+| `--conditions LIST`      | list   | Node defaults               | Export conditions in priority order. |
+| `--cache-dir DIR`        | path   | `~/.deplens-cache/versions` | Override cache for all operations.   |
+| `--timeout MS`           | int    | operation default           | Bound network and analysis work.     |
+| `--profile`              | flag   | off                         | Include phase timings in metadata.   |
 
 ### History
 
@@ -121,6 +131,25 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--no-color`                    | flag   | off            | Disable ANSI color codes in text output.                             |
 | `--project-dir DIR`             | path   | cwd            | Working directory used when `--from installed`.                      |
 | `--prefer-cdn` / `--prefer-npm` | flag   | `--prefer-npm` | Same as inspect's CDN preference.                                    |
+| `--max-changes N`               | int    | 100            | Changes per compact JSON page.                                       |
+| `--cursor VALUE`                | string | `0`            | Resume compact change pagination.                                    |
+| `--conditions LIST`             | list   | Node defaults  | Compare one conditional-export surface.                              |
+| `--no-semantic`                 | flag   | off            | Skip TypeScript assignability validation.                            |
+
+## Project diff and policy flags
+
+| Flag                                        | Effect                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
+| `--from REF` / `--to REF`                   | Compare package-lock files from Git refs (`to` defaults to `working`). |
+| `--from-lock FILE` / `--to-lock FILE`       | Compare explicit npm lockfiles.                                        |
+| `--no-api`                                  | Version-only comparison without registry/cache access.                 |
+| `--include-transitive`                      | Enrich transitive changes in addition to direct dependencies.          |
+| `--concurrency N`                           | Concurrent package API diffs (default 4).                              |
+| `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                            |
+| `--baseline FILE`                           | Baseline used by `deplens check`.                                      |
+| `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.   |
+| `--fail-on breaking\|warning\|change\|none` | CI failure threshold.                                                  |
+| `--format sarif`                            | Emit SARIF 2.1.0 for GitHub code scanning.                             |
 
 ---
 
@@ -178,13 +207,20 @@ History entries store a full `runInspect` JSON payload. Useful for time-travel d
 
 ## JSON output schema
 
-Inspect uses `schemaVersion: 1`. Compact diff payloads use `schemaVersion: 2`.
+CLI inspect JSON defaults to the compact, cursor-paginated `schemaVersion: 2` projection.
+`--detail full` remains schema v2 and includes every section. A direct `@deplens/core`
+`runInspect()` call without projection options retains the legacy schema v1 payload for
+compatibility. Compact diff payloads use schema v2. Project snapshots, project diffs,
+baselines, and policy results use their own versioned schema v1 contracts exported by
+`@deplens/core`.
 
 ### `inspect` payload
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "kind": "deplens-inspect",
+  "detailLevel": "compact",
   "package": "zod",
   "version": "4.3.6",
   "description": "TypeScript-first schema declaration and validation library …",
@@ -207,7 +243,7 @@ Inspect uses `schemaVersion: 1`. Compact diff payloads use `schemaVersion: 2`.
     "total": 3,
     "names": ["ZodString", "ZodStringFormat", "_ZodString"]
   },
-  "types": {
+  "types": { // included with --detail full or --select types
     "source": "index.d.cts",
     "functions": {
       "<name>": { "params": "<formatted params string>", "returnType": "<type>" }
@@ -217,7 +253,7 @@ Inspect uses `schemaVersion: 1`. Compact diff payloads use `schemaVersion: 2`.
     "classes":    { "<name>": "<extends clause or null>" },
     "enums":      { "<name>": { /* members */ } }
   },
-  "docs":     { "readme": "<text>", "truncated": false } | { "sections": [...] },
+  "docs":     { "readme": "<text>", "truncated": false } | { "sections": [...] }, // full/select
   "sections": [ { "level": 1, "title": "Installation", "hasCode": true, "charCount": 132 } ],
   "examples": {
     "readme": [ { "lang": "ts", "code": "…" } ],
@@ -233,7 +269,18 @@ Inspect uses `schemaVersion: 1`. Compact diff payloads use `schemaVersion: 2`.
     "maxProps": 10,
     "maxExamples": 10
   },
-  "warnings": []
+  "warnings": [],
+  "symbols": [
+    {
+      "exportName": "ZodString",
+      "subpath": ".",
+      "facets": ["types"],
+      "availability": "types-only",
+      "kind": "class",
+      "signature": null
+    }
+  ],
+  "pagination": { "total": 280, "offset": 0, "returned": 250, "nextCursor": "250" }
 }
 ```
 

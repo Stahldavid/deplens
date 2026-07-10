@@ -1,5 +1,17 @@
 # @deplens/core
 
+## 1.0.0
+
+### Major Changes
+
+- Ship the DepLens 1.0 project-upgrade workflow and stable machine contracts.
+  - Add npm lockfile snapshots, project/Git-ref diffs, dependency baselines, configurable CI policy, SARIF output, progress, cancellation, custom cache directories, and operation timeouts.
+  - Add compact cursor-paginated inspect/diff schemas, shared JSON Schemas, export-condition and `typesVersions` resolution, TypeScript semantic assignability checks, and phase profiling.
+  - Fix prototype-key collisions for declarations such as `constructor`, harden symbol dictionaries against prototype pollution, and validate the fix against Zod and a deterministic parser corpus.
+  - Expand MCP with Doctor, project diff, policy check, and version tools while keeping runtime execution opt-in and structured outputs bounded.
+  - Modularize runtime, docs, snapshot, projection, policy, schema, export-map, and semantic analysis responsibilities.
+  - Require Node.js 22 or newer and modernize CI with Node 22/24/26, Windows/macOS, coverage thresholds, nightly real-package corpus, CodeQL, Dependabot, and Node 24-based GitHub Actions.
+
 ## 0.5.0
 
 ### Minor Changes

@@ -18,6 +18,7 @@ import {
   getChangesBetweenVersions,
   formatChangelogDiff,
 } from './changelog-parser.mjs';
+import { errorPayload, throwIfAborted } from './errors.mjs';
 
 function serializeChange(change, verbose) {
   const serialized = {
@@ -41,9 +42,16 @@ export function serializeDiffForJson(diff, options = {}) {
   const { packageName = diff?.to?.name || diff?.from?.name || null, verbose = false } = options;
   const sourceChanges = (diff?.warnings || []).filter((change) => change.category === 'source');
   const symbolChanges = diff?.symbols?.changes || [];
-  const changes = [...sourceChanges, ...symbolChanges].map((change) =>
+  const allChanges = [...sourceChanges, ...symbolChanges].map((change) =>
     serializeChange(change, verbose)
   );
+  const maxChanges = Math.max(
+    1,
+    Number(options.maxChanges) || (verbose ? allChanges.length || 1 : 100)
+  );
+  const parsedCursor = Number.parseInt(options.cursor || '0', 10);
+  const offset = Number.isFinite(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+  const changes = allChanges.slice(offset, offset + maxChanges);
 
   return {
     schemaVersion: 2,
@@ -53,7 +61,14 @@ export function serializeDiffForJson(diff, options = {}) {
     to: diff?.to || null,
     summary: diff?.summary || null,
     changes,
-    changeCount: changes.length,
+    changeCount: allChanges.length,
+    pagination: {
+      total: allChanges.length,
+      offset,
+      returned: changes.length,
+      nextCursor:
+        offset + changes.length < allChanges.length ? String(offset + changes.length) : null,
+    },
     symbols: diff?.symbols
       ? {
           fromCount: diff.symbols.fromCount,
@@ -62,6 +77,16 @@ export function serializeDiffForJson(diff, options = {}) {
         }
       : null,
     sourceComparison: diff?.sourceComparison || null,
+    semanticCompatibility: diff?.semanticCompatibility
+      ? verbose
+        ? diff.semanticCompatibility
+        : {
+            checked: diff.semanticCompatibility.checked,
+            compatible: diff.semanticCompatibility.compatible,
+            direction: diff.semanticCompatibility.direction || null,
+            diagnosticCount: diff.semanticCompatibility.diagnostics?.length || 0,
+          }
+      : null,
     changelog: options.changelog || null,
     meta: options.meta || null,
     warnings: options.warnings || [],
@@ -72,6 +97,7 @@ export function serializeDiffForJson(diff, options = {}) {
  * Run a complete diff between two package versions
  */
 export async function runDiff(options = {}) {
+  const startedAt = performance.now();
   const {
     package: packageName,
     from = 'installed',
@@ -86,11 +112,20 @@ export async function runDiff(options = {}) {
     verbose = false,
     colors = true,
     runtime = false,
+    cacheDir,
+    timeoutMs = 120000,
+    signal,
+    conditions,
+    semantic = true,
+    maxChanges,
+    cursor,
+    profile = false,
   } = options;
 
   if (!packageName) {
     throw new Error('Package name is required');
   }
+  throwIfAborted(signal, 'diff');
 
   const isExactOfflineSpec = (spec) =>
     spec === 'installed' || /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(String(spec));
@@ -130,8 +165,11 @@ export async function runDiff(options = {}) {
       projectDir,
       preferCdn,
       offline,
-      timeout: 120000,
+      cacheDir,
+      timeout: timeoutMs,
+      signal,
     });
+    const resolvedAt = performance.now();
 
     log(`   From: ${versionPair.from.version}${versionPair.from.cached ? ' (cached)' : ''}`);
     log(`   To: ${versionPair.to.version}${versionPair.to.cached ? ' (cached)' : ''}`);
@@ -143,7 +181,11 @@ export async function runDiff(options = {}) {
       filter,
       includeSource,
       runtime,
+      conditions,
+      semantic,
+      signal,
     });
+    const analyzedAt = performance.now();
     log('');
 
     // Parse changelog if available (local or remote)
@@ -194,10 +236,21 @@ export async function runDiff(options = {}) {
         to: versionPair.to.version,
         runtime,
         analyzedAt: new Date().toISOString(),
+        ...(profile
+          ? {
+              timings: {
+                resolutionMs: Number((resolvedAt - startedAt).toFixed(2)),
+                analysisMs: Number((analyzedAt - resolvedAt).toFixed(2)),
+                totalMs: Number((performance.now() - startedAt).toFixed(2)),
+              },
+            }
+          : {}),
       };
       const payload = serializeDiffForJson(diff, {
         packageName,
         verbose,
+        maxChanges,
+        cursor,
         changelog: changelogDiff,
         meta,
       });
@@ -223,14 +276,15 @@ export async function runDiff(options = {}) {
       changelog: changelogDiff,
     };
   } catch (error) {
+    const structuredError = errorPayload(error, { phase: 'diff', code: 'DIFF_FAILED' });
     if (format === 'json') {
       return {
         output: formatDiffAsJson({
           schemaVersion: 2,
           detailLevel: 'compact',
           package: packageName,
-          error: error.message,
-          warnings: [error.message],
+          ...structuredError,
+          warnings: [structuredError.error],
           meta: {
             package: packageName,
             from,
@@ -238,12 +292,12 @@ export async function runDiff(options = {}) {
             analyzedAt: new Date().toISOString(),
           },
         }),
-        error: error.message,
+        ...structuredError,
       };
     }
     return {
-      output: `❌ Error: ${error.message}`,
-      error: error.message,
+      output: `❌ Error: ${structuredError.error}`,
+      ...structuredError,
     };
   }
 }

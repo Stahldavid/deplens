@@ -56,6 +56,8 @@ Example output (truncated):
 deplens <package-or-import-path> [filter] [options]
 deplens inspect <package> [filter] [options]
 deplens diff <package> [options]
+deplens project-diff [--from REF] [--to REF] [options]
+deplens check --baseline FILE [options]
 deplens cache [stats|clear|pin|migrate|prune] [options]
 deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 ```
@@ -81,6 +83,14 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --examples                    Include code examples from README/@example tags
 --format text|json            Output format (default: text)
 --json                       Shorthand for --format json
+--detail compact|full        Versioned JSON projection (inspect schema v2)
+--select <sections>          Select JSON sections
+--max-symbols <N>            Symbols per page
+--cursor <value>             Resume symbol/change pagination
+--conditions <list>          Export conditions in priority order
+--cache-dir <dir>            Override the shared version cache
+--timeout <ms>               Bound registry/download/analysis work
+--profile                    Include phase timings in metadata
 
 ## Multi-language & source analysis
 --analyze-source              Analyze source code (JS/TS/Python/Java)
@@ -126,6 +136,41 @@ Flags:
   --verbose               Show detailed per-export changes
   --no-color              Disable ANSI colors in text output
   --project-dir DIR       Base directory for installed version lookup
+  --conditions LIST       Compare a specific export-condition surface
+  --max-changes N         Changes per JSON page (default: 100)
+  --cursor VALUE          Resume change pagination
+  --no-semantic           Skip TypeScript assignability validation
+```
+
+### Project upgrades and CI policy
+
+Compare dependency versions between lockfiles or Git refs. Direct dependencies are
+enriched with semantic API diffs by default; use `--no-api` for a fast lockfile-only pass.
+
+```bash
+deplens project-diff --from HEAD~1 --to working --json
+deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
+```
+
+Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured
+threshold is crossed and can emit SARIF for GitHub code scanning.
+
+```bash
+deplens check --write-baseline --baseline .deplens-baseline.json
+deplens check --baseline .deplens-baseline.json --fail-on breaking
+deplens check --baseline .deplens-baseline.json --format sarif > deplens.sarif
+```
+
+Optional `.deplensrc.json` / `deplens.config.json`:
+
+```json
+{
+  "failOn": "breaking",
+  "packages": {
+    "legacy-package": { "allow": ["breaking"] },
+    "generated-package": { "ignore": true }
+  }
+}
 ```
 
 ### Cache management
@@ -185,7 +230,9 @@ deplens zod --docs-sections "Getting Started,Usage" --format json
 
 ## MCP
 
-DepLens ships an MCP server over **stdio** (`@deplens/mcp`) so agents can call `deplens_inspect` and receive structured output.
+DepLens ships an MCP server over **stdio** (`@deplens/mcp`) with `deplens_inspect`,
+`deplens_diff`, `deplens_doctor`, `deplens_project_diff`, `deplens_check`, and
+`deplens_versions`.
 
 ### Run
 
@@ -310,7 +357,7 @@ console.log(output);
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 22
 - Bun is optional runtime acceleration; npm is the canonical package fetcher.
 
 ## License

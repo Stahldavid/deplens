@@ -68,11 +68,17 @@ export function buildResolutionTrace({
   const normalizedSubpath = normalizeSubpath(subpath);
   const exportEntry = getExportEntry(pkg?.exports, normalizedSubpath);
   const runtimeConditions = runtimeConditionsForResolver(resolver, explicitConditions);
+  const typesConditions = [
+    'types',
+    'typings',
+    ...(Array.isArray(explicitConditions) ? explicitConditions : []),
+    'default',
+  ];
   const runtimeFromExports = exportEntry.found
     ? resolveConditionalEntry(exportEntry.entry, runtimeConditions)
     : null;
   const typesFromExports = exportEntry.found
-    ? resolveConditionalEntry(exportEntry.entry, ['types', 'typings', 'default'])
+    ? resolveConditionalEntry(exportEntry.entry, typesConditions)
     : null;
 
   return {
@@ -91,7 +97,7 @@ export function buildResolutionTrace({
     },
     types: {
       source: typesSource || null,
-      conditionsTried: ['types', 'typings', 'default'],
+      conditionsTried: typesConditions,
       conditionsMatched: typesFromExports?.conditions || [],
       exportPath: normalizePath(typesFromExports?.path),
       resolvedPath: normalizePath(typesPath),

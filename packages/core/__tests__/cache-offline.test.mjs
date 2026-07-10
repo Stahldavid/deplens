@@ -31,5 +31,9 @@ describe('cache offline mode', () => {
     );
     expect(safePackageRelativePath(packageDir, '../../outside.txt')).toBeNull();
     expect(safePackageRelativePath(packageDir, 'C:\\outside.txt')).toBeNull();
+    expect(safePackageRelativePath(packageDir, 'C:/outside.txt')).toBeNull();
+    expect(safePackageRelativePath(packageDir, '\\\\server\\share\\outside.txt')).toBeNull();
+    expect(safePackageRelativePath(packageDir, '/outside.txt')).toBeNull();
+    expect(safePackageRelativePath(packageDir, 'file:///outside.txt')).toBeNull();
   });
 });

@@ -294,7 +294,16 @@ function rootExport(pkg) {
 export function safePackageRelativePath(packageDir, candidate) {
   if (typeof candidate !== 'string' || !candidate) return null;
   const normalized = candidate.replace(/\\/g, '/').replace(/^\.\//, '');
-  if (!normalized || normalized.startsWith('/') || normalized.includes('\0')) return null;
+  if (
+    !normalized ||
+    normalized.includes('\0') ||
+    path.posix.isAbsolute(normalized) ||
+    path.win32.isAbsolute(candidate) ||
+    /^[A-Za-z]:/.test(normalized) ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(normalized)
+  ) {
+    return null;
+  }
   const destination = path.resolve(packageDir, normalized);
   const relative = path.relative(path.resolve(packageDir), destination);
   if (relative.startsWith('..') || path.isAbsolute(relative)) return null;

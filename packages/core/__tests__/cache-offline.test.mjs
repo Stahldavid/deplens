@@ -63,6 +63,49 @@ describe('cache offline mode', () => {
     }
   });
 
+  it('reports a newly installed npm package as fetched', async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-fetch-state-'));
+    try {
+      const result = await downloadVersion('downloaded-pkg', '1.0.0', {
+        cacheDir,
+        npmRunner: async (args) => {
+          const prefix = args[args.indexOf('--prefix') + 1];
+          const packageDir = path.join(prefix, 'node_modules', 'downloaded-pkg');
+          mkdirSync(packageDir, { recursive: true });
+          writeFileSync(
+            path.join(packageDir, 'package.json'),
+            JSON.stringify({ name: 'downloaded-pkg', version: '1.0.0' })
+          );
+        },
+      });
+
+      expect(result).toMatchObject({ cached: false, fetched: true });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates last-used metadata when a cached package is read', async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-last-used-'));
+    try {
+      const entryDir = writeLegacyCacheEntry(
+        cacheDir,
+        'demo-pkg@1.2.3',
+        'demo-pkg',
+        '1.2.3',
+        '2000-01-01T00:00:00.000Z'
+      );
+
+      const result = await downloadVersion('demo-pkg', '1.2.3', { offline: true, cacheDir });
+      const metadata = JSON.parse(readFileSync(path.join(entryDir, '.deplens-cache.json'), 'utf8'));
+
+      expect(result.cached).toBe(true);
+      expect(Date.parse(metadata.lastUsedAt)).toBeGreaterThan(Date.parse(metadata.cachedAt));
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it('honors cancellation before starting a download', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -154,6 +197,58 @@ describe('cache offline mode', () => {
 
       const result = pruneCache({ cacheDir, maxAgeDays: 30 });
       expect(result).toMatchObject({ removed: 2, candidates: 2, dryRun: false });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('selects least-recently-used entries for count and size limits', () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-lru-'));
+    try {
+      for (const [index, lastUsedAt] of [
+        '2026-01-01T00:00:00.000Z',
+        '2026-02-01T00:00:00.000Z',
+        '2026-03-01T00:00:00.000Z',
+      ].entries()) {
+        const name = `demo-${index}`;
+        const entryDir = writeLegacyCacheEntry(cacheDir, `${name}@1.0.0`, name, '1.0.0');
+        writeFileSync(
+          path.join(entryDir, '.deplens-cache.json'),
+          JSON.stringify({
+            schemaVersion: 1,
+            package: name,
+            version: '1.0.0',
+            cachedAt: lastUsedAt,
+            lastUsedAt,
+            size: 100,
+          })
+        );
+      }
+
+      const byCount = pruneCache({
+        cacheDir,
+        maxAgeDays: Number.POSITIVE_INFINITY,
+        maxEntries: 2,
+        dryRun: true,
+      });
+      const bySize = pruneCache({
+        cacheDir,
+        maxAgeDays: Number.POSITIVE_INFINITY,
+        maxSizeBytes: 150,
+        dryRun: true,
+      });
+
+      expect(byCount.entries).toEqual([
+        expect.objectContaining({ name: 'demo-0@1.0.0', reason: 'lru-count' }),
+      ]);
+      expect(byCount).toMatchObject({ candidates: 1, limitSatisfied: true });
+      expect(bySize.entries.map((entry) => entry.name)).toEqual(['demo-0@1.0.0', 'demo-1@1.0.0']);
+      expect(bySize).toMatchObject({
+        candidates: 2,
+        maxSizeBytes: 150,
+        remainingBytes: 100,
+        limitSatisfied: true,
+      });
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }

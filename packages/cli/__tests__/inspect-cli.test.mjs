@@ -184,6 +184,10 @@ describe('inspect CLI', () => {
     expect(help).toContain('Analyze source code (JS/TS/Python/Java)');
     expect(help).toContain('Detect-only languages: rust, go');
     expect(help).toContain('stats|clear|pin|migrate|prune');
+    expect(help).toContain('--jsdoc-symbol');
+    expect(help).toContain('--jsdoc-sections');
+    expect(help).toContain('--jsdoc-tags-exclude');
+    expect(help).toContain('--cursor VALUE         Resume diff pagination');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 
@@ -202,6 +206,17 @@ describe('inspect CLI', () => {
     try {
       const stats = runCliJson(['cache', 'stats', '--cache-dir', cacheDir]);
       const cleared = runCliJson(['cache', 'clear', '--cache-dir', cacheDir]);
+      const pruned = runCliJson([
+        'cache',
+        'prune',
+        '--cache-dir',
+        cacheDir,
+        '--max-size',
+        '1KB',
+        '--max-entries',
+        '2',
+        '--dry-run',
+      ]);
 
       expect(stats).toMatchObject({
         schemaVersion: 1,
@@ -212,6 +227,13 @@ describe('inspect CLI', () => {
         schemaVersion: 1,
         kind: 'deplens-cache-clear',
         cacheDir,
+      });
+      expect(pruned).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-cache-prune',
+        maxSizeBytes: 1024,
+        maxEntries: 2,
+        limitSatisfied: true,
       });
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });

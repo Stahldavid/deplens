@@ -57,6 +57,26 @@ function diagnosticRecord(diagnostic) {
   return record;
 }
 
+function isIsolatedNominalIdentityDiagnostic(diagnostic) {
+  const message = diagnostic.message || '';
+  if (/separate declarations of (?:a )?private property/i.test(message)) return true;
+  if (!/Property '\[[^\]]+\]' is missing/i.test(message)) return false;
+  return (message.match(/node_modules[\\/]/gi) || []).length >= 2;
+}
+
+function classifyDiagnostics(diagnostics) {
+  const actionable = [];
+  const ignored = [];
+  for (const diagnostic of diagnostics) {
+    if (isIsolatedNominalIdentityDiagnostic(diagnostic)) {
+      ignored.push({ ...diagnostic, reason: 'isolated-nominal-identity' });
+    } else {
+      actionable.push(diagnostic);
+    }
+  }
+  return { actionable, ignored };
+}
+
 export function analyzeSemanticCompatibility(fromDir, toDir, options = {}) {
   const fromEntry = findPackageTypesEntry(fromDir, options);
   const toEntry = findPackageTypesEntry(toDir, options);
@@ -93,14 +113,17 @@ export function analyzeSemanticCompatibility(fromDir, toDir, options = {}) {
       types: [],
     };
     const program = ts.createProgram([sourcePath], compilerOptions);
-    const diagnostics = ts.getPreEmitDiagnostics(program).map(diagnosticRecord);
+    const allDiagnostics = ts.getPreEmitDiagnostics(program).map(diagnosticRecord);
+    const diagnostics = classifyDiagnostics(allDiagnostics);
     return {
       checked: true,
-      compatible: diagnostics.length === 0,
+      compatible: diagnostics.actionable.length === 0,
       direction: 'after-assignable-to-before',
       fromEntry,
       toEntry,
-      diagnostics,
+      diagnostics: diagnostics.actionable,
+      ignoredDiagnosticCount: diagnostics.ignored.length,
+      ignoredDiagnostics: diagnostics.ignored,
     };
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true });

@@ -60,6 +60,17 @@ jq '.changes[] | select(.kind=="breaking")' react-19-diff.json
 
 ---
 
+## Compare a project without flooding agent context
+
+```bash
+deplens project-diff --from HEAD~1 --to working --json
+```
+
+Each package's `api` field is compact by default. Use `--no-api` for version-only lockfile changes,
+or `--detail full` only when a complete internal package diff is explicitly required.
+
+---
+
 ## Find functions by intent, not by name
 
 **Question:** "Is there something in `lodash` to deep-merge two objects?"

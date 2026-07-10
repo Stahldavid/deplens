@@ -128,17 +128,22 @@ Large JSON diffs are cursor-paginated. Use `--max-changes N --cursor VALUE` to c
 Semantic TypeScript assignability is enabled by default; `--no-semantic` is the fast fallback.
 When semantic compatibility is false, compact JSON includes up to ten causal diagnostics plus
 `diagnosticCount` and `diagnosticsTruncated`.
+Nominal identity mismatches caused only by isolated `unique symbol` or private-class declarations
+are reported through `ignoredDiagnosticCount` instead of making the package incompatible.
 
 ### 8. Compare a project and enforce a baseline
 
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
+deplens project-diff --from HEAD~1 --to working --detail full --json
 deplens check --write-baseline --baseline .deplens-baseline.json
 deplens check --baseline .deplens-baseline.json --fail-on breaking --format sarif
 ```
 
 Use `--no-api` for a registry-free lockfile-only comparison. Project analysis defaults to direct
 dependencies; add `--include-transitive` only when the broader cost is justified.
+API enrichment keeps only `package`, `summary`, `changes`, and `semanticCompatibility` by default;
+use `--detail full` only when the complete internal diff is required.
 
 ### 9. Inspect a package that isn't installed
 
@@ -186,6 +191,8 @@ For Java, source analysis uses a best-effort built-in parser for package/import/
 
 Rust and Go package layouts are detected, but implementation analysis is not yet available.
 The CLI returns an explicit warning when either language is requested.
+`--analyze-source` is a focused compact request and omits symbol/export inventories by default.
+Add `--select sourceAnalysis,languageAnalysis,symbols` when source-linked symbols are required.
 
 ## Output handling
 
@@ -248,6 +255,7 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **`--remote` first run is slow.** It hits the npm registry / CDN; subsequent calls hit the cache. `deplens cache stats` shows what's cached; `deplens cache clear [pkg?]` purges it.
 - **Cache sizes can be `unknown`.** `deplens cache stats` is fast by default and avoids recursively walking large package caches. Use `deplens cache stats --exact` when you need precise sizes.
 - **Legacy cache entries.** Use `deplens cache migrate --exact` to move tag aliases to exact versions and rebuild metadata. Preview cleanup with `deplens cache prune --dry-run`; pruning defaults to entries older than 90 days plus invalid/alias entries.
+- **Large caches.** Run `deplens cache prune --max-size 2GB --dry-run` to preview an LRU size cap or `--max-entries 100` to keep the most recently used entries. Successful cache reads refresh `lastUsedAt`; active locks are never removed.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
 - **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
 - **Lockfile support.** `project-diff` and `check` accept npm `package-lock.json` v2/v3 and pnpm lockfiles with importers (pnpm v6+). Pass the actual path through `--lockfile`, `--from-lock`, or `--to-lock`.

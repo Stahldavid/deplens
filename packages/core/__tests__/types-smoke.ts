@@ -38,7 +38,12 @@ async function verifyPublicTypes() {
   const parsed: ParsedChangelog = parseChangelogString('## 1.0.0');
   const parsedFile: ParsedChangelog = parseChangelogFile('CHANGELOG.md');
   const migration = migrateCache({ dryRun: true });
-  const prune = pruneCache({ dryRun: true, maxAgeDays: 30 });
+  const prune = pruneCache({
+    dryRun: true,
+    maxAgeDays: 30,
+    maxEntries: 100,
+    maxSizeBytes: 2 * 1024 ** 3,
+  });
   const snapshot: ProjectSnapshot = createProjectSnapshot({
     lockfileVersion: 3,
     packages: { '': { name: 'demo' } },
@@ -48,6 +53,7 @@ async function verifyPublicTypes() {
     from: snapshot,
     to: snapshot,
     analyze: false,
+    detail: 'compact',
   });
   const policy = evaluateProjectPolicy(projectDiff, { failOn: 'breaking' });
   const check = await runProjectCheck({

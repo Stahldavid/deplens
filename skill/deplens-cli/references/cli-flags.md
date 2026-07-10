@@ -145,6 +145,7 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--no-api`                                  | Version-only comparison without registry/cache access.                    |
 | `--include-transitive`                      | Return and enrich transitive changes; direct changes are the default.     |
 | `--concurrency N`                           | Concurrent package API diffs (default 4).                                 |
+| `--detail compact\|full`                    | Compact API enrichment by default; `full` preserves the rich diff object. |
 | `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
 | `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
 | `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.      |
@@ -165,11 +166,15 @@ deplens cache migrate      # normalize legacy tag aliases and metadata
 deplens cache migrate --exact # also calculate exact size and integrity
 deplens cache prune --dry-run # preview stale, alias, and invalid entries
 deplens cache prune --max-age-days 90 # remove maintenance candidates
+deplens cache prune --max-size 2GB --dry-run # preview LRU size enforcement
+deplens cache prune --max-entries 100 # keep the 100 most recently used entries
 ```
 
 Cache maintenance accepts `--cache-dir DIR`, `--dry-run`, and `--keep-aliases`.
 `migrate --exact` can be expensive because it hashes package contents. `prune`
 uses a 90-day default when `--max-age-days` is omitted.
+`--max-size` accepts B/KB/MB/GB/TB suffixes. Size and entry limits evict the least recently used
+unlocked entries according to `lastUsedAt` and report `limitSatisfied` in JSON.
 
 Fast stats do not walk every cached package. Entries without metadata may report
 `unknown` size until a future exact stats run or cache refresh records size data.

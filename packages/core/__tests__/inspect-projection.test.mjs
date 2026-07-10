@@ -76,6 +76,19 @@ describe('inspect output projection', () => {
     expect(projected).not.toHaveProperty('staticExports');
   });
 
+  it('honors explicit symbol selection for focused requests', () => {
+    const projected = projectInspectResult(payload, {
+      detail: 'compact',
+      include: ['sourceAnalysis'],
+      select: ['sourceAnalysis', 'symbols'],
+      focused: true,
+      maxSymbols: 1,
+    });
+
+    expect(projected.symbols).toHaveLength(1);
+    expect(projected.pagination).toMatchObject({ total: 3, returned: 1 });
+  });
+
   it('keeps only a source summary in compact output', () => {
     const projected = projectInspectResult(
       {

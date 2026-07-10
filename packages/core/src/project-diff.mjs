@@ -271,6 +271,32 @@ async function defaultDiffRunner(options) {
   return result;
 }
 
+function compactProjectApi(api) {
+  let payload = api;
+  if (!payload?.summary && typeof payload?.output === 'string') {
+    try {
+      payload = JSON.parse(payload.output);
+    } catch {
+      payload = api;
+    }
+  }
+  if (payload?.error) {
+    return {
+      package: payload.package || null,
+      error: payload.error,
+      ...(payload.errorInfo ? { errorInfo: payload.errorInfo } : {}),
+      ...(payload.warnings?.length ? { warnings: payload.warnings } : {}),
+    };
+  }
+  return {
+    package: payload?.package || null,
+    summary: payload?.summary || null,
+    changes: payload?.changes || [],
+    semanticCompatibility: payload?.semanticCompatibility || null,
+    ...(payload?.sourceComparison ? { sourceComparison: payload.sourceComparison } : {}),
+  };
+}
+
 async function mapConcurrent(items, concurrency, worker) {
   let index = 0;
   const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
@@ -327,7 +353,7 @@ export async function runProjectDiff(options = {}) {
             signal: operation.signal,
             timeoutMs: options.timeoutMs,
           });
-          change.api = api;
+          change.api = options.detail === 'full' ? api : compactProjectApi(api);
         } catch (error) {
           Object.assign(
             change,

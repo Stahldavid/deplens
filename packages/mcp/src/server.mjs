@@ -710,6 +710,7 @@ const projectInputShape = {
   cacheDir: z.string().optional(),
   timeoutMs: z.number().int().positive().max(600_000).optional(),
   concurrency: z.number().int().positive().max(16).optional(),
+  detail: z.enum(['compact', 'full']).optional(),
   format: ProjectFormatEnum.optional(),
 };
 const ProjectInputSchema = z.object(projectInputShape).strict();

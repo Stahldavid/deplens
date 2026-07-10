@@ -87,6 +87,14 @@ export function serializeDiffForJson(diff, options = {}) {
             diagnosticCount: diff.semanticCompatibility.diagnostics?.length || 0,
             diagnostics: (diff.semanticCompatibility.diagnostics || []).slice(0, 10),
             diagnosticsTruncated: (diff.semanticCompatibility.diagnostics?.length || 0) > 10,
+            ignoredDiagnosticCount: diff.semanticCompatibility.ignoredDiagnosticCount || 0,
+            ignoredReasons: [
+              ...new Set(
+                (diff.semanticCompatibility.ignoredDiagnostics || []).map(
+                  (diagnostic) => diagnostic.reason
+                )
+              ),
+            ].filter(Boolean),
           }
       : null,
     changelog: options.changelog || null,

@@ -54,6 +54,16 @@ function commaList(value) {
   );
 }
 
+function parseByteSize(value) {
+  if (value == null) return undefined;
+  const match = String(value)
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)?$/i);
+  if (!match) throw new Error(`Invalid byte size: ${value}`);
+  const units = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 };
+  return Math.floor(Number(match[1]) * units[(match[2] || 'b').toLowerCase()]);
+}
+
 function parseInspectArgs(argv) {
   const target = argv[0];
   let filter = argv[1] && !argv[1].startsWith('--') ? argv[1].toLowerCase() : null;
@@ -426,6 +436,8 @@ function usage() {
       '  --exact               Recalculate recursive directory sizes\n' +
       '  --cache-dir DIR       Override cache directory for maintenance commands\n' +
       '  --max-age-days N      Remove entries older than N days (prune; default: 90)\n' +
+      '  --max-size SIZE       Enforce LRU size cap during prune (for example 2GB)\n' +
+      '  --max-entries N       Enforce LRU entry-count cap during prune\n' +
       '  --dry-run             Preview cache migration/prune without modifying files\n' +
       '  --keep-aliases        Keep tag/range cache aliases during maintenance\n' +
       '  --json                Output cache stats as JSON\n\n' +
@@ -464,6 +476,12 @@ function usage() {
       '  --resolve-from DIR     Base directory for module resolution\n' +
       '  --jsdoc off|compact|full  JSDoc mode\n' +
       '  --jsdoc-output off|section|inline|only  JSDoc output mode\n' +
+      '  --jsdoc-symbol VALUE   Exact name, glob, or /regex/ filter\n' +
+      '  --jsdoc-sections LIST  summary,params,returns,tags\n' +
+      '  --jsdoc-tags LIST      Include only selected JSDoc tags\n' +
+      '  --jsdoc-tags-exclude LIST  Exclude selected JSDoc tags\n' +
+      '  --jsdoc-truncate MODE  none|sentence|word\n' +
+      '  --jsdoc-max-len N      Maximum JSDoc length per symbol\n' +
       '  --detail compact|full  Inspect JSON detail (default: compact)\n' +
       '  --select LIST          Select JSON sections (CSV/repeatable/= form)\n' +
       '  --cursor VALUE         Resume symbol pagination\n' +
@@ -488,6 +506,9 @@ function usage() {
       '  --no-color             Disable ANSI colors\n' +
       '  --project-dir DIR      Base directory for installed version\n' +
       '  --max-changes N        Changes per JSON page (default: 100)\n' +
+      '  --cursor VALUE         Resume diff pagination\n' +
+      '  --conditions LIST      Export conditions in priority order\n' +
+      '  --no-semantic          Skip TypeScript assignability checks\n' +
       '\nOpções (project-diff/check):\n' +
       '  --from REF             Git ref used as project baseline\n' +
       '  --to REF               Git ref used as project target (default: working)\n' +
@@ -501,6 +522,7 @@ function usage() {
       '  --include-transitive   Analyze transitive dependency changes\n' +
       '  --no-api               Compare lockfile versions without package API analysis\n' +
       '  --concurrency N        Concurrent package diffs (default: 4)\n' +
+      '  --detail compact|full  API enrichment detail (default: compact)\n' +
       '  --format text|json|sarif\n'
   );
 }
@@ -583,6 +605,8 @@ const VALUE_OPTIONS = new Set([
   '--project-dir',
   '--cache-dir',
   '--max-age-days',
+  '--max-size',
+  '--max-entries',
   '--from-lock',
   '--to-lock',
   '--lockfile',
@@ -762,12 +786,24 @@ if (command === 'cache') {
   const cacheDir = cacheDirIndex !== -1 ? argv[cacheDirIndex + 1] : undefined;
   const maxAgeIndex = argv.indexOf('--max-age-days');
   const maxAgeDays = maxAgeIndex !== -1 ? Number(argv[maxAgeIndex + 1]) : undefined;
+  const maxEntriesValue = Number(argumentValue(argv, '--max-entries'));
+  let maxSizeBytes;
+  try {
+    maxSizeBytes = parseByteSize(argumentValue(argv, '--max-size'));
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
   const maintenanceOptions = {
     cacheDir,
     exact: argv.includes('--exact') && !argv.includes('--fast'),
     dryRun: argv.includes('--dry-run'),
     removeAliases: !argv.includes('--keep-aliases'),
     ...(Number.isFinite(maxAgeDays) ? { maxAgeDays } : {}),
+    ...(Number.isFinite(maxEntriesValue)
+      ? { maxEntries: Math.max(0, Math.floor(maxEntriesValue)) }
+      : {}),
+    ...(Number.isFinite(maxSizeBytes) ? { maxSizeBytes } : {}),
   };
   if (subcmd === 'clear' || subcmd === 'clean') {
     const pkg = argv[2] && !argv[2].startsWith('-') ? argv[2] : null;
@@ -984,6 +1020,7 @@ if (command === 'project-diff') {
       runtime: argv.includes('--runtime') && !argv.includes('--no-runtime'),
       semantic: !argv.includes('--no-semantic'),
       analyze: !argv.includes('--no-api'),
+      detail: argumentValue(argv, '--detail', 'compact'),
       profile: argv.includes('--profile'),
     });
     process.stdout.write(

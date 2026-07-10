@@ -106,12 +106,22 @@ function writeCacheMetadata(cachePath, packageDir, packageName, version, source,
     version,
     source,
     cachedAt: new Date().toISOString(),
+    lastUsedAt: new Date().toISOString(),
     size,
     sizeFormatted: Number.isFinite(size) ? formatBytes(size) : null,
     integrity: exact ? hashDirectory(packageDir) : null,
   };
   fs.writeFileSync(cacheMetadataPath(cachePath), JSON.stringify(metadata, null, 2));
   return metadata;
+}
+
+function touchCacheMetadata(cachePath, metadata) {
+  const nextMetadata = {
+    ...(metadata || { schemaVersion: 1 }),
+    lastUsedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(cacheMetadataPath(cachePath), JSON.stringify(nextMetadata, null, 2));
+  return nextMetadata;
 }
 
 function readCacheMetadata(cachePath) {
@@ -481,13 +491,16 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
   if (!force && isCached(packageName, version, cacheDir)) {
     if (offline || preferCdn || isNpmInstallCache(cachePath)) {
       const packageDir = path.join(cachePath, 'node_modules', packageName);
-      const metadata =
+      const metadata = touchCacheMetadata(
+        cachePath,
         readCacheMetadata(cachePath) ||
-        writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache');
+          writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache')
+      );
       return {
         path: cachePath,
         packageDir,
         cached: true,
+        fetched: false,
         metadata,
       };
     }
@@ -505,9 +518,12 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
         path: cachePath,
         packageDir,
         cached: true,
-        metadata:
+        fetched: false,
+        metadata: touchCacheMetadata(
+          cachePath,
           readCacheMetadata(cachePath) ||
-          writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache'),
+            writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache')
+        ),
       };
     }
 
@@ -543,7 +559,8 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
     }
 
     try {
-      await runNpmAsync(
+      const npmRunner = options.npmRunner || runNpmAsync;
+      await npmRunner(
         [
           'install',
           `${packageName}@${version}`,
@@ -585,7 +602,7 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
       path: cachePath,
       packageDir: path.join(cachePath, 'node_modules', packageName),
       cached: false,
-      fetched: false,
+      fetched: true,
       metadata,
     };
   } finally {
@@ -869,10 +886,22 @@ export function pruneCache(options = {}) {
   const dryRun = Boolean(options.dryRun);
   const removeAliases = options.removeAliases !== false;
   const removeInvalid = options.removeInvalid !== false;
-  const maxAgeDays = Number.isFinite(Number(options.maxAgeDays))
-    ? Math.max(0, Number(options.maxAgeDays))
-    : 90;
-  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  const requestedMaxAge = Number(options.maxAgeDays);
+  const maxAgeDays =
+    requestedMaxAge === Number.POSITIVE_INFINITY
+      ? Number.POSITIVE_INFINITY
+      : Number.isFinite(requestedMaxAge)
+        ? Math.max(0, requestedMaxAge)
+        : 90;
+  const maxEntries = Number.isFinite(Number(options.maxEntries))
+    ? Math.max(0, Math.floor(Number(options.maxEntries)))
+    : null;
+  const maxSizeBytes = Number.isFinite(Number(options.maxSizeBytes))
+    ? Math.max(0, Number(options.maxSizeBytes))
+    : null;
+  const cutoff = Number.isFinite(maxAgeDays)
+    ? Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+    : Number.NEGATIVE_INFINITY;
   const result = {
     schemaVersion: 1,
     kind: 'deplens-cache-prune',
@@ -881,49 +910,128 @@ export function pruneCache(options = {}) {
     candidates: 0,
     removed: 0,
     reclaimedBytes: 0,
+    candidateBytes: 0,
     reclaimedFormatted: '0 B',
     maxAgeDays,
+    maxEntries,
+    maxSizeBytes,
+    remainingBytes: 0,
+    remainingEntries: 0,
+    limitSatisfied: true,
     dryRun,
     skippedLocked: 0,
     entries: [],
   };
   if (!fs.existsSync(cacheDir)) return result;
 
+  const records = [];
   for (const entry of fs.readdirSync(cacheDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     result.scanned += 1;
     const entryPath = path.join(cacheDir, entry.name);
-    if (fs.existsSync(`${entryPath}.lock`)) {
+    const locked = fs.existsSync(`${entryPath}.lock`);
+    if (locked) {
       result.skippedLocked += 1;
-      continue;
     }
     const identity = inspectCacheEntry(entryPath, entry.name);
     let reason = null;
-    if (!identity && removeInvalid) {
+    if (locked) {
+      reason = null;
+    } else if (!identity && removeInvalid) {
       reason = 'invalid';
     } else if (identity && removeAliases && entry.name !== identity.exactEntryName) {
       reason = 'alias';
     } else if (identity) {
-      const cachedAt = Date.parse(identity.metadata?.cachedAt || '');
-      const lastUsedAt = Number.isFinite(cachedAt) ? cachedAt : fs.statSync(entryPath).mtimeMs;
+      const metadataTime = Date.parse(
+        identity.metadata?.lastUsedAt || identity.metadata?.cachedAt || ''
+      );
+      const lastUsedAt = Number.isFinite(metadataTime)
+        ? metadataTime
+        : fs.statSync(entryPath).mtimeMs;
       if (lastUsedAt < cutoff) reason = 'stale';
     }
-    if (!reason) continue;
+    const metadataTime = Date.parse(
+      identity?.metadata?.lastUsedAt || identity?.metadata?.cachedAt || ''
+    );
+    records.push({
+      name: entry.name,
+      entryPath,
+      identity,
+      locked,
+      reason,
+      lastUsedAt: Number.isFinite(metadataTime) ? metadataTime : fs.statSync(entryPath).mtimeMs,
+      size: Number.isFinite(identity?.metadata?.size) ? identity.metadata.size : null,
+    });
+  }
 
-    let size = 0;
-    try {
-      size = getDirSize(entryPath);
-    } catch {
-      // Removal can still proceed for partially readable or broken entries.
-    }
-    result.candidates += 1;
-    result.entries.push({ name: entry.name, reason, size, sizeFormatted: formatBytes(size) });
-    if (!dryRun) {
-      fs.rmSync(entryPath, { recursive: true, force: true });
-      result.removed += 1;
-      result.reclaimedBytes += size;
+  const activeRecords = () =>
+    records.filter((record) => record.identity && !record.reason && !record.locked);
+  const oldestFirst = (left, right) =>
+    left.lastUsedAt - right.lastUsedAt || left.name.localeCompare(right.name);
+
+  if (maxEntries !== null) {
+    const retained = activeRecords().sort(oldestFirst);
+    for (const record of retained.slice(0, Math.max(0, retained.length - maxEntries))) {
+      record.reason = 'lru-count';
     }
   }
+
+  if (maxSizeBytes !== null) {
+    const retained = activeRecords().sort(oldestFirst);
+    let totalSize = 0;
+    for (const record of retained) {
+      if (!Number.isFinite(record.size)) {
+        try {
+          record.size = getDirSize(record.entryPath);
+        } catch {
+          record.size = 0;
+        }
+      }
+      totalSize += record.size;
+    }
+    for (const record of retained) {
+      if (totalSize <= maxSizeBytes) break;
+      record.reason = 'lru-size';
+      totalSize -= record.size;
+    }
+  }
+
+  for (const record of records.filter((item) => item.reason)) {
+    if (!Number.isFinite(record.size)) {
+      try {
+        record.size = getDirSize(record.entryPath);
+      } catch {
+        record.size = 0;
+      }
+    }
+    result.candidates += 1;
+    result.candidateBytes += record.size;
+    result.entries.push({
+      name: record.name,
+      reason: record.reason,
+      size: record.size,
+      sizeFormatted: formatBytes(record.size),
+    });
+    if (!dryRun) {
+      fs.rmSync(record.entryPath, { recursive: true, force: true });
+      result.removed += 1;
+      result.reclaimedBytes += record.size;
+    }
+  }
+
+  const remaining = records.filter((record) => !record.reason);
+  result.remainingEntries = remaining.length + result.skippedLocked;
+  result.remainingBytes = remaining.reduce((total, record) => {
+    if (Number.isFinite(record.size)) return total + record.size;
+    try {
+      return total + getDirSize(record.entryPath);
+    } catch {
+      return total;
+    }
+  }, 0);
+  result.limitSatisfied =
+    (maxEntries === null || result.remainingEntries <= maxEntries) &&
+    (maxSizeBytes === null || result.remainingBytes <= maxSizeBytes);
   result.reclaimedFormatted = formatBytes(result.reclaimedBytes);
   return result;
 }
@@ -1015,6 +1123,7 @@ export function getCacheStats(options = {}) {
       totalSize += size;
       packages.push({
         name: entry,
+        lastUsedAt: metadata?.lastUsedAt || metadata?.cachedAt || null,
         size,
         sizeFormatted: exact || hasMetadataSize ? formatBytes(size) : 'unknown',
         sizeExact: Boolean(exact || hasMetadataSize),

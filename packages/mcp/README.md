@@ -134,8 +134,10 @@ Compare two versions of an npm package.
 ### Project tools
 
 `deplens_project_diff` accepts `from`, `to`, `rootDir`, `lockfile`, `analyze`,
-`includeTransitive`, `conditions`, and timeout/cache controls. `from` and `to` can be Git refs,
-lockfile paths, or `working`.
+`includeTransitive`, `detail`, `conditions`, and timeout/cache controls. `from` and `to` can be
+Git refs, lockfile paths, or `working`. API enrichment defaults to `detail: "compact"`, retaining
+only package, summary, changes, and semantic compatibility; use `detail: "full"` for the rich
+per-package diff object.
 
 `deplens_check` accepts a baseline path plus optional `config` and `failOn`. It returns a
 structured policy result and marks the MCP result as an error when policy fails. Format `sarif`

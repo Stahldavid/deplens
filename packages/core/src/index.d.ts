@@ -131,13 +131,15 @@ export interface CacheMaintenanceOptions {
   removeAliases?: boolean;
   removeInvalid?: boolean;
   maxAgeDays?: number;
+  maxEntries?: number;
+  maxSizeBytes?: number;
 }
 
 export interface CacheMaintenanceEntry {
   name: string;
   status?: string;
   target?: string;
-  reason?: 'invalid' | 'alias' | 'stale';
+  reason?: 'invalid' | 'alias' | 'stale' | 'lru-count' | 'lru-size';
   size?: number;
   sizeFormatted?: string;
 }
@@ -162,8 +164,14 @@ export interface CachePruneResult extends CacheEnvelope {
   candidates: number;
   removed: number;
   reclaimedBytes: number;
+  candidateBytes: number;
   reclaimedFormatted: string;
   maxAgeDays: number;
+  maxEntries: number | null;
+  maxSizeBytes: number | null;
+  remainingEntries: number;
+  remainingBytes: number;
+  limitSatisfied: boolean;
   dryRun: boolean;
   skippedLocked: number;
   entries: CacheMaintenanceEntry[];
@@ -333,6 +341,7 @@ export interface ProjectDiffOptions extends OperationOptions {
   runtime?: boolean;
   semantic?: boolean;
   analyze?: boolean;
+  detail?: 'compact' | 'full';
   onProgress?: (progress: { completed: number; total: number; package: string }) => void;
   diffRunner?: (options: DiffOptions) => Promise<Record<string, unknown>>;
 }

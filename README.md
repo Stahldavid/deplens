@@ -153,7 +153,12 @@ for a fast lockfile-only pass. pnpm peer suffixes are normalized before comparis
 deplens project-diff --from HEAD~1 --to working --json
 deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
 deplens project-diff --from-lock old-pnpm-lock.yaml --to-lock pnpm-lock.yaml --no-api
+deplens project-diff --from HEAD~1 --to working --detail full --json
 ```
+
+API enrichment is compact by default: each changed package keeps only `package`, `summary`,
+`changes`, and `semanticCompatibility`. Use `--detail full` for the legacy rich `runDiff`
+object, including `output` and internal analysis snapshots.
 
 Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured
 threshold is crossed and can emit SARIF for GitHub code scanning.
@@ -185,6 +190,8 @@ deplens cache clear [package]    # Clear all or specific package cache
 deplens cache migrate --exact    # Move legacy aliases to exact versions and rebuild metadata
 deplens cache prune --dry-run    # Preview stale, alias, and invalid entries
 deplens cache prune --max-age-days 90 # Remove maintenance candidates
+deplens cache prune --max-size 2GB --dry-run # Preview an LRU size limit
+deplens cache prune --max-entries 100 # Keep the 100 most recently used entries
 ```
 
 Fast cache stats avoid walking large cached packages. Older entries that do not
@@ -193,12 +200,16 @@ legacy entries and calculate precise metadata. `cache prune` defaults to 90 days
 supports `--dry-run`, and accepts `--keep-aliases` when tag aliases must be retained.
 All cache JSON commands return versioned `deplens-cache-*` envelopes and honor
 `--cache-dir`, including `stats`, `clear`, `pin`, `migrate`, and `prune`.
+Successful cache reads update `lastUsedAt`; size/count limits evict the least recently
+used unlocked entries and report whether the requested limit could be satisfied.
 
 Compact inspect JSON returns only `staticExports.total` by default. Select
 `staticExports` explicitly to page names, and follow its nested `pagination` object.
 Focused `--list-sections`, `--docs-for`, `--examples-for`, and JSDoc-only requests omit
 symbol inventories unless selected. Compact source analysis includes its summary plus
 separate `runtimeLanguage` and `sourceLanguage` fields.
+`--analyze-source` is itself a focused request and omits symbols unless they are explicitly
+selected with `--select sourceAnalysis,languageAnalysis,symbols`.
 
 Packages that only expose a `bin` entry are reported as `metadataOnly` with
 `entrypointExists: false` and an explicit warning instead of treating `package.json`
@@ -348,6 +359,9 @@ The JSON response includes a `resolution` block to explain where DepLens resolve
 Compare two versions of a package. Useful for upgrade planning and identifying breaking changes.
 Compact semantic results include up to ten diagnostics responsible for
 `semanticCompatible: false`; the total and truncation state remain explicit.
+Nominal incompatibilities caused only by isolated `unique symbol` or private-class identities
+are counted under `ignoredDiagnosticCount` instead of failing assignability. Full detail keeps
+the ignored diagnostic records for auditing.
 
 ```json
 {

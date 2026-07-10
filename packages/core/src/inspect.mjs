@@ -119,6 +119,7 @@ export async function runInspect(options) {
     options?.listSections ||
     options?.docsFor ||
     options?.examplesFor ||
+    options?.analyzeSource ||
     options?.jsdocOutput === 'only'
   );
   const projectedOutput =

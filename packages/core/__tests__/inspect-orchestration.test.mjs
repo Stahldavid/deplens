@@ -105,5 +105,7 @@ describe('inspect orchestration', () => {
       files: 1,
       summary: { totalFiles: 1, totalFunctions: 0 },
     });
+    expect(output).not.toHaveProperty('symbols');
+    expect(output).not.toHaveProperty('pagination');
   });
 });

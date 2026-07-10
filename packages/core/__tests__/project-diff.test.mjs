@@ -147,4 +147,34 @@ describe('project diff', () => {
     ]);
     expect(completeReport.summary.total).toBe(2);
   });
+
+  it('compacts enriched API diffs by default and preserves full detail on request', async () => {
+    const from = createProjectSnapshot(lockfile('1.0.0', { zod: '3.22.4' }));
+    const to = createProjectSnapshot(lockfile('1.0.1', { zod: '4.3.6' }));
+    const richApi = {
+      output: 'x'.repeat(1_000_000),
+      diff: { symbols: Array.from({ length: 1000 }, (_, index) => ({ index })) },
+      schemaVersion: 2,
+      detailLevel: 'compact',
+      package: 'zod',
+      summary: { breaking: 1, warnings: 2 },
+      changes: [{ type: 'symbol_removed', name: 'legacy' }],
+      semanticCompatibility: { compatible: false, diagnostics: [{ code: 2322 }] },
+      symbols: { fromCount: 100, toCount: 101 },
+      warnings: [],
+    };
+    const diffRunner = vi.fn(async () => richApi);
+
+    const compact = await runProjectDiff({ from, to, diffRunner });
+    const full = await runProjectDiff({ from, to, diffRunner, detail: 'full' });
+
+    expect(compact.changes[0].api).toEqual({
+      package: 'zod',
+      summary: { breaking: 1, warnings: 2 },
+      changes: [{ type: 'symbol_removed', name: 'legacy' }],
+      semanticCompatibility: { compatible: false, diagnostics: [{ code: 2322 }] },
+    });
+    expect(JSON.stringify(compact).length).toBeLessThan(2_000);
+    expect(full.changes[0].api).toBe(richApi);
+  });
 });

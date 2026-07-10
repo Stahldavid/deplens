@@ -1,5 +1,15 @@
 # @deplens/core
 
+## 1.0.3
+
+### Patch Changes
+
+- Compact project API enrichment by default and retain the legacy rich package diff only with full detail, reducing large agent-facing project reports by more than 98 percent.
+
+  Make source analysis focused by default, document all JSDoc and diff pagination flags, separate isolated nominal TypeScript identity noise from actionable diagnostics, and report npm downloads as fetched.
+
+  Track cache access time and add LRU pruning by maximum size or entry count, with lock-aware limit reporting and versioned JSON results.
+
 ## 1.0.2
 
 ### Patch Changes

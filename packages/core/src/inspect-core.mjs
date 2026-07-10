@@ -874,6 +874,27 @@ function comparableModuleStem(filePath) {
     .replace(/\.(?:js|cjs|mjs|ts|cts|mts)$/i, '');
 }
 
+function realPathIfAvailable(filePath) {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+function packageRelativeModulePath(filePath, pkgDir) {
+  if (!filePath) return null;
+  if (!pkgDir) return filePath;
+  const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(pkgDir, filePath);
+  const realPackageDir = realPathIfAvailable(pkgDir);
+  const realFilePath = realPathIfAvailable(absolutePath);
+  const relativePath = path.relative(realPackageDir, realFilePath);
+  if (relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)) {
+    return relativePath;
+  }
+  return realFilePath;
+}
+
 function readPackageTextFile(pkgDir, filenameCandidates) {
   if (!pkgDir) return null;
   for (const candidate of filenameCandidates) {
@@ -1144,10 +1165,11 @@ export async function runInspectCore(options) {
   const maxExports = typeof options?.maxExports === 'number' ? options.maxExports : 100;
   const maxProps = typeof options?.maxProps === 'number' ? options.maxProps : 10;
   const maxExamples = typeof options?.maxExamples === 'number' ? options.maxExamples : 10;
+  const captureResult = typeof options?.captureResult === 'function' ? options.captureResult : null;
 
   // JSON output collector (also used for format="object")
   const jsonOutput =
-    format === 'json' || format === 'object'
+    format === 'json' || format === 'object' || captureResult
       ? {
           schemaVersion: 1,
           package: null,
@@ -1187,21 +1209,29 @@ export async function runInspectCore(options) {
         }
       : null;
 
+  let resultCaptured = false;
+  const finalizeOutput = () => {
+    if (captureResult && jsonOutput && !resultCaptured) {
+      resultCaptured = true;
+      captureResult(jsonOutput);
+    }
+    if (format === 'object') return jsonOutput;
+    if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
+    return collect ? output.join('\n') : '';
+  };
+
   const warn = (message) => {
     if (jsonOutput) {
       jsonOutput.warnings.push(message);
-      return;
     }
-    logErr(`⚠️  ${message}`);
+    if (format === 'text') logErr(`⚠️  ${message}`);
   };
 
   if (!target) {
     logErr(
       'Uso: node inspect.mjs <pacote> [filtro] [--filter VALUE] [--types] [--jsdoc off|compact|full] [--jsdoc-output off|section|inline|only] [--jsdoc-symbol NAME|glob|/re/] [--jsdoc-sections summary,params,returns,tags] [--jsdoc-tags t1,t2] [--jsdoc-tags-exclude t1,t2] [--jsdoc-truncate none|sentence|word] [--jsdoc-max-len N] [--kind function,class,...] [--depth N] [--resolve-from DIR]'
     );
-    if (format === 'object') return jsonOutput;
-    if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
-    return collect ? output.join('\n') : '';
+    return finalizeOutput();
   }
 
   const baseCwd = options?.cwd;
@@ -1261,9 +1291,7 @@ export async function runInspectCore(options) {
             };
           }
           logErr(`\n❌ Remote download failed: ${message}`);
-          if (format === 'object') return jsonOutput;
-          if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
-          return collect ? output.join('\n') : '';
+          return finalizeOutput();
         }
       }
     }
@@ -1369,9 +1397,7 @@ export async function runInspectCore(options) {
             };
           }
 
-          if (format === 'object') return jsonOutput;
-          if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
-          return collect ? output.join('\n') : '';
+          return finalizeOutput();
         }
       }
 
@@ -1380,9 +1406,7 @@ export async function runInspectCore(options) {
       logErr(`\n❌ Erro: ${errorMsg}`);
       logErr(`ResolveFrom: ${resolveFrom || baseCwd || 'unknown'}`);
       logErr(`Certifique-se que '${target}' está instalado e é um caminho válido.`);
-      if (format === 'object') return jsonOutput;
-      if (format === 'json') return JSON.stringify(jsonOutput, null, 2);
-      return collect ? output.join('\n') : '';
+      return finalizeOutput();
     }
 
     const basePkg = getPackageName(target);
@@ -1678,7 +1702,11 @@ export async function runInspectCore(options) {
     let runtimeLoadError = null;
     let runtimeAvailable = false;
     if (!runtimeEnabled) {
-      warn('Runtime export loading skipped by runtime=false/--no-runtime.');
+      if (jsonOutput) {
+        jsonOutput.meta.runtimeSkipped = true;
+        jsonOutput.meta.runtimeSkipReason = 'disabled';
+      }
+      log('ℹ️  Runtime export loading skipped by runtime=false/--no-runtime.');
     } else if (!entrypointExists) {
       log('\n⚠️  Entrypoint not found on disk; runtime exports skipped.');
     } else {
@@ -1934,12 +1962,10 @@ export async function runInspectCore(options) {
       typeInfoRaw = await getCachedDtsParse(dtsPath);
     }
 
-    if (hasTypeSymbols(typeInfoRaw) && (!runtimeAvailable || runtimeLoadError)) {
+    if (runtimeEnabled && hasTypeSymbols(typeInfoRaw) && (!runtimeAvailable || runtimeLoadError)) {
       const reason = runtimeLoadError
         ? `runtime export introspection failed: ${runtimeLoadError}`
-        : !runtimeEnabled
-          ? 'runtime export loading is disabled'
-          : 'runtime entrypoint is not available on disk';
+        : 'runtime entrypoint is not available on disk';
       warn(`Runtime export introspection unavailable (${reason}); type definitions were found.`);
     }
 
@@ -2042,14 +2068,8 @@ export async function runInspectCore(options) {
       if (!symbolTypeInfo && typeInfoRaw) {
         symbolTypeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
       }
-      const relativeRuntimePath =
-        entrypointPath && pkgDir && entrypointPath.startsWith(pkgDir)
-          ? path.relative(pkgDir, entrypointPath)
-          : entrypointPath || null;
-      const relativeTypesPath =
-        dtsPath && pkgDir && dtsPath.startsWith(pkgDir)
-          ? path.relative(pkgDir, dtsPath)
-          : dtsPath || null;
+      const relativeRuntimePath = packageRelativeModulePath(entrypointPath, pkgDir);
+      const relativeTypesPath = packageRelativeModulePath(dtsPath, pkgDir);
       if (jsonOutput.resolution) {
         jsonOutput.resolution.runtimePath = relativeRuntimePath;
         jsonOutput.resolution.typesPath = relativeTypesPath;
@@ -2152,13 +2172,7 @@ export async function runInspectCore(options) {
     };
   }
 
-  if (jsonOutput && format === 'object') {
-    return jsonOutput;
-  }
-  if (jsonOutput && format === 'json') {
-    return JSON.stringify(jsonOutput, null, 2);
-  }
-  return collect ? output.join('\n') : '';
+  return finalizeOutput();
 }
 
 export { runDiff } from './diff.mjs';

@@ -5,9 +5,15 @@ import { saveHistoryEntry } from './history-manager.mjs';
 import { enrichSymbolsWithSource } from './symbols.mjs';
 
 export async function runInspect(options) {
-  const rawOutput = await runInspectCore(options);
   const format = options?.format || 'text';
   const shouldSaveHistory = Boolean(options?.saveHistory);
+  let capturedResult = null;
+  const rawOutput = await runInspectCore({
+    ...options,
+    ...(format !== 'json' && format !== 'object' && shouldSaveHistory
+      ? { captureResult: (result) => (capturedResult = result) }
+      : {}),
+  });
 
   // Text mode: pass through core output unchanged unless history needs a
   // structured payload to persist.
@@ -16,18 +22,13 @@ export async function runInspect(options) {
   }
 
   // JSON/object modes already have structured data. Text + --save-history
-  // creates a quiet object-mode pass so history works without changing output.
+  // receives the same inspection snapshot through the internal capture callback.
   let jsonOutput =
     format === 'json' || format === 'object'
       ? typeof rawOutput === 'string'
         ? JSON.parse(rawOutput)
         : rawOutput
-      : await runInspectCore({
-          ...options,
-          format: 'object',
-          write: undefined,
-          writeError: undefined,
-        });
+      : capturedResult;
 
   if (options?.analyzeSource && jsonOutput?.pkgDir) {
     const sourceResult = await runSourceAnalysis({

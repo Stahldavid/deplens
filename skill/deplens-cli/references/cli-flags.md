@@ -8,7 +8,7 @@ This document enumerates every flag of `deplens inspect` (default subcommand) an
 deplens <pacote> [filtro] [opções]
 deplens inspect <pacote> [filtro] [opções]
 deplens diff <pacote> [opções]
-deplens cache [stats|clear] [pacote?]
+deplens cache [stats|clear|pin|migrate|prune] [opções]
 deplens history [list|show|compare|clear] [args…]
 ```
 
@@ -132,7 +132,15 @@ deplens cache stats        # fast summary using cached metadata
 deplens cache stats --exact # recalculate recursive directory sizes
 deplens cache clear        # clear all cached versions
 deplens cache clear <pkg>  # clear cache for one package
+deplens cache migrate      # normalize legacy tag aliases and metadata
+deplens cache migrate --exact # also calculate exact size and integrity
+deplens cache prune --dry-run # preview stale, alias, and invalid entries
+deplens cache prune --max-age-days 90 # remove maintenance candidates
 ```
+
+Cache maintenance accepts `--cache-dir DIR`, `--dry-run`, and `--keep-aliases`.
+`migrate --exact` can be expensive because it hashes package contents. `prune`
+uses a 90-day default when `--max-age-days` is omitted.
 
 Fast stats do not walk every cached package. Entries without metadata may report
 `unknown` size until a future exact stats run or cache refresh records size data.
@@ -170,7 +178,7 @@ History entries store a full `runInspect` JSON payload. Useful for time-travel d
 
 ## JSON output schema
 
-`schemaVersion: 1` (current).
+Inspect uses `schemaVersion: 1`. Compact diff payloads use `schemaVersion: 2`.
 
 ### `inspect` payload
 
@@ -243,17 +251,34 @@ Optional extension fields (only when relevant flags are passed):
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "detailLevel": "compact",
   "package": "zod",
-  "from": "3.22.0",
-  "to": "3.24.0",
-  "output": "<full text rendering, or null in non-text formats>",
+  "from": { "name": "zod", "version": "3.22.0" },
+  "to": { "name": "zod", "version": "3.24.0" },
   "summary": { "breaking": 0, "warnings": 0, "additions": 2, "removals": 0 },
   "changes": [
-    { "kind": "addition", "name": "deepClone", "details": "…" },
-    { "kind": "breaking", "name": "ZodString.url", "details": "signature changed" },
+    {
+      "category": "symbol",
+      "type": "method_removed",
+      "severity": "breaking",
+      "name": "ZodString",
+      "subpath": ".",
+      "identity": ".:ZodString",
+      "facet": "types",
+      "detail": "Method 'url' was removed",
+    },
   ],
+  "changeCount": 1,
+  "symbols": {
+    "fromCount": 120,
+    "toCount": 123,
+    "summary": { "breaking": 1, "warnings": 0, "additions": 3, "removals": 0 },
+  },
+  "warnings": [],
 }
 ```
 
-Some diff implementations emit a more granular structure under `diff.{breaking,warnings,additions,info}[]` which the MCP wrapper flattens into `changes[]` for convenience.
+Compact JSON contains one canonical `changes[]` list and symbol counts, avoiding repeated
+full symbol objects. Pass `--verbose` when each change must include complete `from` and `to`
+symbol snapshots. The programmatic `runDiff()` result still exposes the rich internal `diff`.

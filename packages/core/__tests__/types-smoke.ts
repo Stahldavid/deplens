@@ -1,4 +1,16 @@
-import { parseDtsFile, runDiff, runInspect, type InspectResult } from '@deplens/core';
+import {
+  findChangelog,
+  findChangelogRemote,
+  migrateCache,
+  parseChangelogFile,
+  parseChangelogString,
+  parseDtsFile,
+  pruneCache,
+  runDiff,
+  runInspect,
+  type InspectResult,
+  type ParsedChangelog,
+} from '@deplens/core';
 
 async function verifyPublicTypes() {
   const inspection: InspectResult = await runInspect({
@@ -13,7 +25,24 @@ async function verifyPublicTypes() {
     to: '3.23.0',
   });
   const declarations = parseDtsFile('index.d.ts');
-  return { inspection, text, diff, declarations };
+  const changelogPath: string | null = findChangelog('.');
+  const remoteChangelog: string | null = await findChangelogRemote('zod', '4.3.6');
+  const parsed: ParsedChangelog = parseChangelogString('## 1.0.0');
+  const parsedFile: ParsedChangelog = parseChangelogFile('CHANGELOG.md');
+  const migration = migrateCache({ dryRun: true });
+  const prune = pruneCache({ dryRun: true, maxAgeDays: 30 });
+  return {
+    inspection,
+    text,
+    diff,
+    declarations,
+    changelogPath,
+    remoteChangelog,
+    parsed,
+    parsedFile,
+    migration,
+    prune,
+  };
 }
 
 void verifyPublicTypes;

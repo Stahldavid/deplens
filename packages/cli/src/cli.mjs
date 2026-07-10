@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { runInspect, runDiff, runDoctor } from '@deplens/core';
-import { clearCache, getCacheStats, pinCache } from '@deplens/core';
+import { clearCache, getCacheStats, migrateCache, pinCache, pruneCache } from '@deplens/core';
 import { listHistory, getHistoryEntry, clearHistory, compareHistoryEntries } from '@deplens/core';
 import fs from 'fs';
 import path from 'path';
@@ -348,10 +348,14 @@ function usage() {
       '  deplens inspect <pacote> [filtro] [opções]\n' +
       '  deplens diff <pacote> [opções]\n' +
       '  deplens doctor <pacote> [opções]\n' +
-      '  deplens cache [stats|clear|pin] [opções]\n\n' +
+      '  deplens cache [stats|clear|pin|migrate|prune] [opções]\n\n' +
       'Opções (cache):\n' +
       '  --fast                Fast stats using metadata / directory entries only (default)\n' +
       '  --exact               Recalculate recursive directory sizes\n' +
+      '  --cache-dir DIR       Override cache directory for maintenance commands\n' +
+      '  --max-age-days N      Remove entries older than N days (prune; default: 90)\n' +
+      '  --dry-run             Preview cache migration/prune without modifying files\n' +
+      '  --keep-aliases        Keep tag/range cache aliases during maintenance\n' +
       '  --json                Output cache stats as JSON\n\n' +
       'Opções (inspect):\n' +
       '  --filter VALUE         Filter exports by name\n' +
@@ -375,13 +379,14 @@ function usage() {
       '  --max-exports N        Max exports to show (default: 100)\n' +
       '  --max-props N          Max props per object (default: 10)\n' +
       '  --max-examples N       Max examples to show (default: 10)\n' +
-      '  --analyze-source       Analyze source code (JS/TS/Python/Java/Rust/Go)\n' +
+      '  --analyze-source       Analyze source code (JS/TS/Python/Java)\n' +
+      '  --language LANG        Force an analysis language\n' +
+      '                          Detect-only languages: rust, go\n' +
       '  --source-max-files N   Max source files to analyze\n' +
       '  --source-include-body  Include function body snippets\n' +
       '  --save-history          Save analysis to local history (~/.deplens/history)\n' +
       '  --no-save-history       Disable saving to history\n' +
       '  --history-dir DIR       Custom history directory\n' +
-      '  --language LANG         Force language detection (javascript, typescript, python, java, rust, go)\n' +
       '  --kind f,c,...         Filter by kind (function,class,object,constant)\n' +
       '  --depth N              Object inspection depth (0-5)\n' +
       '  --resolve-from DIR     Base directory for module resolution\n' +
@@ -482,6 +487,8 @@ const VALUE_OPTIONS = new Set([
   '--from',
   '--to',
   '--project-dir',
+  '--cache-dir',
+  '--max-age-days',
 ]);
 
 const FLAG_OPTIONS = new Set([
@@ -512,6 +519,8 @@ const FLAG_OPTIONS = new Set([
   '--fast',
   '--exact',
   '--force',
+  '--dry-run',
+  '--keep-aliases',
   '--help',
   '--version',
   '-h',
@@ -550,6 +559,13 @@ if (argv.includes('--help') || argv.includes('-h')) {
   process.exit(0);
 }
 
+try {
+  validateCliArgs(argv);
+} catch (error) {
+  console.error(`Error: ${error.message}`);
+  process.exit(1);
+}
+
 const commandArgs = command === 'inspect' && argv[0] !== 'inspect' ? argv : argv.slice(1);
 
 const parsed = command === 'diff' ? parseDiffArgs(commandArgs) : parseInspectArgs(commandArgs);
@@ -557,6 +573,17 @@ const parsed = command === 'diff' ? parseDiffArgs(commandArgs) : parseInspectArg
 // Cache commands
 if (command === 'cache') {
   const subcmd = argv[1] || 'stats';
+  const cacheDirIndex = argv.indexOf('--cache-dir');
+  const cacheDir = cacheDirIndex !== -1 ? argv[cacheDirIndex + 1] : undefined;
+  const maxAgeIndex = argv.indexOf('--max-age-days');
+  const maxAgeDays = maxAgeIndex !== -1 ? Number(argv[maxAgeIndex + 1]) : undefined;
+  const maintenanceOptions = {
+    cacheDir,
+    exact: argv.includes('--exact') && !argv.includes('--fast'),
+    dryRun: argv.includes('--dry-run'),
+    removeAliases: !argv.includes('--keep-aliases'),
+    ...(Number.isFinite(maxAgeDays) ? { maxAgeDays } : {}),
+  };
   if (subcmd === 'clear' || subcmd === 'clean') {
     const pkg = argv[2] || null;
     clearCache(pkg);
@@ -602,8 +629,38 @@ if (command === 'cache') {
       console.error(`Failed to pin cache: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
     }
+  } else if (subcmd === 'migrate') {
+    try {
+      const result = migrateCache(maintenanceOptions);
+      if (argv.includes('--json')) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `Migrated ${result.migrated}/${result.scanned} cache entries (${result.aliasesMoved} aliases moved, ${result.aliasesRemoved} removed, ${result.invalid} invalid, ${result.skippedLocked} locked).`
+        );
+        if (result.dryRun) console.log('Dry run only; no files were changed.');
+      }
+    } catch (error) {
+      console.error(`Cache migration failed: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  } else if (subcmd === 'prune') {
+    try {
+      const result = pruneCache(maintenanceOptions);
+      if (argv.includes('--json')) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `Pruned ${result.removed}/${result.candidates} cache candidates; reclaimed ${result.reclaimedFormatted}; skipped ${result.skippedLocked} locked entries.`
+        );
+        if (result.dryRun) console.log('Dry run only; no files were changed.');
+      }
+    } catch (error) {
+      console.error(`Cache prune failed: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
   } else {
-    console.error('Usage: deplens cache [clear|stats|pin] [package?]');
+    console.error('Usage: deplens cache [clear|stats|pin|migrate|prune] [options]');
     process.exit(1);
   }
   process.exit(0);
@@ -787,10 +844,4 @@ if (command === 'diff') {
     process.stdout.write(output);
   }
   markExitCodeForOutput(output, parsed.format);
-}
-try {
-  validateCliArgs(argv);
-} catch (error) {
-  console.error(`Error: ${error.message}`);
-  process.exit(1);
 }

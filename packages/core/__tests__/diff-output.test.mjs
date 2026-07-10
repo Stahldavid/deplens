@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest';
+import { serializeDiffForJson } from '../src/diff.mjs';
+
+describe('compact diff JSON', () => {
+  it('keeps one compact change list and exposes full symbols only in verbose mode', () => {
+    const largeSymbol = {
+      exportName: 'Client',
+      subpath: '.',
+      facets: ['types'],
+      types: {
+        kind: 'class',
+        methods: Object.fromEntries(
+          Array.from({ length: 100 }, (_, index) => [`method${index}`, { signature: '(): void' }])
+        ),
+      },
+    };
+    const diff = {
+      from: { name: 'demo', version: '1.0.0' },
+      to: { name: 'demo', version: '2.0.0' },
+      breaking: [],
+      warnings: [],
+      additions: [],
+      info: [],
+      summary: { breaking: 1, warnings: 0, additions: 0, removals: 0 },
+      symbols: {
+        fromCount: 1,
+        toCount: 1,
+        summary: { breaking: 1, warnings: 0, additions: 0, removals: 0 },
+        changes: [
+          {
+            kind: 'method_removed',
+            facet: 'types',
+            severity: 'breaking',
+            identity: '.:Client',
+            name: 'Client',
+            subpath: '.',
+            detail: "Method 'run' was removed",
+            from: largeSymbol,
+            to: largeSymbol,
+          },
+        ],
+      },
+    };
+
+    const compact = serializeDiffForJson(diff, { packageName: 'demo' });
+    const verbose = serializeDiffForJson(diff, { packageName: 'demo', verbose: true });
+
+    expect(compact).toMatchObject({ schemaVersion: 2, detailLevel: 'compact', changeCount: 1 });
+    expect(compact).not.toHaveProperty('breaking');
+    expect(compact.symbols).not.toHaveProperty('changes');
+    expect(compact.changes[0]).not.toHaveProperty('from');
+    expect(JSON.stringify(compact).length).toBeLessThan(2000);
+    expect(verbose).toMatchObject({ schemaVersion: 2, detailLevel: 'verbose' });
+    expect(verbose.changes[0]).toHaveProperty('from.types.methods.method0');
+  });
+});

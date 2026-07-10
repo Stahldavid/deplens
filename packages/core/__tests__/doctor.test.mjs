@@ -1,5 +1,10 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { describe, it, expect } from 'vitest';
-import { buildDoctorReport } from '../src/doctor.mjs';
+import { buildDoctorReport, runDoctor } from '../src/doctor.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, '..', '..', '..');
 
 describe('buildDoctorReport', () => {
   it('reports ok when package, runtime, types, and symbols are available', () => {
@@ -80,5 +85,19 @@ describe('buildDoctorReport', () => {
       'Try --resolve-from pointing at the package workspace or project root.'
     );
     expect(report.suggestions).toContain('If the package is not installed locally, try --remote.');
+  });
+
+  it('normalizes workspace links before comparing runtime and type entrypoints', async () => {
+    const report = await runDoctor({
+      target: '@deplens/core',
+      cwd: repoRoot,
+      runtime: false,
+      format: 'object',
+    });
+
+    expect(report.resolution.runtimePath.replace(/\\/g, '/')).toBe('src/index.mjs');
+    expect(report.resolution.typesPath.replace(/\\/g, '/')).toBe('src/index.d.ts');
+    expect(report.resolution.runtimeTypesDiverge).toBe(false);
+    expect(report.suggestions).not.toContainEqual(expect.stringContaining('different files'));
   });
 });

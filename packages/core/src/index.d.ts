@@ -61,11 +61,57 @@ export function runDiff(options: DiffOptions): Promise<Record<string, unknown>>;
 export function runDoctor(options: InspectOptions): Promise<string | Record<string, unknown>>;
 export function clearCache(packageName?: string | null): void;
 export function getCacheStats(options?: { exact?: boolean }): Record<string, unknown>;
+
+export interface CacheMaintenanceOptions {
+  cacheDir?: string;
+  exact?: boolean;
+  dryRun?: boolean;
+  removeAliases?: boolean;
+  removeInvalid?: boolean;
+  maxAgeDays?: number;
+}
+
+export interface CacheMaintenanceEntry {
+  name: string;
+  status?: string;
+  target?: string;
+  reason?: 'invalid' | 'alias' | 'stale';
+  size?: number;
+  sizeFormatted?: string;
+}
+
+export interface CacheMigrationResult {
+  cacheDir: string;
+  scanned: number;
+  migrated: number;
+  aliasesMoved: number;
+  aliasesRemoved: number;
+  invalid: number;
+  skippedLocked: number;
+  dryRun: boolean;
+  entries: CacheMaintenanceEntry[];
+}
+
+export interface CachePruneResult {
+  cacheDir: string;
+  scanned: number;
+  candidates: number;
+  removed: number;
+  reclaimedBytes: number;
+  reclaimedFormatted: string;
+  maxAgeDays: number;
+  dryRun: boolean;
+  skippedLocked: number;
+  entries: CacheMaintenanceEntry[];
+}
+
 export function pinCache(
   packageName: string,
   version: string,
   options?: Record<string, unknown>
 ): Promise<Record<string, unknown>>;
+export function migrateCache(options?: CacheMaintenanceOptions): CacheMigrationResult;
+export function pruneCache(options?: CacheMaintenanceOptions): CachePruneResult;
 export function getLatestVersion(packageName: string): string;
 export function getLatestVersionAsync(packageName: string): Promise<string>;
 export function getAllVersions(packageName: string): string[];
@@ -78,6 +124,36 @@ export function parseDtsFile(
   path: string,
   filters?: string[] | null
 ): Record<string, unknown> | null;
+
+export interface ChangelogEntry {
+  text: string;
+  category: string;
+  raw: string;
+  version?: string;
+}
+
+export interface ChangelogVersion {
+  version: string;
+  date: string | null;
+  sections: Record<string, ChangelogEntry[]>;
+  raw: string[];
+}
+
+export interface ParsedChangelog {
+  file?: string;
+  error?: string;
+  versions: Record<string, ChangelogVersion>;
+}
+
+export function findChangelog(packageDirectory: string): string | null;
+export function findChangelogRemote(
+  packageName: string,
+  version: string,
+  timeoutMs?: number
+): Promise<string | null>;
+export function parseChangelogString(text: string | ParsedChangelog): ParsedChangelog;
+export function parseChangelogFile(filePath: string): ParsedChangelog;
+
 export function detectLanguage(packageDir: string): string | null;
 export function getSourceFiles(packageDir: string, language: string, maxFiles?: number): string[];
 export function analyzePythonPackage(

@@ -19,6 +19,55 @@ import {
   formatChangelogDiff,
 } from './changelog-parser.mjs';
 
+function serializeChange(change, verbose) {
+  const serialized = {
+    category: change.category || 'symbol',
+    type: change.type || change.kind || 'changed',
+    severity: change.severity || 'warning',
+    name: change.name || null,
+    subpath: change.subpath || '.',
+    identity: change.identity || null,
+    facet: change.facet || null,
+    detail: change.detail || null,
+  };
+  if (verbose) {
+    serialized.from = change.from ?? null;
+    serialized.to = change.to ?? null;
+  }
+  return serialized;
+}
+
+export function serializeDiffForJson(diff, options = {}) {
+  const { packageName = diff?.to?.name || diff?.from?.name || null, verbose = false } = options;
+  const sourceChanges = (diff?.warnings || []).filter((change) => change.category === 'source');
+  const symbolChanges = diff?.symbols?.changes || [];
+  const changes = [...sourceChanges, ...symbolChanges].map((change) =>
+    serializeChange(change, verbose)
+  );
+
+  return {
+    schemaVersion: 2,
+    detailLevel: verbose ? 'verbose' : 'compact',
+    package: packageName,
+    from: diff?.from || null,
+    to: diff?.to || null,
+    summary: diff?.summary || null,
+    changes,
+    changeCount: changes.length,
+    symbols: diff?.symbols
+      ? {
+          fromCount: diff.symbols.fromCount,
+          toCount: diff.symbols.toCount,
+          summary: diff.symbols.summary,
+        }
+      : null,
+    sourceComparison: diff?.sourceComparison || null,
+    changelog: options.changelog || null,
+    meta: options.meta || null,
+    warnings: options.warnings || [],
+  };
+}
+
 /**
  * Run a complete diff between two package versions
  */
@@ -139,36 +188,23 @@ export async function runDiff(options = {}) {
 
     // Format output
     if (format === 'json') {
-      const changes = [
-        ...diff.warnings.filter((change) => change.category === 'source'),
-        ...(diff.symbols?.changes || []).map((change) => ({
-          category: 'symbol',
-          type: change.kind,
-          severity: change.severity,
-          name: change.name,
-          subpath: change.subpath,
-          identity: change.identity,
-          detail: change.detail,
-          from: change.from,
-          to: change.to,
-        })),
-      ];
+      const meta = {
+        package: packageName,
+        from: versionPair.from.version,
+        to: versionPair.to.version,
+        runtime,
+        analyzedAt: new Date().toISOString(),
+      };
+      const payload = serializeDiffForJson(diff, {
+        packageName,
+        verbose,
+        changelog: changelogDiff,
+        meta,
+      });
       return {
-        output: formatDiffAsJson({
-          ...diff,
-          package: packageName,
-          changes,
-          changeCount: changes.length,
-          changelog: changelogDiff,
-          meta: {
-            package: packageName,
-            from: versionPair.from.version,
-            to: versionPair.to.version,
-            runtime,
-            analyzedAt: new Date().toISOString(),
-          },
-        }),
+        output: formatDiffAsJson(payload),
         diff,
+        ...payload,
         changelog: changelogDiff,
       };
     }
@@ -190,6 +226,8 @@ export async function runDiff(options = {}) {
     if (format === 'json') {
       return {
         output: formatDiffAsJson({
+          schemaVersion: 2,
+          detailLevel: 'compact',
           package: packageName,
           error: error.message,
           warnings: [error.message],
@@ -217,6 +255,7 @@ export { resolveVersion, clearCache, getCacheStats };
 
 export default {
   runDiff,
+  serializeDiffForJson,
   resolveVersion,
   clearCache,
   getCacheStats,

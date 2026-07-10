@@ -56,7 +56,7 @@ Example output (truncated):
 deplens <package-or-import-path> [filter] [options]
 deplens inspect <package> [filter] [options]
 deplens diff <package> [options]
-deplens cache [stats|clear [package]]
+deplens cache [stats|clear|pin|migrate|prune] [options]
 deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 ```
 
@@ -134,10 +134,15 @@ Flags:
 deplens cache stats              # Fast cache statistics from metadata
 deplens cache stats --exact      # Recalculate recursive sizes
 deplens cache clear [package]    # Clear all or specific package cache
+deplens cache migrate --exact    # Move legacy aliases to exact versions and rebuild metadata
+deplens cache prune --dry-run    # Preview stale, alias, and invalid entries
+deplens cache prune --max-age-days 90 # Remove maintenance candidates
 ```
 
 Fast cache stats avoid walking large cached packages. Older entries that do not
-have size metadata may show `unknown`; run `--exact` when you need precise sizes.
+have size metadata may show `unknown`; run `cache migrate --exact` to normalize
+legacy entries and calculate precise metadata. `cache prune` defaults to 90 days,
+supports `--dry-run`, and accepts `--keep-aliases` when tag aliases must be retained.
 
 Source analysis recognizes ESM exports, default exported functions, and common
 CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and

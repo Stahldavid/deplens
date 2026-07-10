@@ -10,6 +10,8 @@ export {
   clearCache,
   getCacheStats,
   pinCache,
+  migrateCache,
+  pruneCache,
   getLatestVersion,
   getLatestVersionAsync,
   getAllVersions,

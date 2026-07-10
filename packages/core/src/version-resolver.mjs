@@ -690,6 +690,201 @@ export async function downloadVersionPair(packageName, fromSpec, toSpec, options
   };
 }
 
+function cachedPackageCandidates(entryPath) {
+  const nodeModulesDir = path.join(entryPath, 'node_modules');
+  if (!fs.existsSync(nodeModulesDir)) return [];
+  const packageDirs = [];
+  for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const entryDir = path.join(nodeModulesDir, entry.name);
+    if (entry.name.startsWith('@')) {
+      for (const scopedEntry of fs.readdirSync(entryDir, { withFileTypes: true })) {
+        if (scopedEntry.isDirectory()) packageDirs.push(path.join(entryDir, scopedEntry.name));
+      }
+    } else if (!entry.name.startsWith('.')) {
+      packageDirs.push(entryDir);
+    }
+  }
+  return packageDirs;
+}
+
+function inspectCacheEntry(entryPath, entryName) {
+  const metadata = readCacheMetadata(entryPath);
+  let candidates;
+  try {
+    candidates = cachedPackageCandidates(entryPath);
+  } catch {
+    return null;
+  }
+  for (const packageDir of candidates) {
+    try {
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')
+      );
+      if (!packageJson.name || !packageJson.version) continue;
+      const safeName = packageJson.name.replace(/[/@]/g, '_');
+      if (metadata?.package === packageJson.name || entryName.startsWith(`${safeName}@`)) {
+        return {
+          packageName: packageJson.name,
+          version: packageJson.version,
+          packageDir,
+          metadata,
+          exactEntryName: `${safeName}@${packageJson.version}`,
+        };
+      }
+    } catch {
+      // Ignore dependency directories without valid package metadata.
+    }
+  }
+  return null;
+}
+
+export function migrateCache(options = {}) {
+  const cacheDir = path.resolve(options.cacheDir || CACHE_DIR);
+  const exact = Boolean(options.exact);
+  const dryRun = Boolean(options.dryRun);
+  const removeAliases = options.removeAliases !== false;
+  const result = {
+    cacheDir,
+    scanned: 0,
+    migrated: 0,
+    aliasesMoved: 0,
+    aliasesRemoved: 0,
+    invalid: 0,
+    skippedLocked: 0,
+    dryRun,
+    entries: [],
+  };
+  if (!fs.existsSync(cacheDir)) return result;
+
+  for (const entry of fs.readdirSync(cacheDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    result.scanned += 1;
+    const sourcePath = path.join(cacheDir, entry.name);
+    if (fs.existsSync(`${sourcePath}.lock`)) {
+      result.skippedLocked += 1;
+      result.entries.push({ name: entry.name, status: 'locked' });
+      continue;
+    }
+    const identity = inspectCacheEntry(sourcePath, entry.name);
+    if (!identity) {
+      result.invalid += 1;
+      result.entries.push({ name: entry.name, status: 'invalid' });
+      continue;
+    }
+
+    let destinationPath = sourcePath;
+    let action = 'metadata';
+    const isAlias = entry.name !== identity.exactEntryName;
+    if (isAlias && removeAliases) {
+      destinationPath = path.join(cacheDir, identity.exactEntryName);
+      if (fs.existsSync(destinationPath)) {
+        const existingIdentity = inspectCacheEntry(destinationPath, identity.exactEntryName);
+        if (
+          !existingIdentity ||
+          existingIdentity.packageName !== identity.packageName ||
+          existingIdentity.version !== identity.version
+        ) {
+          result.invalid += 1;
+          result.entries.push({
+            name: entry.name,
+            status: 'conflict',
+            target: identity.exactEntryName,
+          });
+          continue;
+        }
+        action = 'remove-alias';
+        if (!dryRun) fs.rmSync(sourcePath, { recursive: true, force: true });
+        result.aliasesRemoved += 1;
+        result.migrated += 1;
+        result.entries.push({ name: entry.name, status: action, target: identity.exactEntryName });
+        continue;
+      }
+      action = 'move-alias';
+      if (!dryRun) fs.renameSync(sourcePath, destinationPath);
+      result.aliasesMoved += 1;
+    }
+
+    if (!dryRun) {
+      const packageDir = path.join(destinationPath, 'node_modules', identity.packageName);
+      writeCacheMetadata(
+        destinationPath,
+        packageDir,
+        identity.packageName,
+        identity.version,
+        identity.metadata?.source || 'migrated',
+        { exact }
+      );
+    }
+    result.migrated += 1;
+    result.entries.push({ name: entry.name, status: action, target: identity.exactEntryName });
+  }
+
+  return result;
+}
+
+export function pruneCache(options = {}) {
+  const cacheDir = path.resolve(options.cacheDir || CACHE_DIR);
+  const dryRun = Boolean(options.dryRun);
+  const removeAliases = options.removeAliases !== false;
+  const removeInvalid = options.removeInvalid !== false;
+  const maxAgeDays = Number.isFinite(Number(options.maxAgeDays))
+    ? Math.max(0, Number(options.maxAgeDays))
+    : 90;
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  const result = {
+    cacheDir,
+    scanned: 0,
+    candidates: 0,
+    removed: 0,
+    reclaimedBytes: 0,
+    reclaimedFormatted: '0 B',
+    maxAgeDays,
+    dryRun,
+    skippedLocked: 0,
+    entries: [],
+  };
+  if (!fs.existsSync(cacheDir)) return result;
+
+  for (const entry of fs.readdirSync(cacheDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    result.scanned += 1;
+    const entryPath = path.join(cacheDir, entry.name);
+    if (fs.existsSync(`${entryPath}.lock`)) {
+      result.skippedLocked += 1;
+      continue;
+    }
+    const identity = inspectCacheEntry(entryPath, entry.name);
+    let reason = null;
+    if (!identity && removeInvalid) {
+      reason = 'invalid';
+    } else if (identity && removeAliases && entry.name !== identity.exactEntryName) {
+      reason = 'alias';
+    } else if (identity) {
+      const cachedAt = Date.parse(identity.metadata?.cachedAt || '');
+      const lastUsedAt = Number.isFinite(cachedAt) ? cachedAt : fs.statSync(entryPath).mtimeMs;
+      if (lastUsedAt < cutoff) reason = 'stale';
+    }
+    if (!reason) continue;
+
+    let size = 0;
+    try {
+      size = getDirSize(entryPath);
+    } catch {
+      // Removal can still proceed for partially readable or broken entries.
+    }
+    result.candidates += 1;
+    result.entries.push({ name: entry.name, reason, size, sizeFormatted: formatBytes(size) });
+    if (!dryRun) {
+      fs.rmSync(entryPath, { recursive: true, force: true });
+      result.removed += 1;
+      result.reclaimedBytes += size;
+    }
+  }
+  result.reclaimedFormatted = formatBytes(result.reclaimedBytes);
+  return result;
+}
+
 /**
  * Clear version cache
  */
@@ -802,6 +997,8 @@ export default {
   resolveVersion,
   resolveVersionAsync,
   pinCache,
+  migrateCache,
+  pruneCache,
   downloadVersionPair,
   clearCache,
   getCacheStats,

@@ -499,6 +499,7 @@ const DiffInputSchema = z.object(diffInputShape).strict();
 
 const diffOutputShape = {
   schemaVersion: z.number(),
+  detailLevel: z.enum(['compact', 'verbose']).nullable().optional(),
   package: z.string(),
   from: z.string(),
   to: z.string(),
@@ -552,11 +553,11 @@ async function handleDiff(params) {
       jsonPayload = null;
     }
   }
-  const summary = result?.diff?.summary ?? result?.summary ?? jsonPayload?.summary ?? null;
-  const changes = result?.changes
-    ? result.changes
-    : Array.isArray(jsonPayload?.changes)
-      ? jsonPayload.changes
+  const summary = jsonPayload?.summary ?? result?.summary ?? result?.diff?.summary ?? null;
+  const changes = Array.isArray(jsonPayload?.changes)
+    ? jsonPayload.changes
+    : result?.changes
+      ? result.changes
       : result?.diff
         ? [
             ...(result.diff.breaking || []),
@@ -567,14 +568,15 @@ async function handleDiff(params) {
         : null;
 
   const structured = {
-    schemaVersion: 1,
+    schemaVersion: jsonPayload?.schemaVersion || 1,
+    detailLevel: jsonPayload?.detailLevel || null,
     package: jsonPayload?.package || result?.package || params.package,
     from: result?.diff?.from?.version || jsonPayload?.from?.version || result?.from || from,
     to: result?.diff?.to?.version || jsonPayload?.to?.version || result?.to || to,
-    output: result?.output ?? null,
+    output: requestedFormat === 'text' ? result?.output || null : null,
     summary,
     changes,
-    symbols: result?.diff?.symbols || jsonPayload?.symbols || null,
+    symbols: jsonPayload?.symbols || result?.symbols || result?.diff?.symbols || null,
     sourceComparison: result?.diff?.sourceComparison || jsonPayload?.sourceComparison || null,
     changelog: result?.changelog || jsonPayload?.changelog || null,
     meta: jsonPayload?.meta || null,

@@ -53,19 +53,47 @@ describe('inspect CLI', () => {
     expect(JSON.parse(result.stdout).package).toBeNull();
   });
 
-  it('rejects unknown options and missing option values', () => {
+  it('rejects unknown options before command execution', () => {
     const unknown = spawnSync(process.execPath, [cliPath, 'zod', '--formt', 'json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
-    const missing = spawnSync(process.execPath, [cliPath, 'zod', '--filter', '--json'], {
       cwd: repoRoot,
       encoding: 'utf8',
     });
 
     expect(unknown.status).toBe(1);
     expect(unknown.stderr).toContain('Unknown option: --formt');
+  }, 10000);
+
+  it('rejects options with missing values before command execution', () => {
+    const missing = spawnSync(process.execPath, [cliPath, 'zod', '--filter', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('Option --filter requires a value');
+  }, 10000);
+
+  it('describes Rust and Go as detection-only languages', () => {
+    const result = spawnSync(process.execPath, [cliPath, '--help'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const help = `${result.stdout}\n${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(help).toContain('Analyze source code (JS/TS/Python/Java)');
+    expect(help).toContain('Detect-only languages: rust, go');
+    expect(help).toContain('stats|clear|pin|migrate|prune');
+    expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
+  });
+
+  it('validates cache maintenance values before command execution', () => {
+    const result = spawnSync(process.execPath, [cliPath, 'cache', 'prune', '--cache-dir'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Option --cache-dir requires a value');
   });
 });

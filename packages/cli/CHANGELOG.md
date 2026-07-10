@@ -1,5 +1,22 @@
 # @deplens/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- Introduce compact diff JSON schema version 2, reducing repeated symbol payloads while preserving complete before/after snapshots behind verbose mode and the rich programmatic diff result.
+
+  Normalize workspace and symlink entrypoints before Doctor comparisons, capture text-mode history from a single inspection pass, and represent intentionally disabled runtime loading as structured metadata instead of warnings.
+
+  Add cache migration and pruning APIs with exact metadata rebuilding, legacy alias normalization, age-based cleanup, dry-run support, active-lock protection, and conflict-safe maintenance. Expose the new maintenance commands through the CLI with validation before command execution.
+
+  Complete the public TypeScript declarations for changelog and cache APIs, enforce JavaScript/declaration export parity, align MCP with compact diff payloads, clarify detection-only languages, and run the TypeScript API smoke test in pull-request CI.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @deplens/core@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

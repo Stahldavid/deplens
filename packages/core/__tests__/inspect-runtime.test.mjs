@@ -53,4 +53,36 @@ describe('runtime loading controls', () => {
       }
     }
   });
+
+  it('resolves extensionless subpath export targets to existing runtime files', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-subpath-runtime-'));
+    try {
+      const pkgDir = path.join(root, 'node_modules', 'subpath-pkg');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({
+          name: 'subpath-pkg',
+          version: '1.0.0',
+          type: 'module',
+          exports: { './server': './server' },
+        })
+      );
+      writeFileSync(path.join(pkgDir, 'server.js'), 'export const serve = () => true;\n');
+      writeFileSync(path.join(pkgDir, 'server.d.ts'), 'export function serve(): boolean;\n');
+
+      const result = await runInspect({
+        target: 'subpath-pkg/server',
+        cwd: root,
+        format: 'object',
+        runtime: false,
+      });
+
+      expect(result.resolution.entrypointExists).toBe(true);
+      expect(result.resolution.entrypointPath).toBe(path.join(pkgDir, 'server.js'));
+      expect(result.resolution.typesPath).toBe('server.d.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

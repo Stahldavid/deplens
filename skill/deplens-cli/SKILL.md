@@ -212,8 +212,17 @@ The CLI defaults to a compact, cursor-paginated schema v2 envelope (full schema 
 ```
 
 Use `--detail full` for the complete projected payload, or `--select types,docs,examples,symbols`
-to request specific rich sections. Direct `@deplens/core` calls without projection retain the
+to request specific rich sections. `--select` accepts CSV, repeated flags, and `--select=CSV`.
+Explicit `--list-sections`, `--docs`, `--docs-sections`, and `--examples` flags include their rich
+section even in compact mode. Direct `@deplens/core` calls without projection retain the
 legacy schema v1 payload for compatibility; the CLI JSON contract is schema v2.
+
+Selection never removes package identity, resolution, metadata, warnings, or structured errors;
+those fields remain available for reliable agent and CI error handling.
+
+On symbol pages after the first, compact output omits the complete `exports` and `staticExports`
+inventories unless explicitly selected. Read those inventories from page one and follow
+`pagination.nextCursor` for additional symbols.
 
 ### Large outputs — keep responses focused
 
@@ -236,6 +245,7 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **Legacy cache entries.** Use `deplens cache migrate --exact` to move tag aliases to exact versions and rebuild metadata. Preview cleanup with `deplens cache prune --dry-run`; pruning defaults to entries older than 90 days plus invalid/alias entries.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
 - **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
+- **Lockfile support.** `project-diff` and `check` accept npm `package-lock.json` v2/v3 and pnpm lockfiles with importers (pnpm v6+). Pass the actual path through `--lockfile`, `--from-lock`, or `--to-lock`.
 
 ## Composition with other tools
 

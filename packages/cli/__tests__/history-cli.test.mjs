@@ -79,6 +79,24 @@ describe('history CLI', () => {
     }
   });
 
+  it('returns a structured envelope for history list --json', () => {
+    const historyDir = path.join(tmpdir(), `deplens-cli-history-json-${process.pid}-${Date.now()}`);
+    try {
+      writeHistoryEntry(historyDir, 'zod', '4.3.6');
+
+      const output = JSON.parse(runCli(['history', 'list', '--history-dir', historyDir, '--json']));
+
+      expect(output).toMatchObject({
+        schemaVersion: 1,
+        kind: 'deplens-history-list',
+        total: 1,
+      });
+      expect(output.entries[0]).toMatchObject({ package: 'zod', version: '4.3.6' });
+    } finally {
+      rmSync(historyDir, { recursive: true, force: true });
+    }
+  });
+
   it('clears custom history dirs without treating --history-dir as a package name', () => {
     const historyDir = path.join(
       tmpdir(),

@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.1
+
+### Patch Changes
+
+- Fix compact JSON projection, profiling, semantic symbol search, example ranking, subpath runtime resolution, and JSON history output. Add pnpm lockfile support and avoid repeating complete export inventories on later symbol pages.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.1
+
 ## 1.0.0
 
 ### Major Changes

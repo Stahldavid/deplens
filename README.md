@@ -84,7 +84,7 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --format text|json            Output format (default: text)
 --json                       Shorthand for --format json
 --detail compact|full        Versioned JSON projection (inspect schema v2)
---select <sections>          Select JSON sections
+--select <sections>          Select JSON sections (CSV, repeatable, or --select=CSV)
 --max-symbols <N>            Symbols per page
 --cursor <value>             Resume symbol/change pagination
 --conditions <list>          Export conditions in priority order
@@ -150,6 +150,7 @@ enriched with semantic API diffs by default; use `--no-api` for a fast lockfile-
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
 deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
+deplens project-diff --from-lock old-pnpm-lock.yaml --to-lock pnpm-lock.yaml --no-api
 ```
 
 Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured

@@ -39,6 +39,48 @@ describe('inspect CLI', () => {
     expect(output.symbols).toHaveLength(1);
   });
 
+  it('accepts repeated and equals-form select options', () => {
+    const repeated = runCliJson([
+      'zod',
+      '--no-runtime',
+      '--types',
+      '--select',
+      'types',
+      '--select',
+      'symbols',
+    ]);
+    const equalsForm = runCliJson(['zod', '--no-runtime', '--types', '--select=types,symbols']);
+
+    for (const output of [repeated, equalsForm]) {
+      expect(output).toHaveProperty('types');
+      expect(output).toHaveProperty('symbols');
+    }
+  });
+
+  it('supports equals-form values consistently across inspect options', () => {
+    const output = runCliJson([
+      'zod',
+      '--no-runtime',
+      '--types',
+      '--filter=ZodString',
+      '--max-symbols=2',
+    ]);
+
+    expect(output.symbols).toHaveLength(2);
+    expect(output.symbols.every((symbol) => /zodstring/i.test(symbol.exportName))).toBe(true);
+  });
+
+  it('includes requested docs sections and profile timings in compact JSON', () => {
+    const sections = runCliJson(['zod', '--no-runtime', '--list-sections']);
+    const profiled = runCliJson(['zod', '--no-runtime', '--profile']);
+
+    expect(sections.sections).toEqual(expect.any(Array));
+    expect(profiled.meta.timings).toMatchObject({
+      inspectCoreMs: expect.any(Number),
+      totalMs: expect.any(Number),
+    });
+  });
+
   it('filters runtime exports by requested kind', () => {
     const output = runCliJson(['zod', '--kind', 'class']);
 
@@ -74,6 +116,23 @@ describe('inspect CLI', () => {
 
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout).package).toBeNull();
+  });
+
+  it('preserves unresolved errors and exit status with --select', () => {
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, 'definitely-not-a-real-deplens-pkg', '--select', 'symbols', '--json'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+      }
+    );
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      package: null,
+      warnings: expect.any(Array),
+    });
   });
 
   it('rejects unknown options before command execution', () => {

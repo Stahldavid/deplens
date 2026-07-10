@@ -64,6 +64,13 @@ deplens diff express --from 4.18.0 --to 4.19.0 --verbose
 - `--max-exports <n>` — limit exports shown
 - `--max-props <n>` — limit object props shown
 - `--max-examples <n>` — limit examples shown
+- `--select <a,b>` — select JSON sections; repeatable and also accepts `--select=a,b`
+- `--profile` — include inspect phase timings in `meta.timings`
+
+In compact JSON, explicit documentation/example flags include their requested section. Cursor pages
+after the first omit the full runtime/static export inventories unless those sections are explicitly
+selected.
+
 - `--analyze-source` — analyze source complexity
 - `--source-max-files <n>` — max source files to analyze
 - `--source-include-body` — include function body snippets

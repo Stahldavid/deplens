@@ -43,6 +43,33 @@ describe('project CLI workflows', () => {
     }
   });
 
+  it('compares pnpm lockfiles without registry access', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-pnpm-project-cli-'));
+    try {
+      const before = path.join(root, 'before-pnpm-lock.yaml');
+      const after = path.join(root, 'after-pnpm-lock.yaml');
+      const pnpmLock = (version) =>
+        `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      zod:\n        specifier: '*'\n        version: ${version}\npackages:\n  zod@${version}: {}\n`;
+      writeFileSync(before, pnpmLock('3.22.4'));
+      writeFileSync(after, pnpmLock('4.3.6'));
+
+      const result = spawnSync(
+        process.execPath,
+        [CLI, 'project-diff', '--from-lock', before, '--to-lock', after, '--no-api', '--json'],
+        { cwd: root, encoding: 'utf8' }
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout).changes[0]).toMatchObject({
+        package: 'zod',
+        changeType: 'upgraded',
+        direct: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('writes a baseline and fails a policy check on later changes', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-check-cli-'));
     try {

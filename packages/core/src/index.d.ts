@@ -253,7 +253,8 @@ export interface ProjectSnapshot {
   project: {
     name: string | null;
     version: string | null;
-    lockfileVersion: number | null;
+    lockfileVersion: number | string | null;
+    packageManager?: 'npm' | 'pnpm';
     source: string | null;
   };
   packages: Record<string, ProjectPackageSnapshot>;
@@ -371,6 +372,7 @@ export function projectInspectResult(
   options?: {
     detail?: 'compact' | 'full';
     select?: string[];
+    include?: string[];
     maxSymbols?: number;
     cursor?: string;
   }

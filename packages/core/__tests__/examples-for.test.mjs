@@ -28,6 +28,7 @@ function writeDemoPackage(root) {
  * @example const value = parseThing("docs")
  */
 export function parseThing(value: string): string;
+export interface AlphaUnrelated { value: number }
 `
   );
   writeFileSync(
@@ -94,6 +95,50 @@ describe('examples-for', () => {
         score: expect.any(Number),
       });
       expect(result.docs.rankedSections[0].content).toContain('parseThing');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ranks an exact camel-case symbol example above unrelated setup snippets', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-example-ranking-'));
+    try {
+      const pkgDir = writeDemoPackage(root);
+      writeFileSync(
+        path.join(pkgDir, 'README.md'),
+        "# demo\n\n```bash\nnpm install demo-examples\n```\n\n```ts\nconst result = parseThing('value');\n```\n"
+      );
+
+      const result = await runInspectCore({
+        target: 'demo-examples',
+        resolveFrom: root,
+        includeExamples: true,
+        examplesFor: 'parseThing',
+        format: 'object',
+      });
+
+      expect(result.examples.ranked[0].code).toContain('parseThing');
+      expect(result.examples.ranked[0].score).toBeGreaterThan(result.examples.ranked.at(-1).score);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('applies semantic search to the symbols array and preserves ranking', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-symbol-search-'));
+    try {
+      writeDemoPackage(root);
+
+      const result = await runInspectCore({
+        target: 'demo-examples',
+        resolveFrom: root,
+        search: 'parse thing',
+        format: 'object',
+        runtime: false,
+      });
+
+      expect(result.symbols.map((symbol) => symbol.exportName)).toEqual(['parseThing']);
+      expect(result.staticExports.names).toEqual(['parseThing']);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

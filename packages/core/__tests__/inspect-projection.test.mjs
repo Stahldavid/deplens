@@ -13,6 +13,11 @@ describe('inspect output projection', () => {
     ],
     types: { very: 'large' },
     docs: { content: 'large readme' },
+    sections: [{ title: 'Usage' }],
+    examples: { ranked: [{ code: 'a()' }] },
+    staticExports: { total: 3, names: ['a', 'b', 'c'] },
+    exports: { total: 3, functions: ['a', 'b', 'c'], classes: [], objects: [], constants: [] },
+    meta: { target: 'demo' },
     warnings: [],
   };
 
@@ -27,6 +32,35 @@ describe('inspect output projection', () => {
     expect(projected).not.toHaveProperty('docs');
   });
 
+  it('keeps rich sections explicitly requested in compact mode', () => {
+    const projected = projectInspectResult(payload, {
+      detail: 'compact',
+      select: ['types', 'docs', 'sections', 'examples', 'symbols'],
+      maxSymbols: 1,
+    });
+
+    expect(projected.types).toEqual(payload.types);
+    expect(projected.docs).toEqual(payload.docs);
+    expect(projected.sections).toEqual(payload.sections);
+    expect(projected.examples).toEqual(payload.examples);
+    expect(projected.symbols).toHaveLength(1);
+  });
+
+  it('does not repeat full export inventories after the first symbol page', () => {
+    const first = projectInspectResult(payload, { detail: 'compact', maxSymbols: 1 });
+    const next = projectInspectResult(payload, {
+      detail: 'compact',
+      maxSymbols: 1,
+      cursor: '1',
+    });
+
+    expect(first.exports).toEqual(payload.exports);
+    expect(first.staticExports).toEqual(payload.staticExports);
+    expect(next).not.toHaveProperty('exports');
+    expect(next).not.toHaveProperty('staticExports');
+    expect(next.pagination).toMatchObject({ offset: 1, returned: 1, nextCursor: '2' });
+  });
+
   it('selects sections and resumes from a cursor', () => {
     const projected = projectInspectResult(payload, {
       detail: 'full',
@@ -37,6 +71,22 @@ describe('inspect output projection', () => {
 
     expect(projected.symbols.map((symbol) => symbol.exportName)).toEqual(['c']);
     expect(projected.types).toEqual(payload.types);
+    expect(projected.package).toBe('demo');
+    expect(projected.meta).toEqual(payload.meta);
+    expect(projected.warnings).toEqual([]);
     expect(projected).not.toHaveProperty('docs');
+  });
+
+  it('never hides structured errors behind an explicit selection', () => {
+    const projected = projectInspectResult(
+      { ...payload, error: 'resolution failed', errorInfo: { code: 'RESOLVE_FAILED' } },
+      { detail: 'compact', select: ['symbols'] }
+    );
+
+    expect(projected).toMatchObject({
+      package: 'demo',
+      error: 'resolution failed',
+      errorInfo: { code: 'RESOLVE_FAILED' },
+    });
   });
 });

@@ -169,6 +169,24 @@ async function resolveTargetModule(target, cwd, resolveFrom, explicitResolveFrom
   return { resolved: null, resolveCwd: baseDir, resolver: null };
 }
 
+function existingEntrypointPath(resolvedPath) {
+  if (!resolvedPath || typeof resolvedPath !== 'string') return resolvedPath;
+  const candidates = [
+    resolvedPath,
+    ...(!path.extname(resolvedPath)
+      ? [
+          `${resolvedPath}.js`,
+          `${resolvedPath}.mjs`,
+          `${resolvedPath}.cjs`,
+          path.join(resolvedPath, 'index.js'),
+          path.join(resolvedPath, 'index.mjs'),
+          path.join(resolvedPath, 'index.cjs'),
+        ]
+      : []),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || resolvedPath;
+}
+
 function findPackageJsonFromPath(startPath) {
   if (!startPath) return null;
   let dir = path.dirname(startPath);
@@ -655,6 +673,42 @@ function hasTypeSymbols(typeInfo) {
   );
 }
 
+function typeSymbolNames(typeInfo) {
+  return [
+    'functions',
+    'interfaces',
+    'types',
+    'classes',
+    'enums',
+    'namespaces',
+    'variables',
+  ].flatMap((key) => Object.keys(typeInfo?.[key] || {}));
+}
+
+function filterTypeInfoForOutput(typeInfo, filter, kindFilter, allowedNames = null) {
+  const filtered = filterTypeInfo(typeInfo, filter, kindFilter);
+  if (!allowedNames) return filtered;
+  const allowed = new Set(allowedNames);
+  const result = { ...filtered };
+  for (const key of [
+    'functions',
+    'interfaces',
+    'interfaceDetails',
+    'types',
+    'classes',
+    'enums',
+    'enumDetails',
+    'namespaces',
+    'variables',
+    'jsdoc',
+  ]) {
+    result[key] = Object.fromEntries(
+      Object.entries(filtered?.[key] || {}).filter(([name]) => allowed.has(name))
+    );
+  }
+  return result;
+}
+
 function comparableModuleStem(filePath) {
   if (!filePath) return null;
   return String(filePath)
@@ -736,6 +790,8 @@ function scoreExampleForNeedle(example, needle) {
   let score = 0;
   if ((example.symbol || '').toLowerCase() === lowerNeedle) score += 100;
   if ((example.path || '').toLowerCase().includes(lowerNeedle)) score += 25;
+  const escapedNeedle = lowerNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`\\b${escapedNeedle}\\b`, 'i').test(haystack)) score += 60;
   const directMatches = haystack.split(lowerNeedle).length - 1;
   score += directMatches * 12;
 
@@ -745,6 +801,7 @@ function scoreExampleForNeedle(example, needle) {
     const tokenMatches = haystack.split(token).length - 1;
     score += tokenMatches * 3;
   }
+  if (/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b/i.test(example.code || '')) score -= 5;
   return score;
 }
 
@@ -1084,10 +1141,11 @@ export async function runInspectCore(options) {
   const resolveCwd = resolution.resolveCwd || resolveFrom || baseCwd;
   const require = createRequire(resolveCwd ? path.join(resolveCwd, 'noop.js') : import.meta.url);
   const resolvedPath = resolution.resolved;
-  const entrypointPath =
+  const entrypointPath = existingEntrypointPath(
     typeof resolvedPath === 'string' && resolvedPath.startsWith('file://')
       ? fileURLToPath(resolvedPath)
-      : resolvedPath;
+      : resolvedPath
+  );
   const entrypointExists = entrypointPath ? fs.existsSync(entrypointPath) : false;
 
   if (jsonOutput) {
@@ -1508,6 +1566,7 @@ export async function runInspectCore(options) {
 
     // Lógica de Filtro (case-insensitive, supports regex)
     let finalList = allExports;
+    let matchedSearchNames = null;
     if (filterRaw) {
       // Check if it's a regex pattern
       const isRegex = filterRaw.startsWith('/') && filterRaw.endsWith('/') && filterRaw.length > 2;
@@ -1537,8 +1596,11 @@ export async function runInspectCore(options) {
     if (search) {
       const queryTokens = expandSynonyms(tokenizeSymbolName(search));
 
-      // Build candidate list from current exports
-      const candidates = finalList.map((name) => ({ name }));
+      // Search one shared runtime + type universe so exports and symbols stay aligned.
+      const filteredTypes = filterTypeInfo(typeInfoRaw, filter, kindFilter);
+      const candidates = [...new Set([...finalList, ...typeSymbolNames(filteredTypes)])].map(
+        (name) => ({ name })
+      );
 
       // If types are available, use JSDoc-aware scoring
       let results = null;
@@ -1557,11 +1619,13 @@ export async function runInspectCore(options) {
           .sort((a, b) => b._searchScore - a._searchScore);
       }
 
-      finalList = results.map((r) => r.name);
-      if (finalList.length === 0) {
+      matchedSearchNames = results.map((r) => r.name);
+      const runtimeNames = new Set(allExports);
+      finalList = matchedSearchNames.filter((name) => runtimeNames.has(name));
+      if (matchedSearchNames.length === 0) {
         warn(`Search "${search}" found no matches. Try different keywords.`);
       } else {
-        log(`\n🔍 Search "${search}" found ${finalList.length} matches`);
+        log(`\n🔍 Search "${search}" found ${matchedSearchNames.length} matches`);
       }
     }
 
@@ -1760,7 +1824,12 @@ export async function runInspectCore(options) {
           log(`   Source: ${path.basename(dtsPath)}`);
         }
 
-        const typeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
+        const typeInfo = filterTypeInfoForOutput(
+          typeInfoRaw,
+          filter,
+          kindFilter,
+          matchedSearchNames
+        );
 
         // Log functions
         const functionCount = Object.keys(typeInfo.functions).length;
@@ -1827,7 +1896,12 @@ export async function runInspectCore(options) {
       !jsonOutput.types
     ) {
       const typeInfoRaw2 = await getCachedDtsParse(dtsPath);
-      const typeInfo = filterTypeInfo(typeInfoRaw2, filter, kindFilter);
+      const typeInfo = filterTypeInfoForOutput(
+        typeInfoRaw2,
+        filter,
+        kindFilter,
+        matchedSearchNames
+      );
       symbolTypeInfo = typeInfo;
       if (typeInfo) {
         jsonOutput.types = {
@@ -1850,7 +1924,12 @@ export async function runInspectCore(options) {
 
     if (jsonOutput) {
       if (!symbolTypeInfo && typeInfoRaw) {
-        symbolTypeInfo = filterTypeInfo(typeInfoRaw, filter, kindFilter);
+        symbolTypeInfo = filterTypeInfoForOutput(
+          typeInfoRaw,
+          filter,
+          kindFilter,
+          matchedSearchNames
+        );
       }
       const relativeRuntimePath = packageRelativeModulePath(entrypointPath, pkgDir);
       const relativeTypesPath = packageRelativeModulePath(dtsPath, pkgDir);
@@ -1892,6 +1971,15 @@ export async function runInspectCore(options) {
         typesSource,
         typesCondition,
       });
+      if (matchedSearchNames) {
+        const searchOrder = new Map(matchedSearchNames.map((name, index) => [name, index]));
+        jsonOutput.symbols.sort(
+          (left, right) =>
+            (searchOrder.get(left.exportName) ?? Number.MAX_SAFE_INTEGER) -
+              (searchOrder.get(right.exportName) ?? Number.MAX_SAFE_INTEGER) ||
+            left.exportName.localeCompare(right.exportName)
+        );
+      }
       if (!showTypes && !wantJsdoc) {
         jsonOutput.symbols = jsonOutput.symbols.map((symbol) => {
           if (!symbol.types) return symbol;

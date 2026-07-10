@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import semver from 'semver';
+import { parse as parseYaml } from 'yaml';
 import { runDiff } from './diff.mjs';
 import { createOperationSignal, errorPayload, throwIfAborted } from './errors.mjs';
 import { createSafeRecord, setSafeRecord } from './safe-record.mjs';
@@ -15,10 +16,19 @@ const DEPENDENCY_GROUPS = [
   'peerDependencies',
 ];
 
+function parseLockfileContent(content, fileName = '') {
+  const trimmed = String(content).trimStart();
+  if (/\.ya?ml$/i.test(fileName) || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return parseYaml(content);
+  }
+  return JSON.parse(content);
+}
+
 function parseLockfile(value) {
   if (value && typeof value === 'object') return value;
-  if (typeof value !== 'string') throw new TypeError('A package-lock object or path is required');
-  return JSON.parse(fs.readFileSync(path.resolve(value), 'utf8'));
+  if (typeof value !== 'string') throw new TypeError('A lockfile object or path is required');
+  const filePath = path.resolve(value);
+  return parseLockfileContent(fs.readFileSync(filePath, 'utf8'), filePath);
 }
 
 function packageNameFromLockPath(lockPath, entry) {
@@ -36,10 +46,118 @@ function dependencyType(root, packageName) {
   return DEPENDENCY_GROUPS.find((group) => Object.hasOwn(root?.[group] || {}, packageName)) || null;
 }
 
+function pnpmDependencyVersion(value) {
+  const raw = value && typeof value === 'object' ? value.version : value;
+  if (typeof raw !== 'string') return null;
+  if (/^(?:link|workspace|file):/.test(raw)) return null;
+  const npmAlias = raw.startsWith('npm:') ? raw.slice(4) : raw;
+  const versionPart = npmAlias.startsWith('@')
+    ? npmAlias.slice(npmAlias.indexOf('@', npmAlias.indexOf('/') + 1) + 1)
+    : npmAlias.includes('@')
+      ? npmAlias.slice(npmAlias.lastIndexOf('@') + 1)
+      : npmAlias;
+  return versionPart.split('(')[0] || null;
+}
+
+function pnpmPackageIdentity(key, entry = {}) {
+  const normalized = String(key).replace(/^\//, '');
+  if (/^(?:link|workspace|file):/.test(normalized)) return null;
+  const delimiter = normalized.startsWith('@')
+    ? normalized.indexOf('@', normalized.indexOf('/') + 1)
+    : normalized.indexOf('@');
+  if (delimiter <= 0) return null;
+  const name = entry.name || normalized.slice(0, delimiter);
+  const version = String(entry.version || normalized.slice(delimiter + 1)).split('(')[0];
+  return name && version ? { name, version } : null;
+}
+
+function createPnpmProjectSnapshot(lockfile, options) {
+  const importers = lockfile.importers || {};
+  const directByName = new Map();
+  for (const [importerPath, importer] of Object.entries(importers)) {
+    for (const group of DEPENDENCY_GROUPS) {
+      for (const [name, reference] of Object.entries(importer?.[group] || {})) {
+        const version = pnpmDependencyVersion(reference);
+        if (!version) continue;
+        const records = directByName.get(name) || [];
+        records.push({
+          version,
+          dependencyType: group,
+          workspace: importerPath === '.' ? null : importerPath,
+        });
+        directByName.set(name, records);
+      }
+    }
+  }
+
+  const instances = [];
+  const packageEntries = Object.entries(lockfile.packages || lockfile.snapshots || {});
+  for (const [packageKey, entry] of packageEntries) {
+    const identity = pnpmPackageIdentity(packageKey, entry);
+    if (!identity) continue;
+    const directRecords = (directByName.get(identity.name) || []).filter(
+      (record) => record.version === identity.version
+    );
+    instances.push({
+      id: packageKey,
+      name: identity.name,
+      version: identity.version,
+      resolved: entry?.resolution?.tarball || entry?.resolved || null,
+      integrity: entry?.resolution?.integrity || entry?.integrity || null,
+      direct: directRecords.length > 0,
+      dependencyType: directRecords[0]?.dependencyType || null,
+      workspaces: [
+        ...new Set(directRecords.map((record) => record.workspace).filter(Boolean)),
+      ].sort(),
+    });
+  }
+
+  for (const [name, records] of directByName) {
+    for (const record of records) {
+      if (instances.some((item) => item.name === name && item.version === record.version)) continue;
+      instances.push({
+        id: `${name}@${record.version}`,
+        name,
+        version: record.version,
+        resolved: null,
+        integrity: null,
+        direct: true,
+        dependencyType: record.dependencyType,
+        workspaces: record.workspace ? [record.workspace] : [],
+      });
+    }
+  }
+
+  instances.sort((left, right) => left.id.localeCompare(right.id));
+  const packages = createSafeRecord();
+  for (const instance of [...instances].sort((left, right) => {
+    if (left.direct !== right.direct) return left.direct ? -1 : 1;
+    return left.id.localeCompare(right.id);
+  })) {
+    if (!Object.hasOwn(packages, instance.name)) setSafeRecord(packages, instance.name, instance);
+  }
+  return {
+    schemaVersion: 1,
+    kind: 'deplens-project-snapshot',
+    project: {
+      name: options.name || null,
+      version: null,
+      lockfileVersion: lockfile.lockfileVersion || null,
+      source: options.source || null,
+      packageManager: 'pnpm',
+    },
+    packages,
+    instances,
+  };
+}
+
 export function createProjectSnapshot(lockfileInput, options = {}) {
   const lockfile = parseLockfile(lockfileInput);
+  if (lockfile.importers && (lockfile.packages || lockfile.snapshots)) {
+    return createPnpmProjectSnapshot(lockfile, options);
+  }
   if (!lockfile.packages || typeof lockfile.packages !== 'object') {
-    throw new Error('Only npm package-lock v2/v3 files with a packages map are supported');
+    throw new Error('Supported lockfiles are npm package-lock v2/v3 and pnpm-lock YAML');
   }
   const root = lockfile.packages[''] || {};
   const rootDependencies = dependencyNames(root);
@@ -85,6 +203,7 @@ export function createProjectSnapshot(lockfileInput, options = {}) {
       version: root.version || lockfile.version || null,
       lockfileVersion: lockfile.lockfileVersion || null,
       source: options.source || null,
+      packageManager: 'npm',
     },
     packages,
     instances,
@@ -237,7 +356,7 @@ export async function loadLockfileFromGit(ref, options = {}) {
     timeout: Number(options.timeoutMs) || 30000,
     maxBuffer: 20 * 1024 * 1024,
   });
-  return JSON.parse(stdout);
+  return parseLockfileContent(stdout, lockfile);
 }
 
 export async function loadProjectSnapshot(source = 'working', options = {}) {

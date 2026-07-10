@@ -68,7 +68,8 @@ export async function runInspect(options) {
     };
   }
 
-  if (options?.profile && jsonOutput?.meta) {
+  if (options?.profile && jsonOutput) {
+    jsonOutput.meta ??= {};
     jsonOutput.meta.timings = {
       inspectCoreMs: Number((coreCompletedAt - startedAt).toFixed(2)),
       totalMs: Number((performance.now() - startedAt).toFixed(2)),
@@ -98,6 +99,11 @@ export async function runInspect(options) {
       ? projectInspectResult(jsonOutput, {
           detail: options.detail,
           select: options.select,
+          include: [
+            ...(options.listSections ? ['sections'] : []),
+            ...(options.includeDocs || options.docsFor || options.docsSections ? ['docs'] : []),
+            ...(options.includeExamples || options.examplesFor ? ['examples'] : []),
+          ],
           maxSymbols: options.maxSymbols || options.maxExports,
           cursor: options.cursor,
         })

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
 import {
   compareProjectSnapshots,
   createProjectSnapshot,
@@ -29,6 +32,29 @@ describe('project diff', () => {
       project: { name: 'demo-project', lockfileVersion: 3 },
     });
     expect(snapshot.packages.zod).toMatchObject({ version: '3.22.4', direct: true });
+  });
+
+  it('creates snapshots from pnpm lockfiles with workspace direct dependencies', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-pnpm-lock-'));
+    const lockPath = path.join(root, 'pnpm-lock.yaml');
+    try {
+      writeFileSync(
+        lockPath,
+        "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      zod:\n        specifier: ^3.22.0\n        version: 3.22.4\n  packages/app:\n    dependencies:\n      semver:\n        specifier: ^7.7.0\n        version: 7.7.4\npackages:\n  zod@3.22.4:\n    resolution: {integrity: sha512-zod}\n  semver@7.7.4:\n    resolution: {integrity: sha512-semver}\n"
+      );
+
+      const snapshot = createProjectSnapshot(lockPath);
+
+      expect(snapshot.project.lockfileVersion).toBe('9.0');
+      expect(snapshot.packages.zod).toMatchObject({ version: '3.22.4', direct: true });
+      expect(snapshot.packages.semver).toMatchObject({
+        version: '7.7.4',
+        direct: true,
+        workspaces: ['packages/app'],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('classifies additions, removals, upgrades and downgrades', () => {

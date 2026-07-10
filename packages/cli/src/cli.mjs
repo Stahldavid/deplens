@@ -27,17 +27,31 @@ function cliVersion() {
 }
 
 function argumentValue(argv, name, fallback = null) {
-  const index = argv.indexOf(name);
-  return index !== -1 && argv[index + 1] ? argv[index + 1] : fallback;
+  return argumentValues(argv, name).at(-1) ?? fallback;
+}
+
+function argumentValues(argv, name) {
+  const values = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === name && argv[index + 1]) {
+      values.push(argv[index + 1]);
+      index += 1;
+    } else if (argument.startsWith(`${name}=`)) {
+      values.push(argument.slice(name.length + 1));
+    }
+  }
+  return values;
 }
 
 function commaList(value) {
-  return value
-    ? String(value)
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : [];
+  const values = Array.isArray(value) ? value : value == null ? [] : [value];
+  return values.flatMap((item) =>
+    String(item)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+  );
 }
 
 function parseInspectArgs(argv) {
@@ -264,7 +278,7 @@ function parseInspectArgs(argv) {
   }
 
   const detail = argumentValue(argv, '--detail', format === 'json' ? 'compact' : null);
-  const selectedSections = commaList(argumentValue(argv, '--select'));
+  const selectedSections = commaList(argumentValues(argv, '--select'));
   const select = selectedSections.length > 0 ? selectedSections : null;
   const cursor = argumentValue(argv, '--cursor');
   const maxSymbolsValue = Number(argumentValue(argv, '--max-symbols'));
@@ -451,7 +465,7 @@ function usage() {
       '  --jsdoc off|compact|full  JSDoc mode\n' +
       '  --jsdoc-output off|section|inline|only  JSDoc output mode\n' +
       '  --detail compact|full  Inspect JSON detail (default: compact)\n' +
-      '  --select LIST          Select JSON sections\n' +
+      '  --select LIST          Select JSON sections (CSV/repeatable/= form)\n' +
       '  --cursor VALUE         Resume symbol pagination\n' +
       '  --max-symbols N        Symbols per JSON page\n' +
       '  --conditions LIST      Export conditions in priority order\n' +
@@ -477,8 +491,8 @@ function usage() {
       '\nOpções (project-diff/check):\n' +
       '  --from REF             Git ref used as project baseline\n' +
       '  --to REF               Git ref used as project target (default: working)\n' +
-      '  --from-lock FILE       Read the baseline package-lock from a file\n' +
-      '  --to-lock FILE         Read the target package-lock from a file\n' +
+      '  --from-lock FILE       Read the baseline npm/pnpm lockfile\n' +
+      '  --to-lock FILE         Read the target npm/pnpm lockfile\n' +
       '  --lockfile FILE        Lockfile path inside refs (default: package-lock.json)\n' +
       '  --baseline FILE        Baseline file for check\n' +
       '  --write-baseline       Write/update a baseline instead of checking\n' +
@@ -634,10 +648,18 @@ function validateCliArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (!argument.startsWith('-')) continue;
-    if (VALUE_OPTIONS.has(argument)) {
+    const equalsIndex = argument.indexOf('=');
+    const optionName = equalsIndex === -1 ? argument : argument.slice(0, equalsIndex);
+    if (VALUE_OPTIONS.has(optionName)) {
+      if (equalsIndex !== -1) {
+        if (argument.slice(equalsIndex + 1).length === 0) {
+          throw new Error(`Option ${optionName} requires a value`);
+        }
+        continue;
+      }
       const value = args[index + 1];
       if (!value || value.startsWith('-')) {
-        throw new Error(`Option ${argument} requires a value`);
+        throw new Error(`Option ${optionName} requires a value`);
       }
       index += 1;
       continue;
@@ -646,7 +668,17 @@ function validateCliArgs(args) {
   }
 }
 
-const argv = process.argv.slice(2);
+function normalizeCliArgs(args) {
+  return args.flatMap((argument) => {
+    if (!argument.startsWith('--') || !argument.includes('=')) return [argument];
+    const equalsIndex = argument.indexOf('=');
+    const optionName = argument.slice(0, equalsIndex);
+    if (!VALUE_OPTIONS.has(optionName)) return [argument];
+    return [optionName, argument.slice(equalsIndex + 1)];
+  });
+}
+
+const argv = normalizeCliArgs(process.argv.slice(2));
 if (argv.includes('--version') || argv.includes('-v')) {
   console.log(cliVersion());
   process.exit(0);
@@ -795,7 +827,20 @@ if (command === 'history') {
   if (subcmd === 'list') {
     const filter = historyArgs[0] || null;
     const entries = listHistory(filter, historyDir);
-    if (entries.length === 0) {
+    if (argv.includes('--json')) {
+      console.log(
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: 'deplens-history-list',
+            total: entries.length,
+            entries,
+          },
+          null,
+          2
+        )
+      );
+    } else if (entries.length === 0) {
       console.log('📭 No history entries found.');
     } else {
       console.log(`📜 History (${entries.length} entries):\n`);
@@ -1076,6 +1121,7 @@ if (command === 'project-diff') {
     timeoutMs: parsed.timeoutMs,
     cacheDir: parsed.cacheDir,
     conditions: parsed.conditions,
+    profile: parsed.profile,
   });
 
   if (typeof output === 'string' && output.length > 0) {

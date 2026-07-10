@@ -41,4 +41,32 @@ describe('inspect orchestration', () => {
       expect.objectContaining({ package: 'demo-pkg', version: '1.0.0', data: snapshot })
     );
   });
+
+  it('keeps rich sections requested by inspect flags in compact output', async () => {
+    mocks.runInspectCore.mockResolvedValue({
+      schemaVersion: 1,
+      package: 'demo-pkg',
+      version: '1.0.0',
+      docs: { readme: 'Usage' },
+      sections: [{ title: 'Usage' }],
+      examples: { ranked: [{ code: 'demo()' }] },
+      symbols: [],
+      warnings: [],
+    });
+
+    const output = await runInspect({
+      target: 'demo-pkg',
+      format: 'object',
+      detail: 'compact',
+      includeDocs: true,
+      listSections: true,
+      includeExamples: true,
+    });
+
+    expect(output).toMatchObject({
+      docs: { readme: 'Usage' },
+      sections: [{ title: 'Usage' }],
+      examples: { ranked: [{ code: 'demo()' }] },
+    });
+  });
 });

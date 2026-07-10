@@ -1024,7 +1024,7 @@ const doctorToolConfig = {
 const projectDiffToolConfig = {
   title: 'Diff project dependencies',
   description:
-    'Compare npm package-lock snapshots from files or Git refs and optionally analyze API compatibility.',
+    'Compare npm or pnpm lockfile snapshots from files or Git refs and optionally analyze API compatibility.',
   inputSchema: projectInputShape,
   outputSchema: projectOutputShape,
   annotations: {
@@ -1039,7 +1039,7 @@ const projectDiffToolConfig = {
 const checkToolConfig = {
   title: 'Check dependency policy',
   description:
-    'Compare the working package-lock with a DepLens baseline and enforce project policy.',
+    'Compare the working npm or pnpm lockfile with a DepLens baseline and enforce project policy.',
   inputSchema: CheckInputSchema.shape,
   outputSchema: checkOutputShape,
   annotations: {

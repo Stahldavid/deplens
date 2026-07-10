@@ -10,10 +10,23 @@ const DEFAULT_COMPACT_SECTIONS = new Set([
   'error',
   'errorInfo',
 ]);
+const REQUIRED_ENVELOPE_SECTIONS = [
+  'package',
+  'version',
+  'resolution',
+  'meta',
+  'warnings',
+  'error',
+  'errorInfo',
+];
+const REPEATED_PAGE_SECTIONS = new Set(['exports', 'staticExports']);
 
-function normalizeSelect(select, detail) {
-  if (Array.isArray(select) && select.length > 0) return new Set(select.map(String));
-  return detail === 'compact' ? DEFAULT_COMPACT_SECTIONS : null;
+function normalizeSelect(select, include, detail) {
+  if (Array.isArray(select) && select.length > 0) {
+    return new Set([...REQUIRED_ENVELOPE_SECTIONS, ...select.map(String)]);
+  }
+  if (detail !== 'compact') return null;
+  return new Set([...DEFAULT_COMPACT_SECTIONS, ...(include || []).map(String)]);
 }
 
 function compactSymbol(symbol) {
@@ -30,7 +43,7 @@ function compactSymbol(symbol) {
 export function projectInspectResult(payload, options = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   const detail = options.detail === 'full' ? 'full' : 'compact';
-  const selected = normalizeSelect(options.select, detail);
+  const selected = normalizeSelect(options.select, options.include, detail);
   const maxSymbols = Math.max(1, Number(options.maxSymbols) || 250);
   const cursorNumber = Number.parseInt(options.cursor || '0', 10);
   const offset = Number.isFinite(cursorNumber) && cursorNumber >= 0 ? cursorNumber : 0;
@@ -45,6 +58,14 @@ export function projectInspectResult(payload, options = {}) {
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'schemaVersion' || key === 'symbols') continue;
     if (selected && !selected.has(key)) continue;
+    if (
+      detail === 'compact' &&
+      offset > 0 &&
+      !options.select?.includes(key) &&
+      REPEATED_PAGE_SECTIONS.has(key)
+    ) {
+      continue;
+    }
     result[key] = value;
   }
   if (!selected || selected.has('symbols')) {

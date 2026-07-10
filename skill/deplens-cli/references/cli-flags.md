@@ -91,18 +91,18 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 ### Output
 
-| Flag                     | Type   | Default                     | Effect                               |
-| ------------------------ | ------ | --------------------------- | ------------------------------------ |
-| `--format text\|json`    | enum   | `text`                      | Output format.                       |
-| `--json`                 | flag   | off                         | Shorthand for `--format json`.       |
-| `--detail compact\|full` | enum   | compact                     | Versioned inspect JSON projection.   |
-| `--select LIST`          | list   | compact defaults            | Select structured output sections.   |
-| `--max-symbols N`        | int    | 250                         | Symbols per page.                    |
-| `--cursor VALUE`         | string | `0`                         | Resume symbol/change pagination.     |
-| `--conditions LIST`      | list   | Node defaults               | Export conditions in priority order. |
-| `--cache-dir DIR`        | path   | `~/.deplens-cache/versions` | Override cache for all operations.   |
-| `--timeout MS`           | int    | operation default           | Bound network and analysis work.     |
-| `--profile`              | flag   | off                         | Include phase timings in metadata.   |
+| Flag                     | Type   | Default                     | Effect                                               |
+| ------------------------ | ------ | --------------------------- | ---------------------------------------------------- |
+| `--format text\|json`    | enum   | `text`                      | Output format.                                       |
+| `--json`                 | flag   | off                         | Shorthand for `--format json`.                       |
+| `--detail compact\|full` | enum   | compact                     | Versioned inspect JSON projection.                   |
+| `--select LIST`          | list   | compact defaults            | Select sections; CSV, repeatable, or `--select=CSV`. |
+| `--max-symbols N`        | int    | 250                         | Symbols per page.                                    |
+| `--cursor VALUE`         | string | `0`                         | Resume symbol/change pagination.                     |
+| `--conditions LIST`      | list   | Node defaults               | Export conditions in priority order.                 |
+| `--cache-dir DIR`        | path   | `~/.deplens-cache/versions` | Override cache for all operations.                   |
+| `--timeout MS`           | int    | operation default           | Bound network and analysis work.                     |
+| `--profile`              | flag   | off                         | Include phase timings in metadata.                   |
 
 ### History
 
@@ -138,18 +138,18 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 ## Project diff and policy flags
 
-| Flag                                        | Effect                                                                 |
-| ------------------------------------------- | ---------------------------------------------------------------------- |
-| `--from REF` / `--to REF`                   | Compare package-lock files from Git refs (`to` defaults to `working`). |
-| `--from-lock FILE` / `--to-lock FILE`       | Compare explicit npm lockfiles.                                        |
-| `--no-api`                                  | Version-only comparison without registry/cache access.                 |
-| `--include-transitive`                      | Enrich transitive changes in addition to direct dependencies.          |
-| `--concurrency N`                           | Concurrent package API diffs (default 4).                              |
-| `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                            |
-| `--baseline FILE`                           | Baseline used by `deplens check`.                                      |
-| `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.   |
-| `--fail-on breaking\|warning\|change\|none` | CI failure threshold.                                                  |
-| `--format sarif`                            | Emit SARIF 2.1.0 for GitHub code scanning.                             |
+| Flag                                        | Effect                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| `--from REF` / `--to REF`                   | Compare npm or pnpm lockfiles from Git refs (`to` defaults to `working`). |
+| `--from-lock FILE` / `--to-lock FILE`       | Compare explicit npm package-lock or pnpm-lock files.                     |
+| `--no-api`                                  | Version-only comparison without registry/cache access.                    |
+| `--include-transitive`                      | Enrich transitive changes in addition to direct dependencies.             |
+| `--concurrency N`                           | Concurrent package API diffs (default 4).                                 |
+| `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
+| `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
+| `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.      |
+| `--fail-on breaking\|warning\|change\|none` | CI failure threshold.                                                     |
+| `--format sarif`                            | Emit SARIF 2.1.0 for GitHub code scanning.                                |
 
 ---
 
@@ -184,6 +184,7 @@ Cache lives in `~/.deplens-cache/`:
 
 ```bash
 deplens history list                     # all entries
+deplens history list --json              # structured deplens-history-list envelope
 deplens history list <filter>            # filter by name
 deplens history show zod                 # most recent entry for zod
 deplens history show zod@4.3.6           # exact version
@@ -213,6 +214,10 @@ CLI inspect JSON defaults to the compact, cursor-paginated `schemaVersion: 2` pr
 compatibility. Compact diff payloads use schema v2. Project snapshots, project diffs,
 baselines, and policy results use their own versioned schema v1 contracts exported by
 `@deplens/core`.
+
+Compact mode automatically retains a rich section explicitly requested through `--docs`,
+`--list-sections`, `--docs-sections`, or `--examples`. After the first cursor page, complete
+`exports` and `staticExports` inventories are omitted unless explicitly named in `--select`.
 
 ### `inspect` payload
 

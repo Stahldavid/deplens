@@ -22,7 +22,7 @@ describe('runtime loading controls', () => {
       writeFileSync(path.join(pkgDir, 'index.js'), 'exports.generateText = () => "ok";\n');
       writeFileSync(
         path.join(pkgDir, 'index.d.ts'),
-        '/** Generate text from a prompt.\n * @param prompt User input.\n * @returns Generated text.\n */\nexport function generateText(prompt: string): Promise<string>;\n'
+        '/** Generate text from a prompt.\n * @param prompt User input.\n * @param model Model identifier.\n * @param retries Retry count.\n * @returns Generated text.\n */\nexport function generateText(prompt: string, model: string, retries?: number): Promise<string>;\n'
       );
 
       const options = {
@@ -31,7 +31,7 @@ describe('runtime loading controls', () => {
         filter: 'generateText',
         jsdoc: 'full',
         jsdocOutput: 'only',
-        jsdocQuery: { symbols: 'generateText' },
+        jsdocQuery: { symbols: 'generateText', maxParams: 1 },
         runtime: false,
       };
       const structured = await runInspect({
@@ -52,11 +52,16 @@ describe('runtime loading controls', () => {
       });
       expect(structured.jsdoc.entries).toHaveLength(1);
       expect(structured.jsdoc.entries[0]).not.toHaveProperty('text');
+      expect(structured.jsdoc.entries[0]).toMatchObject({
+        tags: { param: ['prompt User input.'] },
+        parameterPagination: { total: 3, returned: 1, truncated: true },
+      });
       expect(structured).not.toHaveProperty('symbols');
       expect(structured).not.toHaveProperty('types');
       expect(structured).not.toHaveProperty('staticExports');
       expect(text).toContain('JSDoc:');
       expect(text).toContain('generateText: Generate text from a prompt.');
+      expect(text).toContain('... 2 more @param');
       expect(text).not.toContain('Exports Encontrados');
     } finally {
       rmSync(root, { recursive: true, force: true });

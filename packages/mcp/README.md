@@ -51,41 +51,41 @@ inspection executes package entrypoints.
 
 Inspect an installed (or remotely downloaded) npm package.
 
-| Param               | Type                                                                 | Description                                                                          |
-| ------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `target`            | string **(required)**                                                | Package name or import path (e.g. `react`, `next/server`, `@scope/pkg`)              |
-| `subpath`           | string                                                               | Optional subpath appended to `target`                                                |
-| `filter`            | string                                                               | Case-insensitive substring filter, or `/regex/`                                      |
-| `kind`              | `('function'\|'class'\|'object'\|'constant'\|'interface'\|'type')[]` | Restrict by export kind                                                              |
-| `showTypes`         | boolean                                                              | Parse `.d.ts` and include function signatures, interfaces, classes, types, enums     |
-| `includeDocs`       | boolean                                                              | Include README preview                                                               |
-| `listSections`      | boolean                                                              | List README section headers                                                          |
-| `docsSections`      | string[]                                                             | Extract specific README sections by name (partial match)                             |
-| `includeExamples`   | boolean                                                              | Include code from README, `examples/`, and `@example` JSDoc tags                     |
-| `search`            | string                                                               | Semantic search over export names (token matching + JSDoc)                           |
-| `remote`            | boolean                                                              | Download into local cache instead of resolving from `rootDir`                        |
-| `remoteVersion`     | string                                                               | Version to download when `remote=true` (default: `"latest"`)                         |
-| `runtime`           | boolean                                                              | Explicitly import/require the package entrypoint. Defaults off                       |
-| `format`            | `'text'\|'json'\|'object'`                                           | Output format for the text channel. `structuredContent` is always populated.         |
-| `maxExports`        | number (1–10000)                                                     | Max exports to include (default: 100)                                                |
-| `maxSymbols`        | number (1–5000)                                                      | Max canonical symbols in structured output (default: 250)                            |
-| `maxProps`          | number (1–1000)                                                      | Max props per object when `depth>0` (default: 10)                                    |
-| `maxExamples`       | number (1–100)                                                       | Max examples (default: 10)                                                           |
-| `depth`             | number (0–5)                                                         | Object inspection depth (default: 1)                                                 |
-| `resolveFrom`       | string                                                               | Base directory for module resolution. Defaults to `rootDir`.                         |
-| `rootDir`           | string                                                               | Working directory (default: `$DEPLENS_ROOT` or `process.cwd()`)                      |
-| `jsdoc`             | `'off'\|'compact'\|'full'`                                           | JSDoc verbosity mode                                                                 |
-| `jsdocOutput`       | `'off'\|'section'\|'inline'\|'only'`                                 | Where to render JSDoc                                                                |
-| `jsdocQuery`        | object                                                               | Fine-grained JSDoc extraction (see Zod schema in [src/server.mjs](./src/server.mjs)) |
-| `analyzeSource`     | boolean                                                              | Analyze JS/TS/Python/Java source for implementation details + complexity             |
-| `sourceMaxFiles`    | number (1–500)                                                       | Max source files to analyze (default: 5)                                             |
-| `sourceIncludeBody` | boolean                                                              | Include function body snippets                                                       |
-| `language`          | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`         | Force language detection                                                             |
-| `detail`            | `'compact'\|'full'`                                                  | Versioned structured output projection                                               |
-| `cursor`            | string                                                               | Resume symbol pagination                                                             |
-| `conditions`        | string[]                                                             | Export conditions in priority order                                                  |
-| `cacheDir`          | string                                                               | Override the shared version cache                                                    |
-| `timeoutMs`         | number                                                               | Bound registry/download work                                                         |
+| Param               | Type                                                                 | Description                                                                      |
+| ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `target`            | string **(required)**                                                | Package name or import path (e.g. `react`, `next/server`, `@scope/pkg`)          |
+| `subpath`           | string                                                               | Optional subpath appended to `target`                                            |
+| `filter`            | string                                                               | Case-insensitive substring filter, or `/regex/`                                  |
+| `kind`              | `('function'\|'class'\|'object'\|'constant'\|'interface'\|'type')[]` | Restrict by export kind                                                          |
+| `showTypes`         | boolean                                                              | Parse `.d.ts` and include function signatures, interfaces, classes, types, enums |
+| `includeDocs`       | boolean                                                              | Include README preview                                                           |
+| `listSections`      | boolean                                                              | List README section headers                                                      |
+| `docsSections`      | string[]                                                             | Extract specific README sections by name (partial match)                         |
+| `includeExamples`   | boolean                                                              | Include code from README, `examples/`, and `@example` JSDoc tags                 |
+| `search`            | string                                                               | Semantic search over export names (token matching + JSDoc)                       |
+| `remote`            | boolean                                                              | Download into local cache instead of resolving from `rootDir`                    |
+| `remoteVersion`     | string                                                               | Version to download when `remote=true` (default: `"latest"`)                     |
+| `runtime`           | boolean                                                              | Explicitly import/require the package entrypoint. Defaults off                   |
+| `format`            | `'text'\|'json'\|'object'`                                           | Output format for the text channel. `structuredContent` is always populated.     |
+| `maxExports`        | number (1–10000)                                                     | Max exports to include (default: 100)                                            |
+| `maxSymbols`        | number (1–5000)                                                      | Max canonical symbols in structured output (default: 250)                        |
+| `maxProps`          | number (1–1000)                                                      | Max props per object when `depth>0` (default: 10)                                |
+| `maxExamples`       | number (1–100)                                                       | Max examples (default: 10)                                                       |
+| `depth`             | number (0–5)                                                         | Object inspection depth (default: 1)                                             |
+| `resolveFrom`       | string                                                               | Base directory for module resolution. Defaults to `rootDir`.                     |
+| `rootDir`           | string                                                               | Working directory (default: `$DEPLENS_ROOT` or `process.cwd()`)                  |
+| `jsdoc`             | `'off'\|'compact'\|'full'`                                           | JSDoc verbosity mode                                                             |
+| `jsdocOutput`       | `'off'\|'section'\|'inline'\|'only'`                                 | Where to render JSDoc                                                            |
+| `jsdocQuery`        | object                                                               | Fine-grained JSDoc extraction, including `maxParams`                             |
+| `analyzeSource`     | boolean                                                              | Analyze JS/TS/Python/Java source for implementation details + complexity         |
+| `sourceMaxFiles`    | number (1–500)                                                       | Max source files to analyze (default: 5)                                         |
+| `sourceIncludeBody` | boolean                                                              | Include function body snippets                                                   |
+| `language`          | `'javascript'\|'typescript'\|'python'\|'java'\|'rust'\|'go'`         | Force language detection                                                         |
+| `detail`            | `'compact'\|'full'`                                                  | Versioned structured output projection                                           |
+| `cursor`            | string                                                               | Resume symbol pagination                                                         |
+| `conditions`        | string[]                                                             | Export conditions in priority order                                              |
+| `cacheDir`          | string                                                               | Override the shared version cache                                                |
+| `timeoutMs`         | number                                                               | Bound registry/download work                                                     |
 
 **Example call:**
 
@@ -134,12 +134,14 @@ Compare two versions of an npm package.
 ### Project tools
 
 `deplens_project_diff` accepts `from`, `to`, `rootDir`, `lockfile`, `analyze`,
-`includeTransitive`, `detail`, `maxChangesPerPackage`, `packageCursors`, `conditions`, and
+`includeTransitive`, `detail`, `maxChangesPerPackage`, `packageCursors`, `packageOnly`,
+`projectSnapshot`, `conditions`, and
 timeout/cache controls. `from` and `to` can be Git refs, lockfile paths, or `working`. API
 enrichment defaults to `detail: "compact"`, retaining package, summary, changes, semantic
-compatibility, and per-package pagination. The default page size is 25; use `packageCursors`
-to continue selected packages. The result exposes `detailLevel`; use `detail: "full"` for the
-rich per-package diff object.
+compatibility, and per-package pagination. The default page size is 10; use `packageCursors`
+to continue selected packages, `packageOnly` to omit unrelated work, and `projectSnapshot` to
+reuse fingerprinted compact analysis. The result exposes `detailLevel`; use `detail: "full"`
+for the rich per-package diff object.
 
 `deplens_check` accepts a baseline path plus optional `config` and `failOn`. It returns a
 structured policy result and marks the MCP result as an error when policy fails. Format `sarif`

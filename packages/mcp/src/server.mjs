@@ -165,6 +165,7 @@ const JsdocQuerySchema = z
       .describe('Filter JSDoc by tag name (include/exclude)'),
     mode: z.enum(['compact', 'full']).optional(),
     maxLen: z.number().int().nonnegative().optional(),
+    maxParams: z.number().int().nonnegative().max(1000).optional(),
     truncate: JsdocTruncateEnum.optional(),
   })
   .strict()
@@ -713,6 +714,8 @@ const projectInputShape = {
   detail: z.enum(['compact', 'full']).optional(),
   maxChangesPerPackage: z.number().int().positive().max(1000).optional(),
   packageCursors: z.record(z.union([z.string(), z.number().int().nonnegative()])).optional(),
+  packageOnly: z.array(z.string()).optional(),
+  projectSnapshot: z.string().optional(),
   format: ProjectFormatEnum.optional(),
 };
 const ProjectInputSchema = z.object(projectInputShape).strict();
@@ -725,6 +728,7 @@ const projectOutputShape = {
   summary: z.record(z.any()),
   changes: z.array(z.record(z.any())),
   warnings: z.array(z.string()),
+  snapshot: z.record(z.any()).optional(),
   error: z.string().optional(),
   errorInfo: z.record(z.any()).optional(),
 };

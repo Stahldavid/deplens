@@ -98,8 +98,8 @@ function hashDirectory(dirPath) {
 }
 
 function writeCacheMetadata(cachePath, packageDir, packageName, version, source, options = {}) {
-  const { exact = false } = options;
-  const size = exact ? getDirSize(cachePath) : null;
+  const { exact = false, calculateSize = false } = options;
+  const size = exact || calculateSize ? getDirSize(cachePath) : null;
   const metadata = {
     schemaVersion: 1,
     package: packageName,
@@ -544,7 +544,8 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
           fetched.packageDir,
           packageName,
           version,
-          'cdn'
+          'cdn',
+          { calculateSize: true }
         );
         commitStagedCache(stagingPath, cachePath);
         stagingPath = null;
@@ -595,7 +596,16 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
         `Downloaded package identity mismatch: expected ${packageName}@${version}, received ${installedPackage.name}@${installedPackage.version}`
       );
     }
-    const metadata = writeCacheMetadata(stagingPath, stagedPackageDir, packageName, version, 'npm');
+    const metadata = writeCacheMetadata(
+      stagingPath,
+      stagedPackageDir,
+      packageName,
+      version,
+      'npm',
+      {
+        calculateSize: true,
+      }
+    );
     commitStagedCache(stagingPath, cachePath);
     stagingPath = null;
     return {

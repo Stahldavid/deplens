@@ -214,6 +214,13 @@ function parseInspectArgs(argv) {
     if (!isNaN(parsed) && parsed >= 0) jsdocMaxLen = parsed;
   }
 
+  let jsdocMaxParams = null;
+  const jsdocMaxParamsIndex = argv.indexOf('--jsdoc-max-params');
+  if (jsdocMaxParamsIndex !== -1 && argv[jsdocMaxParamsIndex + 1]) {
+    const parsed = parseInt(argv[jsdocMaxParamsIndex + 1], 10);
+    if (!isNaN(parsed) && parsed >= 0) jsdocMaxParams = parsed;
+  }
+
   const filterIndex = argv.indexOf('--filter');
   if (filterIndex !== -1 && argv[filterIndex + 1]) {
     filter = argv[filterIndex + 1].toLowerCase();
@@ -266,7 +273,8 @@ function parseInspectArgs(argv) {
     jsdocTagsInclude ||
     jsdocTagsExclude ||
     jsdocTruncate ||
-    jsdocMaxLen !== null
+    jsdocMaxLen !== null ||
+    jsdocMaxParams !== null
   ) {
     const symbols = jsdocSymbols
       ? jsdocSymbols
@@ -298,6 +306,7 @@ function parseInspectArgs(argv) {
       tags: tagsInclude || tagsExclude ? { include: tagsInclude, exclude: tagsExclude } : undefined,
       mode: jsdoc === 'compact' || jsdoc === 'full' ? jsdoc : undefined,
       maxLen: jsdocMaxLen ?? undefined,
+      maxParams: jsdocMaxParams ?? undefined,
       truncate: jsdocTruncate ?? undefined,
     };
   }
@@ -497,6 +506,7 @@ function usage() {
       '  --jsdoc-tags-exclude LIST  Exclude selected JSDoc tags\n' +
       '  --jsdoc-truncate MODE  none|sentence|word\n' +
       '  --jsdoc-max-len N      Maximum JSDoc length per symbol\n' +
+      '  --jsdoc-max-params N   Maximum @param tags per symbol\n' +
       '  --detail compact|full  Inspect JSON detail (default: compact)\n' +
       '  --select LIST          Select JSON sections (CSV/repeatable/= form)\n' +
       '  --cursor VALUE         Resume symbol pagination\n' +
@@ -537,8 +547,10 @@ function usage() {
       '  --include-transitive   Analyze transitive dependency changes\n' +
       '  --no-api               Compare lockfile versions without package API analysis\n' +
       '  --concurrency N        Concurrent package diffs (default: 4)\n' +
-      '  --max-changes-per-package N  Changes returned per enriched package (default: 25)\n' +
+      '  --max-changes-per-package N  Changes returned per enriched package (default: 10)\n' +
       '  --package-cursor PKG=N  Resume changes for one package (repeatable)\n' +
+      '  --package-only PKG     Return and analyze only selected packages (repeatable)\n' +
+      '  --project-snapshot FILE  Reuse compact API analysis across cursor requests\n' +
       '  --detail compact|full  API enrichment detail (default: compact)\n' +
       '  --format text|json|sarif\n'
   );
@@ -611,6 +623,7 @@ const VALUE_OPTIONS = new Set([
   '--jsdoc-tags-exclude',
   '--jsdoc-truncate',
   '--jsdoc-max-len',
+  '--jsdoc-max-params',
   '--filter',
   '--resolve-from',
   '--remote-version',
@@ -639,6 +652,8 @@ const VALUE_OPTIONS = new Set([
   '--max-changes',
   '--max-changes-per-package',
   '--package-cursor',
+  '--package-only',
+  '--project-snapshot',
   '--timeout',
   '--concurrency',
 ]);
@@ -1021,9 +1036,10 @@ if (command === 'project-diff') {
   const concurrency = Number(argumentValue(argv, '--concurrency'));
   try {
     const maxChangesPerPackageValue = Number(
-      argumentValue(argv, '--max-changes-per-package', argumentValue(argv, '--max-changes', 25))
+      argumentValue(argv, '--max-changes-per-package', argumentValue(argv, '--max-changes', 10))
     );
     const packageCursors = parsePackageCursors(argumentValues(argv, '--package-cursor'));
+    const packageOnly = commaList(argumentValues(argv, '--package-only'));
     const [fromSnapshot, toSnapshot] = await Promise.all([
       loadProjectSnapshot(fromSource, { projectDir, lockfile, timeoutMs }),
       loadProjectSnapshot(toSource, { projectDir, lockfile, timeoutMs }),
@@ -1046,8 +1062,10 @@ if (command === 'project-diff') {
       detail: argumentValue(argv, '--detail', 'compact'),
       maxChangesPerPackage: Number.isFinite(maxChangesPerPackageValue)
         ? Math.max(1, Math.floor(maxChangesPerPackageValue))
-        : 25,
+        : 10,
       packageCursors,
+      packageOnly,
+      projectSnapshot: argumentValue(argv, '--project-snapshot'),
       profile: argv.includes('--profile'),
     });
     process.stdout.write(

@@ -80,6 +80,8 @@ describe('cache offline mode', () => {
       });
 
       expect(result).toMatchObject({ cached: false, fetched: true });
+      expect(result.metadata).toMatchObject({ size: expect.any(Number) });
+      expect(result.metadata.size).toBeGreaterThan(0);
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }

@@ -214,4 +214,74 @@ describe('project diff', () => {
     expect(full.detailLevel).toBe('full');
     expect(full.changes[0].api).toBe(richApi);
   });
+
+  it('filters packages and reuses a compact analysis snapshot across cursor requests', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-project-snapshot-'));
+    const snapshotFile = path.join(root, 'analysis.json');
+    const from = createProjectSnapshot(lockfile('1.0.0', { zod: '3.22.4', semver: '7.7.3' }));
+    const to = createProjectSnapshot(lockfile('1.0.1', { zod: '4.3.6', semver: '7.7.4' }));
+    const changes = Array.from({ length: 25 }, (_, index) => ({
+      type: 'symbol_changed',
+      name: `symbol${index}`,
+    }));
+    const diffRunner = vi.fn(async ({ package: packageName }) => ({
+      package: packageName,
+      summary: { breaking: 0, warnings: 25 },
+      changes,
+      changeCount: changes.length,
+      semanticCompatibility: { compatible: true },
+    }));
+
+    try {
+      const first = await runProjectDiff({
+        from,
+        to,
+        projectDir: root,
+        projectSnapshot: snapshotFile,
+        packageOnly: ['zod'],
+        cacheDir: path.join(root, 'cache'),
+        diffRunner,
+      });
+      const secondRunner = vi.fn(async () => {
+        throw new Error('snapshot should avoid analysis');
+      });
+      const second = await runProjectDiff({
+        from,
+        to,
+        projectDir: root,
+        projectSnapshot: snapshotFile,
+        packageOnly: ['zod'],
+        packageCursors: { zod: '10' },
+        diffRunner: secondRunner,
+      });
+
+      expect(first.changes).toHaveLength(1);
+      expect(first.changes[0].package).toBe('zod');
+      expect(first.changes[0].api.pagination).toMatchObject({ returned: 10, nextCursor: '10' });
+      expect(diffRunner).toHaveBeenCalledWith(
+        expect.objectContaining({ cacheDir: path.join(root, 'cache'), maxChanges: 10 })
+      );
+      expect(first.snapshot).toMatchObject({ reusedPackages: 0, writtenPackages: 1 });
+      expect(secondRunner).not.toHaveBeenCalled();
+      expect(second.changes[0].api.changes[0].name).toBe('symbol10');
+      expect(second.snapshot).toMatchObject({ reusedPackages: 1, writtenPackages: 0 });
+
+      const changedRunner = vi.fn(async ({ package: packageName }) => ({
+        package: packageName,
+        summary: { breaking: 0, warnings: 0 },
+        changes: [],
+      }));
+      await runProjectDiff({
+        from,
+        to: createProjectSnapshot(lockfile('1.0.2', { zod: '4.3.7', semver: '7.7.4' })),
+        projectDir: root,
+        projectSnapshot: snapshotFile,
+        packageOnly: ['zod'],
+        diffRunner: changedRunner,
+      });
+      expect(changedRunner).toHaveBeenCalledOnce();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

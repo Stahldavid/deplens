@@ -1,15 +1,16 @@
 import { execFile } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import semver from 'semver';
 import { parse as parseYaml } from 'yaml';
-import { runDiff } from './diff.mjs';
+import { runDiff, serializeDiffForJson } from './diff.mjs';
 import { createOperationSignal, errorPayload, throwIfAborted } from './errors.mjs';
 import { createSafeRecord, setSafeRecord } from './safe-record.mjs';
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_PROJECT_CHANGES_PER_PACKAGE = 25;
+const DEFAULT_PROJECT_CHANGES_PER_PACKAGE = 10;
 const DEPENDENCY_GROUPS = [
   'dependencies',
   'devDependencies',
@@ -294,7 +295,7 @@ function compactProjectApi(api, options = {}) {
   const parsedCursor = Number.parseInt(String(options.cursor || '0'), 10);
   const offset = Number.isFinite(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
   const maxChanges = Math.max(1, Number(options.maxChanges) || DEFAULT_PROJECT_CHANGES_PER_PACKAGE);
-  const upstreamPagination = payload?.pagination;
+  const upstreamPagination = options.repaginate ? null : payload?.pagination;
   const changes = upstreamPagination ? allChanges : allChanges.slice(offset, offset + maxChanges);
   const total = Number.isFinite(Number(upstreamPagination?.total))
     ? Number(upstreamPagination.total)
@@ -322,6 +323,77 @@ function compactProjectApi(api, options = {}) {
     },
     ...(payload?.sourceComparison ? { sourceComparison: payload.sourceComparison } : {}),
   };
+}
+
+function projectApiSnapshot(api) {
+  let payload = api;
+  if (api?.diff) {
+    payload = serializeDiffForJson(api.diff, {
+      packageName: api.package,
+      maxChanges: Number.MAX_SAFE_INTEGER,
+    });
+  } else if (!payload?.summary && typeof payload?.output === 'string') {
+    try {
+      payload = JSON.parse(payload.output);
+    } catch {
+      return null;
+    }
+  }
+  if (payload?.error || !Array.isArray(payload?.changes)) return null;
+  const total = Number(
+    payload?.pagination?.total ?? payload?.changeCount ?? payload.changes.length
+  );
+  if (!Number.isFinite(total) || payload.changes.length < total) return null;
+  return {
+    package: payload.package || null,
+    summary: payload.summary || null,
+    changes: payload.changes,
+    semanticCompatibility: payload.semanticCompatibility || null,
+    ...(payload.sourceComparison ? { sourceComparison: payload.sourceComparison } : {}),
+  };
+}
+
+function projectSnapshotFingerprint(from, to, options) {
+  const packageVersions = (snapshot) =>
+    Object.entries(snapshot?.packages || {})
+      .map(([name, value]) => [name, value?.version || null])
+      .sort(([left], [right]) => left.localeCompare(right));
+  const value = JSON.stringify({
+    from: packageVersions(from),
+    to: packageVersions(to),
+    includeSource: Boolean(options.includeSource),
+    runtime: Boolean(options.runtime),
+    semantic: options.semantic !== false,
+    conditions: [...(options.conditions || [])].sort(),
+  });
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function readProjectAnalysisSnapshot(filePath, fingerprint) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const snapshot = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (
+      snapshot?.schemaVersion !== 1 ||
+      snapshot?.kind !== 'deplens-project-analysis-snapshot' ||
+      snapshot?.fingerprint !== fingerprint ||
+      !snapshot?.packages
+    ) {
+      return null;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeProjectAnalysisSnapshot(filePath, snapshot) {
+  const resolved = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  const temporary = `${resolved}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  fs.writeFileSync(temporary, JSON.stringify(snapshot, null, 2));
+  fs.rmSync(resolved, { force: true });
+  fs.renameSync(temporary, resolved);
 }
 
 async function mapConcurrent(items, concurrency, worker) {
@@ -352,6 +424,25 @@ export async function runProjectDiff(options = {}) {
     report.changes = report.changes.filter((change) => change.direct);
     report.summary = summarizeProjectChanges(report.changes);
   }
+  const packageOnly = new Set(
+    (Array.isArray(options.packageOnly)
+      ? options.packageOnly
+      : options.packageOnly
+        ? [options.packageOnly]
+        : []
+    )
+      .flatMap((value) => String(value).split(','))
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  if (packageOnly.size > 0) {
+    const available = new Set(report.changes.map((change) => change.package));
+    report.changes = report.changes.filter((change) => packageOnly.has(change.package));
+    report.summary = summarizeProjectChanges(report.changes);
+    const missing = [...packageOnly].filter((packageName) => !available.has(packageName));
+    if (missing.length > 0)
+      report.warnings.push(`Requested packages not changed: ${missing.join(', ')}`);
+  }
   const diffRunner = options.diffRunner || defaultDiffRunner;
   const maxChangesPerPackage = Math.max(
     1,
@@ -362,6 +453,21 @@ export async function runProjectDiff(options = {}) {
     (change) =>
       change.fromVersion && change.toVersion && (options.includeTransitive || change.direct)
   );
+  const snapshotPath =
+    options.detail === 'full' || !options.projectSnapshot
+      ? null
+      : path.resolve(options.projectDir || process.cwd(), options.projectSnapshot);
+  if (options.detail === 'full' && options.projectSnapshot) {
+    report.warnings.push('Project snapshots are available only with compact detail');
+  }
+  const fingerprint = snapshotPath ? projectSnapshotFingerprint(from, to, options) : null;
+  const storedSnapshot = readProjectAnalysisSnapshot(snapshotPath, fingerprint);
+  const snapshotPackages = createSafeRecord();
+  for (const [packageName, value] of Object.entries(storedSnapshot?.packages || {})) {
+    setSafeRecord(snapshotPackages, packageName, value);
+  }
+  let reusedPackages = 0;
+  let writtenPackages = 0;
   const operation = createOperationSignal(options.signal, options.timeoutMs, 'project-diff');
   let completed = 0;
   try {
@@ -374,6 +480,21 @@ export async function runProjectDiff(options = {}) {
           const cursor = Object.hasOwn(options.packageCursors || {}, change.package)
             ? String(options.packageCursors[change.package])
             : '0';
+          const cachedApi = Object.hasOwn(snapshotPackages, change.package)
+            ? snapshotPackages[change.package]
+            : null;
+          if (
+            cachedApi?.fromVersion === change.fromVersion &&
+            cachedApi?.toVersion === change.toVersion
+          ) {
+            change.api = compactProjectApi(cachedApi.api, {
+              maxChanges: maxChangesPerPackage,
+              cursor,
+              repaginate: true,
+            });
+            reusedPackages += 1;
+            return;
+          }
           const api = await diffRunner({
             package: change.package,
             from: change.fromVersion,
@@ -388,12 +509,24 @@ export async function runProjectDiff(options = {}) {
             semantic: options.semantic !== false,
             signal: operation.signal,
             timeoutMs: options.timeoutMs,
+            cacheDir: options.cacheDir,
             ...(options.detail === 'full' ? {} : { maxChanges: maxChangesPerPackage, cursor }),
           });
           change.api =
             options.detail === 'full'
               ? api
               : compactProjectApi(api, { maxChanges: maxChangesPerPackage, cursor });
+          if (snapshotPath) {
+            const snapshotApi = projectApiSnapshot(api);
+            if (snapshotApi) {
+              setSafeRecord(snapshotPackages, change.package, {
+                fromVersion: change.fromVersion,
+                toVersion: change.toVersion,
+                api: snapshotApi,
+              });
+              writtenPackages += 1;
+            }
+          }
         } catch (error) {
           Object.assign(
             change,
@@ -416,6 +549,23 @@ export async function runProjectDiff(options = {}) {
     (change) => Number(change.api?.summary?.warnings || 0) > 0
   ).length;
   report.summary.failedPackages = report.changes.filter((change) => change.error).length;
+  if (snapshotPath) {
+    if (writtenPackages > 0) {
+      writeProjectAnalysisSnapshot(snapshotPath, {
+        schemaVersion: 1,
+        kind: 'deplens-project-analysis-snapshot',
+        fingerprint,
+        createdAt: new Date().toISOString(),
+        packages: snapshotPackages,
+      });
+    }
+    report.snapshot = {
+      path: snapshotPath,
+      fingerprint,
+      reusedPackages,
+      writtenPackages,
+    };
+  }
   if (options.profile) {
     report.meta = { timings: { totalMs: Number((performance.now() - startedAt).toFixed(2)) } };
   }

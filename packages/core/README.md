@@ -58,6 +58,7 @@ JSDoc options:
   - `tags.include` / `tags.exclude`: string[]
   - `mode`: `compact` | `full`
   - `maxLen`: number
+  - `maxParams`: number
   - `truncate`: `none` | `sentence` | `word`
 
 Example: JSDoc focused on params/returns
@@ -74,6 +75,7 @@ await runInspect({
     mode: 'compact',
     truncate: 'sentence',
     maxLen: 220,
+    maxParams: 5,
   },
 });
 ```
@@ -87,14 +89,18 @@ source analysis, and omit symbol inventories for focused docs/examples/JSDoc req
 `project-diff` returns direct dependency changes by default; set `includeTransitive: true`
 for the complete lockfile graph. pnpm peer suffixes are stripped before versions are compared.
 Enriched package API results are compact by default and expose per-package `pagination`; use
-`maxChangesPerPackage` (default 25) and `packageCursors` to page large upgrades independently.
+`maxChangesPerPackage` (default 10) and `packageCursors` to page large upgrades independently.
+Use `packageOnly` to avoid unrelated enrichment and `projectSnapshot` to persist canonical compact
+analysis across calls; snapshots are fingerprinted against versions and analysis options.
 `maxChanges` remains an alias for the per-package limit. The report includes `detailLevel`; pass
 `detail: 'full'` to retain the rich `runDiff` result. Source analysis is focused by default and
-only includes symbols when selected. Structured JSDoc omits the renderer-only `text` duplicate.
+only includes symbols when selected. Structured JSDoc omits the renderer-only `text` duplicate;
+limited params expose `parameterPagination`.
 
 Cache pruning accepts `maxSizeBytes` and `maxEntries`, using `lastUsedAt` for LRU order while
 skipping active lock entries. Semantic compatibility separates isolated nominal identity noise
 from actionable assignability diagnostics.
+Fresh downloads populate size metadata from staging without calculating the optional integrity hash.
 
 ## Notes
 

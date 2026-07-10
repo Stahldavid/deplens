@@ -65,6 +65,7 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 | `--jsdoc-tags-exclude t1,t2,…`              | csv                                 | —                                    | Exclude these tag names.                                  |
 | `--jsdoc-truncate none\|sentence\|word`     | enum                                | `word`                               | How to truncate long summaries.                           |
 | `--jsdoc-max-len N`                         | int                                 | (mode default)                       | Max chars per summary.                                    |
+| `--jsdoc-max-params N`                      | int                                 | unlimited                            | Cap `@param` tags and emit `parameterPagination`.         |
 
 ### Source code analysis
 
@@ -146,8 +147,10 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--include-transitive`                      | Return and enrich transitive changes; direct changes are the default.     |
 | `--concurrency N`                           | Concurrent package API diffs (default 4).                                 |
 | `--detail compact\|full`                    | Compact API enrichment by default; `full` preserves the rich diff object. |
-| `--max-changes-per-package N`               | Changes returned per package (default 25). `--max-changes` is an alias.   |
+| `--max-changes-per-package N`               | Changes returned per package (default 10). `--max-changes` is an alias.   |
 | `--package-cursor PKG=N`                    | Resume one package page; repeat for multiple packages.                    |
+| `--package-only PKG`                        | Return and analyze only named packages; repeatable/CSV.                   |
+| `--project-snapshot FILE`                   | Reuse fingerprinted compact API analysis between calls.                   |
 | `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
 | `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
 | `--config FILE`                             | Policy JSON; defaults to `.deplensrc.json` or `deplens.config.json`.      |

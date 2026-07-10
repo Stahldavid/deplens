@@ -190,6 +190,9 @@ describe('inspect CLI', () => {
     expect(help).toContain('--cursor VALUE         Resume diff pagination');
     expect(help).toContain('--max-changes-per-package');
     expect(help).toContain('--package-cursor');
+    expect(help).toContain('--package-only');
+    expect(help).toContain('--project-snapshot');
+    expect(help).toContain('--jsdoc-max-params');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 

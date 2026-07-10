@@ -114,6 +114,7 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --jsdoc-tags-exclude <t1,t2>  Exclude these JSDoc tags
 --jsdoc-truncate none|sentence|word  Truncation for long summaries
 --jsdoc-max-len <N>           Maximum JSDoc length per symbol
+--jsdoc-max-params <N>        Maximum @param tags per symbol
 ```
 
 ### Diff flags
@@ -152,18 +153,23 @@ for a fast lockfile-only pass. pnpm peer suffixes are normalized before comparis
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
 deplens project-diff --from HEAD~1 --to working --max-changes-per-package 10 --json
-deplens project-diff --from HEAD~1 --to working --package-cursor @clerk/shared=10 --json
+deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json --json
+deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json \
+  --package-only @clerk/shared --package-cursor @clerk/shared=10 --json
 deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
 deplens project-diff --from-lock old-pnpm-lock.yaml --to-lock pnpm-lock.yaml --no-api
 deplens project-diff --from HEAD~1 --to working --detail full --json
 ```
 
 API enrichment is compact by default: each changed package keeps only `package`, `summary`,
-`changes`, `semanticCompatibility`, and `pagination`. It returns at most 25 changes per package;
+`changes`, `semanticCompatibility`, and `pagination`. It returns at most 10 changes per package;
 set `--max-changes-per-package N` (`--max-changes N` is an alias) and resume individual packages
-with repeatable `--package-cursor PKG=N`. The top-level `detailLevel` records the selected
-projection. Use `--detail full` for the legacy rich `runDiff` object, including `output` and
-internal analysis snapshots.
+with repeatable `--package-cursor PKG=N`. Use repeatable `--package-only PKG` to omit and avoid
+analyzing unrelated packages. `--project-snapshot FILE` persists canonical compact changes so
+later cursor requests can be served without repeating semantic analysis; its fingerprint
+automatically rejects stale versions, conditions, or analysis modes. The top-level `detailLevel`
+records the selected projection. Use `--detail full` for the legacy rich `runDiff` object,
+including `output` and internal analysis snapshots.
 
 Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured
 threshold is crossed and can emit SARIF for GitHub code scanning.
@@ -207,6 +213,8 @@ All cache JSON commands return versioned `deplens-cache-*` envelopes and honor
 `--cache-dir`, including `stats`, `clear`, `pin`, `migrate`, and `prune`.
 Successful cache reads update `lastUsedAt`; size/count limits evict the least recently
 used unlocked entries and report whether the requested limit could be satisfied.
+New downloads calculate size metadata once from their staging directory, while old unknown
+entries remain lazy until `cache stats --exact` or `cache migrate --exact` is requested.
 
 Compact inspect JSON returns only `staticExports.total` by default. Select
 `staticExports` explicitly to page names, and follow its nested `pagination` object.
@@ -215,6 +223,8 @@ symbol inventories unless selected. Compact source analysis includes its summary
 separate `runtimeLanguage` and `sourceLanguage` fields.
 Structured JSDoc entries contain canonical `name`, `summary`, and `tags` fields; the rendered
 `text` form is kept only in human-readable output to avoid duplicating documentation in JSON.
+Use `--jsdoc-max-params N` to cap `@param` tags. Truncated entries include
+`parameterPagination: { total, returned, truncated }` so omission is never silent.
 `--analyze-source` is itself a focused request and omits symbols unless they are explicitly
 selected with `--select sourceAnalysis,languageAnalysis,symbols`.
 

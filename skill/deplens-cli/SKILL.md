@@ -136,7 +136,9 @@ are reported through `ignoredDiagnosticCount` instead of making the package inco
 ```bash
 deplens project-diff --from HEAD~1 --to working --json
 deplens project-diff --from HEAD~1 --to working --max-changes-per-package 10 --json
-deplens project-diff --from HEAD~1 --to working --package-cursor @clerk/shared=10 --json
+deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json --json
+deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json \
+  --package-only @clerk/shared --package-cursor @clerk/shared=10 --json
 deplens project-diff --from HEAD~1 --to working --detail full --json
 deplens check --write-baseline --baseline .deplens-baseline.json
 deplens check --baseline .deplens-baseline.json --fail-on breaking --format sarif
@@ -145,9 +147,12 @@ deplens check --baseline .deplens-baseline.json --fail-on breaking --format sari
 Use `--no-api` for a registry-free lockfile-only comparison. Project analysis defaults to direct
 dependencies; add `--include-transitive` only when the broader cost is justified.
 API enrichment keeps only `package`, `summary`, `changes`, `semanticCompatibility`, and
-`pagination` by default, with at most 25 changes per package. Use
+`pagination` by default, with at most 10 changes per package. Use
 `--max-changes-per-package N` (`--max-changes N` is an alias) and repeatable
-`--package-cursor PKG=N` values to continue only the packages that need more context.
+`--package-cursor PKG=N` values to continue only the packages that need more context. Add
+`--package-only PKG` so continuation omits every unrelated package. For repeated cursor calls,
+write `--project-snapshot FILE` on the first call and reuse the same file; DepLens fingerprints
+versions and analysis options and will not reuse stale results.
 Use `--detail full` only when the complete internal diff is required.
 
 ### 9. Inspect a package that isn't installed
@@ -233,6 +238,8 @@ section even in compact mode. Focused `--list-sections`, `--docs-for`, `--exampl
 JSDoc-only requests omit symbol/export inventories unless selected. Structured entries omit the
 renderer-only `text` duplicate and keep `name`, `summary`, and `tags`. Direct `@deplens/core` calls without projection retain the
 legacy schema v1 payload for compatibility; the CLI JSON contract is schema v2.
+Use `--jsdoc-max-params N` for parameter-heavy APIs; truncated entries expose
+`parameterPagination` with exact total and returned counts.
 
 Selection never removes package identity, resolution, metadata, warnings, or structured errors;
 those fields remain available for reliable agent and CI error handling.

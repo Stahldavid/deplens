@@ -855,6 +855,7 @@ function formatJsdocEntry(name, doc, options) {
         : ['summary', 'tags'];
   const includeTags = options.tags?.include || null;
   const excludeTags = options.tags?.exclude || null;
+  const maxParams = Number.isInteger(options.maxParams) ? Math.max(0, options.maxParams) : null;
 
   const summary = truncateSummary(doc.summary || '', mode, maxLen, truncateMode);
   const tags = doc.tags || {};
@@ -870,16 +871,25 @@ function formatJsdocEntry(name, doc, options) {
     }
   };
 
-  const wantParams = sections.includes('params');
-  const wantReturns = sections.includes('returns');
+  const tagAllowed = (tagName) =>
+    (!includeTags || includeTags.includes(tagName)) && !excludeTags?.includes(tagName);
+  const wantParams = sections.includes('params') && tagAllowed('param');
+  const wantReturns =
+    sections.includes('returns') && (tagAllowed('returns') || tagAllowed('return'));
   const wantTags = sections.includes('tags');
 
   if (wantParams) {
-    if (tags.param) addTag('param', tags.param);
+    if (tags.param) {
+      const params = maxParams === null ? tags.param : tags.param.slice(0, maxParams);
+      if (params.length > 0) addTag('param', params);
+      if (params.length < tags.param.length) {
+        tagLines.push(`... ${tags.param.length - params.length} more @param`);
+      }
+    }
   }
   if (wantReturns) {
-    if (tags.returns) addTag('returns', tags.returns);
-    if (tags.return) addTag('return', tags.return);
+    if (tags.returns && tagAllowed('returns')) addTag('returns', tags.returns);
+    if (tags.return && tagAllowed('return')) addTag('return', tags.return);
   }
   if (wantTags) {
     for (const [tagName, values] of Object.entries(tags)) {
@@ -915,7 +925,7 @@ function selectJsdocTags(tags, options) {
   const include = options.tags?.include || null;
   const exclude = options.tags?.exclude || null;
 
-  return Object.fromEntries(
+  const selected = Object.fromEntries(
     Object.entries(tags || {}).filter(([tagName]) => {
       if (include && !include.includes(tagName)) return false;
       if (exclude?.includes(tagName)) return false;
@@ -928,6 +938,10 @@ function selectJsdocTags(tags, options) {
       return true;
     })
   );
+  if (Array.isArray(selected.param) && Number.isInteger(options.maxParams)) {
+    selected.param = selected.param.slice(0, Math.max(0, options.maxParams));
+  }
+  return selected;
 }
 
 function buildJsdocPayload(typeInfo, options) {
@@ -941,14 +955,33 @@ function buildJsdocPayload(typeInfo, options) {
         : ['summary', 'tags'];
   const entries = Object.entries(typeInfo?.jsdoc || {})
     .filter(([name]) => !matcher || matcher(name))
-    .map(([name, doc]) => ({
-      name,
-      summary: sections.includes('summary')
-        ? truncateSummary(doc.summary || '', mode, options.maxLen, options.truncate || 'word')
-        : '',
-      tags: selectJsdocTags(doc.tags, { ...options, mode, sections }),
-      text: formatJsdocEntry(name, doc, { ...options, mode, sections }),
-    }));
+    .map(([name, doc]) => {
+      const tags = selectJsdocTags(doc.tags, { ...options, mode, sections });
+      const paramsSelected =
+        sections.includes('params') &&
+        (!options.tags?.include || options.tags.include.includes('param')) &&
+        !options.tags?.exclude?.includes('param');
+      const parameterTotal =
+        paramsSelected && Array.isArray(doc.tags?.param) ? doc.tags.param.length : 0;
+      const parameterReturned = Array.isArray(tags.param) ? tags.param.length : 0;
+      return {
+        name,
+        summary: sections.includes('summary')
+          ? truncateSummary(doc.summary || '', mode, options.maxLen, options.truncate || 'word')
+          : '',
+        tags,
+        ...(Number.isInteger(options.maxParams) && parameterReturned < parameterTotal
+          ? {
+              parameterPagination: {
+                total: parameterTotal,
+                returned: parameterReturned,
+                truncated: true,
+              },
+            }
+          : {}),
+        text: formatJsdocEntry(name, doc, { ...options, mode, sections }),
+      };
+    });
   return { mode, output: options.output || 'section', entries };
 }
 
@@ -1899,10 +1932,11 @@ export async function runInspectCore(options) {
           if (jsonOutput) {
             jsonOutput.jsdoc = {
               ...jsdocPayload,
-              entries: jsdocPayload.entries.map(({ name, summary, tags }) => ({
+              entries: jsdocPayload.entries.map(({ name, summary, tags, parameterPagination }) => ({
                 name,
                 summary,
                 tags,
+                ...(parameterPagination ? { parameterPagination } : {}),
               })),
             };
           }

@@ -326,6 +326,12 @@ export interface ProjectDiffReport {
   summary: Record<string, number>;
   changes: ProjectChange[];
   warnings: string[];
+  snapshot?: {
+    path: string;
+    fingerprint: string;
+    reusedPackages: number;
+    writtenPackages: number;
+  };
 }
 
 export interface ProjectDiffOptions extends OperationOptions {
@@ -346,6 +352,8 @@ export interface ProjectDiffOptions extends OperationOptions {
   maxChanges?: number;
   maxChangesPerPackage?: number;
   packageCursors?: Record<string, string | number>;
+  packageOnly?: string | string[];
+  projectSnapshot?: string;
   onProgress?: (progress: { completed: number; total: number; package: string }) => void;
   diffRunner?: (options: DiffOptions) => Promise<Record<string, unknown>>;
 }

@@ -1,5 +1,14 @@
 # @deplens/cli
 
+## 1.0.7
+
+### Patch Changes
+
+- Reduce the default project diff page to ten changes, add selective package continuation with reusable fingerprinted analysis snapshots, populate size metadata for fresh downloads, and cap parameter-heavy JSDoc with explicit truncation metadata.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.5
+
 ## 1.0.6
 
 ### Patch Changes

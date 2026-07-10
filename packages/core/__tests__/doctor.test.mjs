@@ -87,20 +87,17 @@ describe('buildDoctorReport', () => {
     expect(report.suggestions).toContain('If the package is not installed locally, try --remote.');
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'normalizes workspace links before comparing runtime and type entrypoints',
-    async () => {
-      const report = await runDoctor({
-        target: '@deplens/core',
-        cwd: repoRoot,
-        runtime: false,
-        format: 'object',
-      });
+  it('normalizes workspace links before comparing runtime and type entrypoints', async () => {
+    const report = await runDoctor({
+      target: '@deplens/core',
+      cwd: repoRoot,
+      runtime: false,
+      format: 'object',
+    });
 
-      expect(report.resolution.runtimePath.replace(/\\/g, '/')).toBe('src/index.mjs');
-      expect(report.resolution.typesPath.replace(/\\/g, '/')).toBe('src/index.d.ts');
-      expect(report.resolution.runtimeTypesDiverge).toBe(false);
-      expect(report.suggestions).not.toContainEqual(expect.stringContaining('different files'));
-    }
-  );
+    expect(report.resolution.runtimePath.replace(/\\/g, '/')).toBe('src/index.mjs');
+    expect(report.resolution.typesPath.replace(/\\/g, '/')).toBe('src/index.d.ts');
+    expect(report.resolution.runtimeTypesDiverge).toBe(false);
+    expect(report.suggestions).not.toContainEqual(expect.stringContaining('different files'));
+  });
 });

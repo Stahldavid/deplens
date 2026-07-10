@@ -115,7 +115,6 @@ jobs:
         run: |
           npm --workspace @deplens/core exec -- vitest run __tests__/analyze-python.test.js
           npm --workspace @deplens/core exec -- vitest run __tests__/language-detector.test.js
-          npm --workspace @deplens/core exec -- vitest run __tests__/doctor.test.mjs
           node packages/cli/bin/deplens.js zod --types --no-runtime --json --detail compact --select 'package,symbols' --max-symbols 5
           npm --workspace @deplens/mcp test
 

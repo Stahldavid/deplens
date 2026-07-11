@@ -90,7 +90,13 @@ All cache commands support versioned JSON envelopes and honor `--cache-dir`.
 Use `cache prune --max-size 2GB` or `--max-entries 100` to enforce LRU limits. Successful
 reads refresh `lastUsedAt`. Use `cache stats --summary` to omit packages, or
 `cache stats --max-entries N --cursor C` to page the package list. Dry-run prune results include
-`wouldRemove` and `candidatesPreview` in addition to `removed: 0`.
+`wouldRemove`, paginated `candidatesPreview`, and `candidatesPagination` in addition to
+`removed: 0`; use `cache prune --max-preview-entries N --cursor C` to continue candidate pages.
+
+JSON mode is strict for automation: invalid cursors, regex literals, enum values, integer limits,
+and unsupported depths return a structured `INVALID_ARGUMENT` payload with exit code 2. Compact
+inspect JSON defaults to 50 symbols and 25 runtime export names; pass explicit limits when you need
+larger pages.
 
 - `--analyze-source` — analyze source complexity
 - `--source-max-files <n>` — max source files to analyze

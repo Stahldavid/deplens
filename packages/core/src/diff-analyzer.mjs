@@ -1115,7 +1115,7 @@ export function formatDiffAsText(diff, options = {}) {
  * Format diff result as JSON
  */
 export function formatDiffAsJson(diff) {
-  return JSON.stringify(diff, null, 2);
+  return JSON.stringify(diff);
 }
 
 export default {

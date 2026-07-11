@@ -5,6 +5,8 @@ import { saveHistoryEntry } from './history-manager.mjs';
 import { enrichSymbolsWithSource } from './symbols.mjs';
 import { projectInspectResult } from './output-projector.mjs';
 import { throwIfAborted } from './errors.mjs';
+import path from 'path';
+import fs from 'fs';
 
 function inferSourceLanguage(sourceAnalysis, fallback = 'unknown') {
   const paths = (sourceAnalysis?.files || [])
@@ -16,6 +18,15 @@ function inferSourceLanguage(sourceAnalysis, fallback = 'unknown') {
   if (hasTypeScript) return 'typescript';
   if (hasJavaScript) return 'javascript';
   return fallback || 'unknown';
+}
+
+function readPythonProjectName(target) {
+  if (!target || !path.isAbsolute(String(target))) return null;
+  const pyproject = path.join(String(target), 'pyproject.toml');
+  if (!fs.existsSync(pyproject)) return null;
+  const content = fs.readFileSync(pyproject, 'utf8');
+  const match = content.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
+  return match?.[1] || null;
 }
 
 export async function runInspect(options) {
@@ -66,15 +77,13 @@ export async function runInspect(options) {
       jsonOutput.warnings.push(...sourceResult.warnings);
     }
 
-    jsonOutput.sourceAnalysis = sourceResult.sourceAnalysis;
-    if (Array.isArray(jsonOutput.symbols) && sourceResult.sourceAnalysis) {
-      jsonOutput.symbols = enrichSymbolsWithSource(jsonOutput.symbols, sourceResult.sourceAnalysis);
+    const primarySourceAnalysis = sourceResult.sourceAnalysis || sourceResult.languageAnalysis;
+    jsonOutput.sourceAnalysis = primarySourceAnalysis;
+    if (Array.isArray(jsonOutput.symbols) && primarySourceAnalysis) {
+      jsonOutput.symbols = enrichSymbolsWithSource(jsonOutput.symbols, primarySourceAnalysis);
     }
     const runtimeLanguage = sourceResult.detectedLang || 'unknown';
-    const sourceLanguage = inferSourceLanguage(
-      sourceResult.sourceAnalysis || sourceResult.languageAnalysis,
-      runtimeLanguage
-    );
+    const sourceLanguage = inferSourceLanguage(primarySourceAnalysis, runtimeLanguage);
     const analysisSummary =
       sourceResult.languageAnalysis?.summary || sourceResult.sourceAnalysis?.summary || {};
     jsonOutput.languageAnalysis = {
@@ -87,6 +96,10 @@ export async function runInspect(options) {
         ? { error: sourceResult.languageAnalysis.error }
         : {}),
     };
+    if (options.language && path.isAbsolute(String(options.target || ''))) {
+      jsonOutput.package =
+        readPythonProjectName(String(options.target)) || path.basename(String(options.target));
+    }
   }
 
   if (options?.profile && jsonOutput) {
@@ -132,6 +145,7 @@ export async function runInspect(options) {
             ...(options.includeDocs || options.docsFor || options.docsSections ? ['docs'] : []),
             ...(options.includeExamples || options.examplesFor ? ['examples'] : []),
             ...(options.jsdocOutput && options.jsdocOutput !== 'off' ? ['jsdoc'] : []),
+            ...(options.showTypes ? ['types'] : []),
             ...(options.analyzeSource ? ['sourceAnalysis', 'languageAnalysis'] : []),
           ],
           focused: focusedOutput,
@@ -146,5 +160,5 @@ export async function runInspect(options) {
   if (format !== 'json') {
     return rawOutput;
   }
-  return JSON.stringify(projectedOutput, null, 2);
+  return JSON.stringify(projectedOutput);
 }

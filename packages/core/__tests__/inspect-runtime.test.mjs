@@ -100,10 +100,10 @@ describe('runtime loading controls', () => {
       });
 
       expect(result.resolution).toMatchObject({
-        entrypointPath: null,
-        entrypointExists: false,
         metadataOnly: true,
       });
+      expect(result.resolution).not.toHaveProperty('entrypointPath');
+      expect(result.resolution).not.toHaveProperty('entrypointExists');
       expect(result.warnings).toContainEqual(expect.stringContaining('no importable runtime'));
     } finally {
       rmSync(root, { recursive: true, force: true });

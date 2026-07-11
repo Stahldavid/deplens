@@ -513,18 +513,20 @@ async function downloadVersionUnlocked(packageName, version, options = {}) {
   let stagingPath = null;
   try {
     if (!force && isCached(packageName, version, cacheDir)) {
-      const packageDir = path.join(cachePath, 'node_modules', packageName);
-      return {
-        path: cachePath,
-        packageDir,
-        cached: true,
-        fetched: false,
-        metadata: touchCacheMetadata(
-          cachePath,
-          readCacheMetadata(cachePath) ||
-            writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache')
-        ),
-      };
+      if (offline || preferCdn || isNpmInstallCache(cachePath)) {
+        const packageDir = path.join(cachePath, 'node_modules', packageName);
+        return {
+          path: cachePath,
+          packageDir,
+          cached: true,
+          fetched: false,
+          metadata: touchCacheMetadata(
+            cachePath,
+            readCacheMetadata(cachePath) ||
+              writeCacheMetadata(cachePath, packageDir, packageName, version, 'existing-cache')
+          ),
+        };
+      }
     }
 
     stagingPath = `${cachePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
@@ -909,6 +911,15 @@ export function pruneCache(options = {}) {
   const maxSizeBytes = Number.isFinite(Number(options.maxSizeBytes))
     ? Math.max(0, Number(options.maxSizeBytes))
     : null;
+  const previewMaxEntries = Number.isFinite(Number(options.previewMaxEntries))
+    ? Math.max(0, Math.floor(Number(options.previewMaxEntries)))
+    : 25;
+  const previewCursorRaw = Number.parseInt(
+    String(options.previewCursor ?? options.cursor ?? '0'),
+    10
+  );
+  const previewOffset =
+    Number.isFinite(previewCursorRaw) && previewCursorRaw >= 0 ? previewCursorRaw : 0;
   const cutoff = Number.isFinite(maxAgeDays)
     ? Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
     : Number.NEGATIVE_INFINITY;
@@ -933,6 +944,7 @@ export function pruneCache(options = {}) {
     skippedLocked: 0,
     entries: [],
     candidatesPreview: [],
+    candidatesPagination: { total: 0, offset: previewOffset, returned: 0, nextCursor: null },
   };
   if (!fs.existsSync(cacheDir)) return result;
 
@@ -1008,6 +1020,7 @@ export function pruneCache(options = {}) {
     }
   }
 
+  const allCandidateEntries = [];
   for (const record of records.filter((item) => item.reason)) {
     if (!Number.isFinite(record.size)) {
       try {
@@ -1025,14 +1038,28 @@ export function pruneCache(options = {}) {
       size: record.size,
       sizeFormatted: formatBytes(record.size),
     };
-    result.entries.push(candidateEntry);
-    result.candidatesPreview.push(candidateEntry);
+    allCandidateEntries.push(candidateEntry);
     if (!dryRun) {
       fs.rmSync(record.entryPath, { recursive: true, force: true });
       result.removed += 1;
       result.reclaimedBytes += record.size;
     }
   }
+  const candidatePage = allCandidateEntries.slice(
+    previewOffset,
+    previewMaxEntries === 0 ? previewOffset : previewOffset + previewMaxEntries
+  );
+  result.entries = candidatePage;
+  result.candidatesPreview = candidatePage;
+  result.candidatesPagination = {
+    total: allCandidateEntries.length,
+    offset: previewOffset,
+    returned: candidatePage.length,
+    nextCursor:
+      previewOffset + candidatePage.length < allCandidateEntries.length
+        ? String(previewOffset + candidatePage.length)
+        : null,
+  };
 
   const remaining = records.filter((record) => !record.reason);
   result.remainingEntries = remaining.length + result.skippedLocked;

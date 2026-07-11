@@ -85,7 +85,7 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --json                       Shorthand for --format json
 --detail compact|full        Versioned JSON projection (inspect schema v2)
 --select <sections>          Select JSON sections (CSV, repeatable, or --select=CSV)
---max-symbols <N>            Symbols per page
+--max-symbols <N>            Symbols per page (default: 50 in compact JSON)
 --cursor <value>             Resume symbol/change pagination
 --conditions <list>          Export conditions in priority order
 --cache-dir <dir>            Override the shared version cache
@@ -209,6 +209,7 @@ deplens cache prune --dry-run    # Preview stale, alias, and invalid entries
 deplens cache prune --max-age-days 90 # Remove maintenance candidates
 deplens cache prune --max-size 2GB --dry-run # Preview an LRU size limit
 deplens cache prune --max-entries 100 # Keep the 100 most recently used entries
+deplens cache prune --dry-run --max-preview-entries 25 --cursor 25 # Page prune preview candidates
 ```
 
 Fast cache stats avoid walking large cached packages. Older entries that do not
@@ -223,7 +224,8 @@ New downloads calculate size metadata once from their staging directory, while o
 entries remain lazy until `cache stats --exact` or `cache migrate --exact` is requested.
 `cache stats --summary` omits package lists, and `--max-entries`/`--cursor` page package
 metadata for agent-sized responses. Cache prune dry-runs expose both `removed: 0` and
-`wouldRemove` plus `candidatesPreview` so automation can distinguish preview from mutation.
+`wouldRemove`, and `--max-preview-entries`/`--cursor` page `candidatesPreview` so automation
+can distinguish preview from mutation without receiving the entire cache.
 
 Compact inspect JSON returns only `staticExports.total` by default. Select
 `staticExports` explicitly to page names, and follow its nested `pagination` object.
@@ -237,6 +239,10 @@ Use `--jsdoc-max-params N` to cap `@param` tags. Truncated entries include
 `truncated` so omission is never silent.
 `--analyze-source` is itself a focused request and omits symbols unless they are explicitly
 selected with `--select sourceAnalysis,languageAnalysis,symbols`.
+
+In `--json` mode, argument errors use a structured `INVALID_ARGUMENT` envelope and exit code 2.
+Malformed cursors, regex literals, enum values, and numeric limits are rejected before analysis.
+Concrete same-version diffs return success with `identicalVersions: true` and zero changes.
 
 Packages that only expose a `bin` entry are reported as `metadataOnly` with
 `entrypointExists: false` and an explicit warning instead of treating `package.json`

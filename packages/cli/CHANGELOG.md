@@ -1,5 +1,16 @@
 # @deplens/cli
 
+## 1.0.9
+
+### Patch Changes
+
+- Reject invalid command arguments consistently, including bad cursors, regex literals, enums, integer limits, and `--depth` values, and emit structured JSON `INVALID_ARGUMENT` payloads with exit code 2 whenever `--json` is present.
+
+  Minify JSON output for agent pipelines, reduce compact inspect defaults, add paginated cache prune previews via `--max-preview-entries`, make same-version diffs return successful zero-change payloads, and surface package-not-found failures with `errorInfo`.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.7
+
 ## 1.0.8
 
 ### Patch Changes

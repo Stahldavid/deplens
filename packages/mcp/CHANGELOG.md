@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.7
+
+### Patch Changes
+
+- Pass through identical-version diff metadata in MCP structured output and consume the stricter compact diff/core contracts from `@deplens/core`.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.7
+
 ## 1.0.6
 
 ### Patch Changes

@@ -1363,6 +1363,15 @@ export async function runInspectCore(options) {
       }
 
       const errorMsg = `Não foi possível resolver '${target}'`;
+      if (jsonOutput) {
+        jsonOutput.error = errorMsg;
+        jsonOutput.errorInfo = {
+          code: 'PACKAGE_NOT_FOUND',
+          phase: 'inspect',
+          retryable: false,
+          details: { target },
+        };
+      }
       warn(errorMsg);
       logErr(`\n❌ Erro: ${errorMsg}`);
       logErr(`ResolveFrom: ${resolveFrom || baseCwd || 'unknown'}`);
@@ -2171,6 +2180,14 @@ export async function runInspectCore(options) {
   } catch (e) {
     if (jsonOutput) {
       jsonOutput.error = e.message;
+      jsonOutput.errorInfo = {
+        code: /Cannot find|not found|Cannot resolve|MODULE_NOT_FOUND/i.test(e.message)
+          ? 'PACKAGE_NOT_FOUND'
+          : 'INSPECT_FAILED',
+        phase: 'inspect',
+        retryable: false,
+        details: null,
+      };
       jsonOutput.warnings.push(`Error: ${e.message}`);
     } else {
       logErr(`\n❌ Erro: ${e.message}`);

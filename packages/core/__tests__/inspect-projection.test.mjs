@@ -55,7 +55,7 @@ describe('inspect output projection', () => {
       cursor: '1',
     });
 
-    expect(first.exports).toEqual(payload.exports);
+    expect(first.exports).toEqual({ total: 3, functions: ['a', 'b', 'c'] });
     expect(first.staticExports).toEqual({ total: 3 });
     expect(next).not.toHaveProperty('exports');
     expect(next).not.toHaveProperty('staticExports');

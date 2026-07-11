@@ -60,6 +60,7 @@ export const OUTPUT_SCHEMAS = Object.freeze({
     removed: { type: 'number' },
     wouldRemove: { type: 'number' },
     candidatesPreview: { type: 'array' },
+    candidatesPagination: { type: 'object' },
   }),
   'project-snapshot-v1': schema(
     'project-snapshot/v1',

@@ -99,8 +99,8 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--json`                 | flag   | off                         | Shorthand for `--format json`.                       |
 | `--detail compact\|full` | enum   | compact                     | Versioned inspect JSON projection.                   |
 | `--select LIST`          | list   | compact defaults            | Select sections; CSV, repeatable, or `--select=CSV`. |
-| `--max-symbols N`        | int    | 250                         | Symbols per page.                                    |
-| `--cursor VALUE`         | string | `0`                         | Resume symbol/change pagination.                     |
+| `--max-symbols N`        | int    | 50                          | Symbols per page in compact JSON.                    |
+| `--cursor VALUE`         | string | `0`                         | Resume symbol/change pagination; must be an integer. |
 | `--conditions LIST`      | list   | Node defaults               | Export conditions in priority order.                 |
 | `--cache-dir DIR`        | path   | `~/.deplens-cache/versions` | Override cache for all operations.                   |
 | `--timeout MS`           | int    | operation default           | Bound network and analysis work.                     |
@@ -177,6 +177,7 @@ deplens cache prune --dry-run # preview stale, alias, and invalid entries
 deplens cache prune --max-age-days 90 # remove maintenance candidates
 deplens cache prune --max-size 2GB --dry-run # preview LRU size enforcement
 deplens cache prune --max-entries 100 # keep the 100 most recently used entries
+deplens cache prune --dry-run --max-preview-entries 25 --cursor 25 # page preview candidates
 ```
 
 Cache maintenance accepts `--cache-dir DIR`, `--dry-run`, and `--keep-aliases`.
@@ -184,13 +185,17 @@ Cache maintenance accepts `--cache-dir DIR`, `--dry-run`, and `--keep-aliases`.
 uses a 90-day default when `--max-age-days` is omitted.
 `--max-size` accepts B/KB/MB/GB/TB suffixes. Size and entry limits evict the least recently used
 unlocked entries according to `lastUsedAt` and report `limitSatisfied` in JSON.
-Dry-run prune JSON keeps `removed: 0` and adds `wouldRemove` plus `candidatesPreview`.
+Dry-run prune JSON keeps `removed: 0` and adds `wouldRemove`, paginated
+`candidatesPreview`, and `candidatesPagination`.
 
 Fast stats do not walk every cached package. Entries without metadata may report
 `unknown` size until a future exact stats run or cache refresh records size data.
 Use `cache stats --summary` or `--max-entries N --cursor C` to keep package metadata compact.
 JSON cache commands return versioned `deplens-cache-stats`, `deplens-cache-clear`,
 `deplens-cache-pin`, `deplens-cache-migrate`, or `deplens-cache-prune` envelopes.
+
+In `--json` mode, invalid arguments return a structured `INVALID_ARGUMENT` envelope and exit code 2. Bad cursors, regex literals, enum values, integer limits, and unsupported depths are rejected
+before package analysis starts.
 
 Cache lives in `~/.deplens-cache/`:
 

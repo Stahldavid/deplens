@@ -108,8 +108,26 @@ describe('compact diff JSON', () => {
     expect(compact.semanticCompatibility).toMatchObject({
       compatible: false,
       diagnosticCount: 12,
-      diagnostics: diagnostics.slice(0, 10),
+      diagnostics: diagnostics.slice(0, 3),
       diagnosticsTruncated: true,
+    });
+    const secondPage = serializeDiffForJson(
+      {
+        from: { name: 'demo', version: '1.0.0' },
+        to: { name: 'demo', version: '2.0.0' },
+        summary: { semanticCompatible: false },
+        semanticCompatibility: {
+          checked: true,
+          compatible: false,
+          direction: 'from-to',
+          diagnostics,
+        },
+      },
+      { cursor: '1' }
+    );
+    expect(secondPage.semanticCompatibility).toMatchObject({
+      diagnosticCount: 12,
+      diagnosticsOmitted: true,
     });
   });
 });

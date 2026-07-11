@@ -91,17 +91,15 @@ describe('DepLens MCP server', () => {
     }
   });
 
-  it('returns core diff failures as MCP errors', async () => {
+  it('returns identical version diffs as successful no-op results', async () => {
     const result = await client.callTool({
       name: 'deplens_diff',
       arguments: { package: 'zod', from: '3.22.0', to: '3.22.0', format: 'object' },
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent.error).toContain('same version');
-    expect(result.structuredContent.warnings).toContainEqual(
-      expect.stringContaining('same version')
-    );
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent.identicalVersions).toBe(true);
+    expect(result.structuredContent.changeCount).toBe(0);
   });
 
   it('keeps runtime imports opt-in and advertises the side-effect boundary', async () => {

@@ -259,7 +259,7 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 
 - `--filter <name>` — focuses on one symbol or substring
 - `--search <query>` — semantic narrowing
-- `--max-exports N` — caps the export list (default 100)
+- `--max-exports N` — caps the export list (default 25 in compact JSON)
 - `--max-props N` — caps nested object props at `--depth>0` (default 10)
 - `--max-examples N` — caps examples (default 10)
 - `--docs-sections X` — fetches only specific README sections instead of the full preview
@@ -273,9 +273,9 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **Cache sizes can be `unknown`.** `deplens cache stats` is fast by default and avoids recursively walking large package caches. Use `deplens cache stats --exact` when you need precise sizes.
 - **Large cache stats.** Use `deplens cache stats --summary` to omit package entries, or `deplens cache stats --max-entries 25 --cursor 25` to page package metadata.
 - **Legacy cache entries.** Use `deplens cache migrate --exact` to move tag aliases to exact versions and rebuild metadata. Preview cleanup with `deplens cache prune --dry-run`; pruning defaults to entries older than 90 days plus invalid/alias entries.
-- **Large caches.** Run `deplens cache prune --max-size 2GB --dry-run` to preview an LRU size cap or `--max-entries 100` to keep the most recently used entries. Dry-run JSON keeps `removed: 0` and adds `wouldRemove` plus `candidatesPreview`. Successful cache reads refresh `lastUsedAt`; active locks are never removed.
+- **Large caches.** Run `deplens cache prune --max-size 2GB --dry-run` to preview an LRU size cap or `--max-entries 100` to keep the most recently used entries. Dry-run JSON keeps `removed: 0` and adds `wouldRemove` plus paginated `candidatesPreview`; continue with `--max-preview-entries N --cursor C`. Successful cache reads refresh `lastUsedAt`; active locks are never removed.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
-- **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
+- **stdout discipline.** In `--json` mode, stdout is pure JSON. Argument errors are structured JSON with `errorInfo.code: "INVALID_ARGUMENT"` and exit code 2; malformed cursors, regex literals, enum values, and numeric limits are rejected before analysis. In default text mode, decorations make parsing unreliable; switch to `--json`.
 - **Lockfile support.** `project-diff` and `check` accept npm `package-lock.json` v2/v3 and pnpm lockfiles with importers (pnpm v6+). Pass the actual path through `--lockfile`, `--from-lock`, or `--to-lock`.
 - **Direct dependencies are the default.** `project-diff` returns only direct dependency changes unless `--include-transitive` is supplied. pnpm peer suffixes are normalized before version comparison.
 - **Binary-only packages are metadata-only.** A package with `bin` but no importable entrypoint reports `resolution.metadataOnly: true`, `entrypointExists: false`, and a warning.

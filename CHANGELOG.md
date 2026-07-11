@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## 2026-07-11 — `@deplens/core@1.0.7`, `@deplens/cli@1.0.9`, `@deplens/mcp@1.0.7`
+
+### Agent ergonomics and strict automation contracts
+
+**Fixed:**
+
+- Invalid CLI arguments now fail loudly: bad cursors, regex filters, enums,
+  integer limits, and unsupported depth values return exit code 2 with a
+  structured `INVALID_ARGUMENT` JSON payload when `--json` is used.
+- Same-version diffs now succeed as zero-change no-ops with
+  `identicalVersions: true`, which is safer for automation.
+- Package-not-found inspection failures include structured `errorInfo`.
+- `--prefer-npm` no longer reuses incomplete CDN cache entries.
+- Python source-path analysis reports the target project and keeps
+  `sourceAnalysis` aligned with `languageAnalysis`.
+
+**Changed:**
+
+- Compact JSON defaults are tighter: inspect returns 50 symbols by default,
+  omits null/false/empty fields, trims duplicated resolution paths, minifies
+  JSON, and avoids repeating full semantic diagnostics on later diff pages.
+- Cache prune dry-runs now page candidate previews with `--max-preview-entries`
+  and cursor support.
+- `--types --json` includes the `types` section without requiring
+  `--select types`.
+
+---
+
 ## 2026-07-09 — `@deplens/core@0.3.1`, `@deplens/cli@0.3.1`, `@deplens/mcp@0.4.1`
 
 ### Safer runtime defaults and release polish

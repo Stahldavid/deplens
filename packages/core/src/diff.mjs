@@ -38,6 +38,18 @@ function serializeChange(change, verbose) {
   return serialized;
 }
 
+function compactDiagnostic(diagnostic) {
+  if (!diagnostic || typeof diagnostic !== 'object') return diagnostic;
+  const message = String(diagnostic.message || diagnostic.messageText || diagnostic.detail || '');
+  return {
+    ...(diagnostic.code != null ? { code: diagnostic.code } : {}),
+    ...(diagnostic.reason ? { reason: diagnostic.reason } : {}),
+    ...(message ? { message: message.length > 240 ? `${message.slice(0, 237)}...` : message } : {}),
+    ...(diagnostic.file ? { file: diagnostic.file } : {}),
+    ...(diagnostic.line != null ? { line: diagnostic.line } : {}),
+  };
+}
+
 export function serializeDiffForJson(diff, options = {}) {
   const { packageName = diff?.to?.name || diff?.from?.name || null, verbose = false } = options;
   const sourceChanges = (diff?.warnings || []).filter((change) => change.category === 'source');
@@ -52,6 +64,8 @@ export function serializeDiffForJson(diff, options = {}) {
   const parsedCursor = Number.parseInt(options.cursor || '0', 10);
   const offset = Number.isFinite(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
   const changes = allChanges.slice(offset, offset + maxChanges);
+  const semanticDiagnostics = diff?.semanticCompatibility?.diagnostics || [];
+  const includeDiagnosticPage = offset === 0 || options.includeDiagnosticsOnEveryPage;
 
   return {
     schemaVersion: 2,
@@ -84,9 +98,13 @@ export function serializeDiffForJson(diff, options = {}) {
             checked: diff.semanticCompatibility.checked,
             compatible: diff.semanticCompatibility.compatible,
             direction: diff.semanticCompatibility.direction || null,
-            diagnosticCount: diff.semanticCompatibility.diagnostics?.length || 0,
-            diagnostics: (diff.semanticCompatibility.diagnostics || []).slice(0, 10),
-            diagnosticsTruncated: (diff.semanticCompatibility.diagnostics?.length || 0) > 10,
+            diagnosticCount: semanticDiagnostics.length,
+            ...(includeDiagnosticPage
+              ? {
+                  diagnostics: semanticDiagnostics.slice(0, 3).map(compactDiagnostic),
+                  diagnosticsTruncated: semanticDiagnostics.length > 3,
+                }
+              : { diagnosticsOmitted: true }),
             ignoredDiagnosticCount: diff.semanticCompatibility.ignoredDiagnosticCount || 0,
             ignoredReasons: [
               ...new Set(
@@ -100,6 +118,43 @@ export function serializeDiffForJson(diff, options = {}) {
     changelog: options.changelog || null,
     meta: options.meta || null,
     warnings: options.warnings || [],
+  };
+}
+
+function identicalDiffPayload(packageName, from, to, options = {}) {
+  return {
+    schemaVersion: 2,
+    detailLevel: options.verbose ? 'verbose' : 'compact',
+    package: packageName,
+    from: { name: packageName, version: from },
+    to: { name: packageName, version: to },
+    summary: {
+      breaking: 0,
+      warnings: 0,
+      additions: 0,
+      removals: 0,
+      totalChanges: 0,
+      semanticCompatible: true,
+      identicalVersions: true,
+    },
+    changes: [],
+    changeCount: 0,
+    pagination: { total: 0, offset: 0, returned: 0, nextCursor: null },
+    symbols: null,
+    sourceComparison: null,
+    semanticCompatibility: {
+      checked: false,
+      compatible: true,
+      diagnosticCount: 0,
+      diagnostics: [],
+      diagnosticsTruncated: false,
+      ignoredDiagnosticCount: 0,
+      ignoredReasons: [],
+    },
+    changelog: null,
+    meta: options.meta || null,
+    warnings: [],
+    identicalVersions: true,
   };
 }
 
@@ -161,6 +216,24 @@ export async function runDiff(options = {}) {
     return {
       output: `❌ Error: ${message}`,
       error: message,
+    };
+  }
+
+  if (from === to && isExactOfflineSpec(from) && from !== 'installed') {
+    const meta = {
+      package: packageName,
+      from,
+      to,
+      runtime,
+      analyzedAt: new Date().toISOString(),
+    };
+    const payload = identicalDiffPayload(packageName, from, to, { verbose, meta });
+    if (format === 'json') {
+      return { output: formatDiffAsJson(payload), ...payload };
+    }
+    return {
+      output: `No API changes: ${packageName}@${from} and ${packageName}@${to} are identical.`,
+      ...payload,
     };
   }
 

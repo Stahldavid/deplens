@@ -16,6 +16,35 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+const ARGUMENT_ERROR_CODE = 'INVALID_ARGUMENT';
+const VALID_INSPECT_FORMATS = new Set(['text', 'json', 'object']);
+const VALID_DIFF_FORMATS = new Set(['text', 'json']);
+const VALID_PROJECT_FORMATS = new Set(['text', 'json', 'sarif']);
+const VALID_POLICY_LEVELS = new Set(['breaking', 'warning', 'change', 'none']);
+const VALID_INSPECT_KINDS = new Set([
+  'function',
+  'class',
+  'object',
+  'constant',
+  'interface',
+  'type',
+  'enum',
+  'namespace',
+  'variable',
+]);
+const VALID_JSDOC_MODES = new Set(['off', 'compact', 'full']);
+const VALID_JSDOC_OUTPUTS = new Set(['off', 'section', 'inline', 'only']);
+const VALID_JSDOC_SECTIONS = new Set(['summary', 'params', 'returns', 'tags']);
+const VALID_JSDOC_TRUNCATE = new Set(['none', 'sentence', 'word']);
+const VALID_SOURCE_LANGUAGES = new Set([
+  'javascript',
+  'typescript',
+  'python',
+  'java',
+  'rust',
+  'go',
+]);
+
 function cliVersion() {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const pkgPath = path.resolve(here, '..', 'package.json');
@@ -64,16 +93,126 @@ function parseByteSize(value) {
   return Math.floor(Number(match[1]) * units[(match[2] || 'b').toLowerCase()]);
 }
 
+function jsonStringify(value) {
+  return `${JSON.stringify(value)}\n`;
+}
+
+function argumentErrorPayload(message, details = null) {
+  return {
+    error: message,
+    errorInfo: {
+      code: ARGUMENT_ERROR_CODE,
+      phase: 'arguments',
+      retryable: false,
+      details,
+    },
+  };
+}
+
+function emitError(
+  error,
+  { json = false, exitCode = 1, phase = 'arguments', code = 'DEPLENS_ERROR' } = {}
+) {
+  const payload =
+    error && typeof error === 'object' && error.error && error.errorInfo
+      ? error
+      : {
+          error: error instanceof Error ? error.message : String(error),
+          errorInfo: {
+            code,
+            phase,
+            retryable: false,
+            details: null,
+          },
+        };
+  if (json) {
+    process.stdout.write(jsonStringify(payload));
+  } else {
+    process.stderr.write(`Error: ${payload.error}\n`);
+  }
+  process.exit(exitCode);
+}
+
+function parseIntegerOption(
+  argv,
+  name,
+  { min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, fallback = undefined } = {}
+) {
+  const raw = argumentValue(argv, name);
+  if (raw == null) return fallback;
+  if (!/^-?\d+$/.test(String(raw).trim())) {
+    throw new Error(`Option ${name} must be an integer`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    const range =
+      Number.isFinite(min) && Number.isFinite(max)
+        ? ` between ${min} and ${max}`
+        : Number.isFinite(min)
+          ? ` >= ${min}`
+          : Number.isFinite(max)
+            ? ` <= ${max}`
+            : '';
+    throw new Error(`Option ${name} must be${range}`);
+  }
+  return parsed;
+}
+
+function parseEnumOption(argv, name, allowed, fallback = null) {
+  const raw = argumentValue(argv, name);
+  if (raw == null) return fallback;
+  const normalized = String(raw).toLowerCase();
+  if (!allowed.has(normalized)) {
+    throw new Error(`Option ${name} must be one of: ${[...allowed].join(', ')}`);
+  }
+  return normalized;
+}
+
+function assertValidCursor(value, name = '--cursor') {
+  if (value == null) return null;
+  if (!/^\d+$/.test(String(value))) {
+    throw new Error(`Option ${name} must be a non-negative integer cursor`);
+  }
+  return String(Number(value));
+}
+
+function assertValidRegexLiteral(value, label) {
+  if (typeof value !== 'string') return;
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('/') && trimmed.endsWith('/')) {
+    try {
+      new RegExp(trimmed.slice(1, -1), 'i');
+    } catch (error) {
+      throw new Error(`Invalid regex for ${label}: ${error.message}`);
+    }
+  }
+}
+
+function assertValidRegexList(values, label) {
+  for (const value of values || []) assertValidRegexLiteral(value, label);
+}
+
+function validateList(values, allowed, name) {
+  for (const value of values || []) {
+    if (!allowed.has(value)) {
+      throw new Error(
+        `Option ${name} contains invalid value '${value}'. Allowed: ${[...allowed].join(', ')}`
+      );
+    }
+  }
+}
+
 function parsePackageCursors(values) {
   const cursors = Object.create(null);
   for (const value of values) {
     const delimiter = String(value).lastIndexOf('=');
     if (delimiter <= 0) throw new Error(`Invalid package cursor: ${value}`);
     const packageName = String(value).slice(0, delimiter);
-    const cursor = Number.parseInt(String(value).slice(delimiter + 1), 10);
-    if (!Number.isFinite(cursor) || cursor < 0) {
+    const cursorRaw = String(value).slice(delimiter + 1);
+    if (!/^\d+$/.test(cursorRaw)) {
       throw new Error(`Invalid package cursor: ${value}`);
     }
+    const cursor = Number.parseInt(cursorRaw, 10);
     cursors[packageName] = String(cursor);
   }
   return cursors;
@@ -107,10 +246,7 @@ function parseInspectArgs(argv) {
   const listSections = argv.includes('--list-sections');
 
   let format = 'text';
-  const formatIndex = argv.indexOf('--format');
-  if (formatIndex !== -1 && argv[formatIndex + 1]) {
-    format = argv[formatIndex + 1].toLowerCase();
-  }
+  format = parseEnumOption(argv, '--format', VALID_INSPECT_FORMATS, format);
   // --json is a shortcut for --format json
   if (argv.includes('--json')) {
     format = 'json';
@@ -129,53 +265,40 @@ function parseInspectArgs(argv) {
   }
 
   let maxExports = null;
-  const maxExportsIndex = argv.indexOf('--max-exports');
-  if (maxExportsIndex !== -1 && argv[maxExportsIndex + 1]) {
-    const parsed = parseInt(argv[maxExportsIndex + 1], 10);
-    if (!isNaN(parsed) && parsed > 0) maxExports = parsed;
-  }
+  maxExports = parseIntegerOption(argv, '--max-exports', {
+    min: 1,
+    max: 10000,
+    fallback: format === 'json' ? 25 : null,
+  });
 
   let maxProps = null;
-  const maxPropsIndex = argv.indexOf('--max-props');
-  if (maxPropsIndex !== -1 && argv[maxPropsIndex + 1]) {
-    const parsed = parseInt(argv[maxPropsIndex + 1], 10);
-    if (!isNaN(parsed) && parsed > 0) maxProps = parsed;
-  }
+  maxProps = parseIntegerOption(argv, '--max-props', { min: 1, max: 1000, fallback: null });
 
   let maxExamples = null;
-  const maxExamplesIndex = argv.indexOf('--max-examples');
-  if (maxExamplesIndex !== -1 && argv[maxExamplesIndex + 1]) {
-    const parsed = parseInt(argv[maxExamplesIndex + 1], 10);
-    if (!isNaN(parsed) && parsed > 0) maxExamples = parsed;
-  }
+  maxExamples = parseIntegerOption(argv, '--max-examples', { min: 1, max: 100, fallback: null });
 
   const analyzeSource = argv.includes('--analyze-source');
   const autoGenerateTypes = !argv.includes('--no-auto-generate-types');
   const sourceIncludeBody =
     argv.includes('--source-include-body') || argv.includes('--include-source-body');
   let sourceMaxFiles = null;
-  const sourceMaxFilesIndex = argv.indexOf('--source-max-files');
-  if (sourceMaxFilesIndex !== -1 && argv[sourceMaxFilesIndex + 1]) {
-    const parsed = parseInt(argv[sourceMaxFilesIndex + 1], 10);
-    if (!isNaN(parsed) && parsed > 0) sourceMaxFiles = parsed;
-  }
+  sourceMaxFiles = parseIntegerOption(argv, '--source-max-files', {
+    min: 1,
+    max: 500,
+    fallback: null,
+  });
   let language = null;
   const languageIndex = argv.indexOf('--language');
   if (languageIndex !== -1 && argv[languageIndex + 1]) {
     language = argv[languageIndex + 1].toLowerCase();
+    validateList([language], VALID_SOURCE_LANGUAGES, '--language');
   }
 
   let jsdoc = null;
-  const jsdocIndex = argv.indexOf('--jsdoc');
-  if (jsdocIndex !== -1 && argv[jsdocIndex + 1]) {
-    jsdoc = argv[jsdocIndex + 1].toLowerCase();
-  }
+  jsdoc = parseEnumOption(argv, '--jsdoc', VALID_JSDOC_MODES, null);
 
   let jsdocOutput = null;
-  const jsdocOutputIndex = argv.indexOf('--jsdoc-output');
-  if (jsdocOutputIndex !== -1 && argv[jsdocOutputIndex + 1]) {
-    jsdocOutput = argv[jsdocOutputIndex + 1].toLowerCase();
-  }
+  jsdocOutput = parseEnumOption(argv, '--jsdoc-output', VALID_JSDOC_OUTPUTS, null);
 
   let jsdocSymbols = null;
   const jsdocSymbolIndex = argv.indexOf('--jsdoc-symbol');
@@ -202,35 +325,33 @@ function parseInspectArgs(argv) {
   }
 
   let jsdocTruncate = null;
-  const jsdocTruncateIndex = argv.indexOf('--jsdoc-truncate');
-  if (jsdocTruncateIndex !== -1 && argv[jsdocTruncateIndex + 1]) {
-    jsdocTruncate = argv[jsdocTruncateIndex + 1].toLowerCase();
-  }
+  jsdocTruncate = parseEnumOption(argv, '--jsdoc-truncate', VALID_JSDOC_TRUNCATE, null);
 
   let jsdocMaxLen = null;
-  const jsdocMaxLenIndex = argv.indexOf('--jsdoc-max-len');
-  if (jsdocMaxLenIndex !== -1 && argv[jsdocMaxLenIndex + 1]) {
-    const parsed = parseInt(argv[jsdocMaxLenIndex + 1], 10);
-    if (!isNaN(parsed) && parsed >= 0) jsdocMaxLen = parsed;
-  }
+  jsdocMaxLen = parseIntegerOption(argv, '--jsdoc-max-len', {
+    min: 0,
+    max: 20000,
+    fallback: null,
+  });
 
   let jsdocMaxParams = null;
-  const jsdocMaxParamsIndex = argv.indexOf('--jsdoc-max-params');
-  if (jsdocMaxParamsIndex !== -1 && argv[jsdocMaxParamsIndex + 1]) {
-    const parsed = parseInt(argv[jsdocMaxParamsIndex + 1], 10);
-    if (!isNaN(parsed) && parsed >= 0) jsdocMaxParams = parsed;
-  }
+  jsdocMaxParams = parseIntegerOption(argv, '--jsdoc-max-params', {
+    min: 0,
+    max: 1000,
+    fallback: null,
+  });
   let jsdocParamCursor = null;
-  const jsdocParamCursorIndex = argv.indexOf('--jsdoc-param-cursor');
-  if (jsdocParamCursorIndex !== -1 && argv[jsdocParamCursorIndex + 1]) {
-    const parsed = parseInt(argv[jsdocParamCursorIndex + 1], 10);
-    if (!isNaN(parsed) && parsed >= 0) jsdocParamCursor = parsed;
-  }
+  jsdocParamCursor = parseIntegerOption(argv, '--jsdoc-param-cursor', {
+    min: 0,
+    fallback: null,
+  });
 
   const filterIndex = argv.indexOf('--filter');
   if (filterIndex !== -1 && argv[filterIndex + 1]) {
     filter = argv[filterIndex + 1].toLowerCase();
   }
+  assertValidRegexLiteral(filter, '--filter');
+  assertValidRegexList(jsdocSymbols ? String(jsdocSymbols).split(',') : [], '--jsdoc-symbol');
 
   let resolveFrom = null;
   const resolveFromIndex = argv.indexOf('--resolve-from');
@@ -261,16 +382,10 @@ function parseInspectArgs(argv) {
   const kindIndex = argv.indexOf('--kind');
   if (kindIndex !== -1 && argv[kindIndex + 1]) {
     kindFilter = argv[kindIndex + 1].split(',').map((k) => k.trim().toLowerCase());
+    validateList(kindFilter, VALID_INSPECT_KINDS, '--kind');
   }
 
-  let depth = 1;
-  const depthIndex = argv.indexOf('--depth');
-  if (depthIndex !== -1 && argv[depthIndex + 1]) {
-    depth = parseInt(argv[depthIndex + 1], 10);
-    if (isNaN(depth) || depth < 0 || depth > 5) {
-      depth = 1;
-    }
-  }
+  const depth = parseIntegerOption(argv, '--depth', { min: 0, max: 5, fallback: 1 });
 
   let jsdocQuery = null;
   if (
@@ -295,6 +410,7 @@ function parseInspectArgs(argv) {
           .map((s) => s.trim())
           .filter(Boolean)
       : undefined;
+    validateList(sections, VALID_JSDOC_SECTIONS, '--jsdoc-sections');
     const tagsInclude = jsdocTagsInclude
       ? jsdocTagsInclude
           .split(',')
@@ -322,9 +438,13 @@ function parseInspectArgs(argv) {
   const detail = argumentValue(argv, '--detail', format === 'json' ? 'compact' : null);
   const selectedSections = commaList(argumentValues(argv, '--select'));
   const select = selectedSections.length > 0 ? selectedSections : null;
-  const cursor = argumentValue(argv, '--cursor');
-  const maxSymbolsValue = Number(argumentValue(argv, '--max-symbols'));
-  const timeoutValue = Number(argumentValue(argv, '--timeout'));
+  const cursor = assertValidCursor(argumentValue(argv, '--cursor'));
+  const maxSymbolsValue = parseIntegerOption(argv, '--max-symbols', {
+    min: 1,
+    max: 5000,
+    fallback: format === 'json' ? 50 : undefined,
+  });
+  const timeoutValue = parseIntegerOption(argv, '--timeout', { min: 1, fallback: undefined });
   const conditions = commaList(argumentValue(argv, '--conditions'));
   const cacheDir = argumentValue(argv, '--cache-dir');
   const profile = argv.includes('--profile');
@@ -366,8 +486,8 @@ function parseInspectArgs(argv) {
     detail,
     select,
     cursor,
-    maxSymbols: Number.isFinite(maxSymbolsValue) ? maxSymbolsValue : undefined,
-    timeoutMs: Number.isFinite(timeoutValue) ? timeoutValue : undefined,
+    maxSymbols: maxSymbolsValue,
+    timeoutMs: timeoutValue,
     conditions,
     cacheDir,
     profile,
@@ -400,12 +520,9 @@ function parseDiffArgs(argv) {
   if (filterIndex !== -1 && argv[filterIndex + 1]) {
     filter = argv[filterIndex + 1];
   }
+  assertValidRegexLiteral(filter, '--filter');
 
-  let format = 'text';
-  const formatIndex = argv.indexOf('--format');
-  if (formatIndex !== -1 && argv[formatIndex + 1]) {
-    format = argv[formatIndex + 1].toLowerCase();
-  }
+  let format = parseEnumOption(argv, '--format', VALID_DIFF_FORMATS, 'text');
   // --json shortcut
   if (argv.includes('--json')) {
     format = 'json';
@@ -416,12 +533,16 @@ function parseDiffArgs(argv) {
   const verbose = argv.includes('--verbose');
   const noColor = argv.includes('--no-color');
   const conditions = commaList(argumentValue(argv, '--conditions'));
-  const timeoutValue = Number(argumentValue(argv, '--timeout'));
+  const timeoutValue = parseIntegerOption(argv, '--timeout', { min: 1, fallback: undefined });
   const cacheDir = argumentValue(argv, '--cache-dir');
   const semantic = !argv.includes('--no-semantic');
   const profile = argv.includes('--profile');
-  const maxChangesValue = Number(argumentValue(argv, '--max-changes'));
-  const cursor = argumentValue(argv, '--cursor');
+  const maxChangesValue = parseIntegerOption(argv, '--max-changes', {
+    min: 1,
+    max: 10000,
+    fallback: undefined,
+  });
+  const cursor = assertValidCursor(argumentValue(argv, '--cursor'));
 
   let projectDir = null;
   const projectDirIndex = argv.indexOf('--project-dir');
@@ -444,10 +565,10 @@ function parseDiffArgs(argv) {
     offline,
     runtime,
     conditions,
-    timeoutMs: Number.isFinite(timeoutValue) ? timeoutValue : undefined,
+    timeoutMs: timeoutValue,
     cacheDir,
     semantic,
-    maxChanges: Number.isFinite(maxChangesValue) ? maxChangesValue : undefined,
+    maxChanges: maxChangesValue,
     cursor,
     profile,
   };
@@ -470,7 +591,8 @@ function usage() {
       '  --max-age-days N      Remove entries older than N days (prune; default: 90)\n' +
       '  --max-size SIZE       Enforce LRU size cap during prune (for example 2GB)\n' +
       '  --max-entries N       Limit stats pages or enforce LRU entry-count cap during prune\n' +
-      '  --cursor VALUE        Resume cache stats package pagination\n' +
+      '  --max-preview-entries N Limit prune candidate preview page (default: 25)\n' +
+      '  --cursor VALUE        Resume cache stats or prune candidate pagination\n' +
       '  --summary             Return cache stats without the package list\n' +
       '  --select LIST         Select cache stats sections, for example packages\n' +
       '  --dry-run             Preview cache migration/prune without modifying files\n' +
@@ -651,6 +773,7 @@ const VALUE_OPTIONS = new Set([
   '--max-age-days',
   '--max-size',
   '--max-entries',
+  '--max-preview-entries',
   '--from-lock',
   '--to-lock',
   '--lockfile',
@@ -816,33 +939,49 @@ if (argv.includes('--help') || argv.includes('-h')) {
 try {
   validateCliArgs(argv);
 } catch (error) {
-  console.error(`Error: ${error.message}`);
-  process.exit(1);
+  emitError(argumentErrorPayload(error.message), { json: argv.includes('--json'), exitCode: 2 });
 }
 
 const commandArgs = command === 'inspect' && argv[0] !== 'inspect' ? argv : argv.slice(1);
 
-const parsed =
-  command === 'diff'
-    ? parseDiffArgs(commandArgs)
-    : command === 'inspect' || command === 'doctor'
-      ? parseInspectArgs(commandArgs)
-      : {};
+let parsed = {};
+try {
+  parsed =
+    command === 'diff'
+      ? parseDiffArgs(commandArgs)
+      : command === 'inspect' || command === 'doctor'
+        ? parseInspectArgs(commandArgs)
+        : {};
+} catch (error) {
+  emitError(argumentErrorPayload(error.message), { json: argv.includes('--json'), exitCode: 2 });
+}
 
 // Cache commands
 if (command === 'cache') {
   const subcmd = argv[1] || 'stats';
   const cacheDirIndex = argv.indexOf('--cache-dir');
   const cacheDir = cacheDirIndex !== -1 ? argv[cacheDirIndex + 1] : undefined;
-  const maxAgeIndex = argv.indexOf('--max-age-days');
-  const maxAgeDays = maxAgeIndex !== -1 ? Number(argv[maxAgeIndex + 1]) : undefined;
-  const maxEntriesValue = Number(argumentValue(argv, '--max-entries'));
+  let maxAgeDays;
+  let maxEntriesValue;
+  let maxPreviewEntries;
+  let cacheCursor;
   let maxSizeBytes;
   try {
+    maxAgeDays = parseIntegerOption(argv, '--max-age-days', { min: 0, fallback: undefined });
+    maxEntriesValue = parseIntegerOption(argv, '--max-entries', {
+      min: 0,
+      max: 100000,
+      fallback: undefined,
+    });
+    maxPreviewEntries = parseIntegerOption(argv, '--max-preview-entries', {
+      min: 0,
+      max: 100000,
+      fallback: undefined,
+    });
+    cacheCursor = assertValidCursor(argumentValue(argv, '--cursor'));
     maxSizeBytes = parseByteSize(argumentValue(argv, '--max-size'));
   } catch (error) {
-    console.error(`Error: ${error.message}`);
-    process.exit(1);
+    emitError(argumentErrorPayload(error.message), { json: argv.includes('--json'), exitCode: 2 });
   }
   const maintenanceOptions = {
     cacheDir,
@@ -850,16 +989,16 @@ if (command === 'cache') {
     dryRun: argv.includes('--dry-run'),
     removeAliases: !argv.includes('--keep-aliases'),
     ...(Number.isFinite(maxAgeDays) ? { maxAgeDays } : {}),
-    ...(Number.isFinite(maxEntriesValue)
-      ? { maxEntries: Math.max(0, Math.floor(maxEntriesValue)) }
-      : {}),
+    ...(Number.isFinite(maxEntriesValue) ? { maxEntries: maxEntriesValue } : {}),
+    ...(Number.isFinite(maxPreviewEntries) ? { previewMaxEntries: maxPreviewEntries } : {}),
+    ...(cacheCursor != null ? { previewCursor: cacheCursor } : {}),
     ...(Number.isFinite(maxSizeBytes) ? { maxSizeBytes } : {}),
   };
   if (subcmd === 'clear' || subcmd === 'clean') {
     const pkg = argv[2] && !argv[2].startsWith('-') ? argv[2] : null;
     const result = clearCache(pkg, { cacheDir });
     if (argv.includes('--json')) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result));
     } else {
       console.log(`Cache cleared${pkg ? ` for ${pkg}` : ''}.`);
     }
@@ -869,13 +1008,11 @@ if (command === 'cache') {
       exact: argv.includes('--exact') && !argv.includes('--fast'),
       summary: argv.includes('--summary'),
       select: commaList(argumentValues(argv, '--select')),
-      cursor: argumentValue(argv, '--cursor'),
-      ...(Number.isFinite(maxEntriesValue)
-        ? { maxEntries: Math.max(0, Math.floor(maxEntriesValue)) }
-        : {}),
+      cursor: cacheCursor,
+      ...(Number.isFinite(maxEntriesValue) ? { maxEntries: maxEntriesValue } : {}),
     });
     if (argv.includes('--json')) {
-      console.log(JSON.stringify(stats, null, 2));
+      console.log(JSON.stringify(stats));
     } else {
       console.log(`📦 Cache entries: ${stats.entries}`);
       console.log(`📊 Total size: ${stats.sizeFormatted || stats.size + ' B'}`);
@@ -906,7 +1043,7 @@ if (command === 'cache') {
         cacheDir,
       });
       if (argv.includes('--json')) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
       } else {
         console.log(`Pinned ${result.package}@${result.version}`);
         console.log(`CachePath: ${result.path}`);
@@ -922,7 +1059,7 @@ if (command === 'cache') {
     try {
       const result = migrateCache(maintenanceOptions);
       if (argv.includes('--json')) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
       } else {
         console.log(
           `Migrated ${result.migrated}/${result.scanned} cache entries (${result.aliasesMoved} aliases moved, ${result.aliasesRemoved} removed, ${result.invalid} invalid, ${result.skippedLocked} locked).`
@@ -937,7 +1074,7 @@ if (command === 'cache') {
     try {
       const result = pruneCache(maintenanceOptions);
       if (argv.includes('--json')) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
       } else {
         console.log(
           `Pruned ${result.removed}/${result.candidates} cache candidates; reclaimed ${result.reclaimedFormatted}; skipped ${result.skippedLocked} locked entries.`
@@ -972,16 +1109,12 @@ if (command === 'history') {
     const entries = listHistory(filter, historyDir);
     if (argv.includes('--json')) {
       console.log(
-        JSON.stringify(
-          {
-            schemaVersion: 1,
-            kind: 'deplens-history-list',
-            total: entries.length,
-            entries,
-          },
-          null,
-          2
-        )
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: 'deplens-history-list',
+          total: entries.length,
+          entries,
+        })
       );
     } else if (entries.length === 0) {
       console.log('📭 No history entries found.');
@@ -1014,7 +1147,7 @@ if (command === 'history') {
       process.exit(1);
     }
     // Print full entry
-    console.log(JSON.stringify(entry, null, 2));
+    console.log(JSON.stringify(entry));
   } else if (subcmd === 'compare') {
     const pkg = historyArgs[0];
     const v1 = historyArgs[1];
@@ -1030,7 +1163,7 @@ if (command === 'history') {
       process.exit(1);
     }
     const diff = compareHistoryEntries(e1, e2);
-    console.log(JSON.stringify(diff, null, 2));
+    console.log(JSON.stringify(diff));
   } else if (subcmd === 'clear') {
     const pkg = historyArgs[0] || null;
     const { removed } = clearHistory(pkg, historyDir);
@@ -1053,13 +1186,26 @@ if (command === 'project-diff') {
   const lockfile = argumentValue(argv, '--lockfile', 'package-lock.json');
   const fromSource = argumentValue(argv, '--from-lock', argumentValue(argv, '--from', 'HEAD~1'));
   const toSource = argumentValue(argv, '--to-lock', argumentValue(argv, '--to', 'working'));
-  const format = argv.includes('--json') ? 'json' : argumentValue(argv, '--format', 'text');
-  const timeoutMs = Number(argumentValue(argv, '--timeout'));
-  const concurrency = Number(argumentValue(argv, '--concurrency'));
+  let format = argv.includes('--json') ? 'json' : 'text';
   try {
-    const maxChangesPerPackageValue = Number(
-      argumentValue(argv, '--max-changes-per-package', argumentValue(argv, '--max-changes', 10))
-    );
+    format = argv.includes('--json')
+      ? 'json'
+      : parseEnumOption(argv, '--format', VALID_PROJECT_FORMATS, 'text');
+    const timeoutMs = parseIntegerOption(argv, '--timeout', { min: 1, fallback: undefined });
+    const concurrency = parseIntegerOption(argv, '--concurrency', {
+      min: 1,
+      max: 64,
+      fallback: undefined,
+    });
+    const maxChangesPerPackageValue = parseIntegerOption(argv, '--max-changes-per-package', {
+      min: 1,
+      max: 10000,
+      fallback: parseIntegerOption(argv, '--max-changes', {
+        min: 1,
+        max: 10000,
+        fallback: 10,
+      }),
+    });
     const packageCursors = parsePackageCursors(argumentValues(argv, '--package-cursor'));
     const packageOnly = commaList(argumentValues(argv, '--package-only'));
     const [fromSnapshot, toSnapshot] = await Promise.all([
@@ -1071,8 +1217,8 @@ if (command === 'project-diff') {
       to: toSnapshot,
       projectDir,
       cacheDir: argumentValue(argv, '--cache-dir'),
-      timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
-      concurrency: Number.isFinite(concurrency) ? concurrency : undefined,
+      timeoutMs,
+      concurrency,
       conditions: commaList(argumentValue(argv, '--conditions')),
       includeTransitive: argv.includes('--include-transitive'),
       includeSource: argv.includes('--include-source'),
@@ -1082,26 +1228,33 @@ if (command === 'project-diff') {
       semantic: !argv.includes('--no-semantic'),
       analyze: !argv.includes('--no-api'),
       detail: argumentValue(argv, '--detail', 'compact'),
-      maxChangesPerPackage: Number.isFinite(maxChangesPerPackageValue)
-        ? Math.max(1, Math.floor(maxChangesPerPackageValue))
-        : 10,
+      maxChangesPerPackage: maxChangesPerPackageValue,
       packageCursors,
       packageOnly,
       strictPackageOnly: argv.includes('--strict-package-only'),
       projectSnapshot: argumentValue(argv, '--project-snapshot'),
       profile: argv.includes('--profile'),
     });
-    process.stdout.write(
-      format === 'json' ? JSON.stringify(report, null, 2) : formatProjectDiffText(report)
-    );
+    process.stdout.write(format === 'json' ? jsonStringify(report) : formatProjectDiffText(report));
     if (report.summary.failedPackages > 0) process.exitCode = 1;
     if (report.error) process.exitCode = 1;
   } catch (error) {
-    const payload = { error: error instanceof Error ? error.message : String(error) };
-    process.stdout.write(
-      format === 'json' ? JSON.stringify(payload, null, 2) : `Error: ${payload.error}`
+    const isArgumentError = /Invalid package cursor|Option --/.test(
+      error instanceof Error ? error.message : String(error)
     );
-    process.exitCode = 1;
+    const payload = isArgumentError
+      ? argumentErrorPayload(error instanceof Error ? error.message : String(error))
+      : {
+          error: error instanceof Error ? error.message : String(error),
+          errorInfo: {
+            code: 'PROJECT_DIFF_FAILED',
+            phase: 'project-diff',
+            retryable: false,
+            details: null,
+          },
+        };
+    process.stdout.write(format === 'json' ? jsonStringify(payload) : `Error: ${payload.error}`);
+    process.exitCode = isArgumentError ? 2 : 1;
   }
 } else if (command === 'check') {
   const projectDir = path.resolve(argumentValue(argv, '--project-dir', process.cwd()));
@@ -1110,12 +1263,20 @@ if (command === 'project-diff') {
     projectDir,
     argumentValue(argv, '--baseline', argumentValue(argv, '--output', '.deplens-baseline.json'))
   );
-  const format = argv.includes('--sarif')
-    ? 'sarif'
-    : argv.includes('--json')
-      ? 'json'
-      : argumentValue(argv, '--format', 'text');
+  let format = argv.includes('--sarif') ? 'sarif' : argv.includes('--json') ? 'json' : 'text';
   try {
+    format = argv.includes('--sarif')
+      ? 'sarif'
+      : argv.includes('--json')
+        ? 'json'
+        : parseEnumOption(argv, '--format', VALID_PROJECT_FORMATS, 'text');
+    const failOn = parseEnumOption(argv, '--fail-on', VALID_POLICY_LEVELS, null);
+    const timeoutMs = parseIntegerOption(argv, '--timeout', { min: 1, fallback: undefined });
+    const concurrency = parseIntegerOption(argv, '--concurrency', {
+      min: 1,
+      max: 64,
+      fallback: undefined,
+    });
     const current = await loadProjectSnapshot(argumentValue(argv, '--to-lock', 'working'), {
       projectDir,
       lockfile,
@@ -1124,24 +1285,21 @@ if (command === 'project-diff') {
       const baseline = createProjectBaseline(current);
       fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
       process.stdout.write(
-        format === 'json' ? JSON.stringify(baseline, null, 2) : `Baseline written: ${baselinePath}`
+        format === 'json' ? jsonStringify(baseline) : `Baseline written: ${baselinePath}`
       );
     } else {
       if (!fs.existsSync(baselinePath)) {
         throw new Error(`Baseline not found: ${baselinePath}. Run check --write-baseline first.`);
       }
       const configuredPolicy = loadProjectPolicy(argumentValue(argv, '--config'), { projectDir });
-      const failOn = argumentValue(argv, '--fail-on');
-      const timeoutMs = Number(argumentValue(argv, '--timeout'));
-      const concurrency = Number(argumentValue(argv, '--concurrency'));
       const result = await runProjectCheck({
         baseline: baselinePath,
         current,
         policy: failOn ? { ...configuredPolicy, failOn } : configuredPolicy,
         projectDir,
         cacheDir: argumentValue(argv, '--cache-dir'),
-        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
-        concurrency: Number.isFinite(concurrency) ? concurrency : undefined,
+        timeoutMs,
+        concurrency,
         conditions: commaList(argumentValue(argv, '--conditions')),
         includeTransitive: argv.includes('--include-transitive'),
         includeSource: argv.includes('--include-source'),
@@ -1156,17 +1314,28 @@ if (command === 'project-diff') {
         format === 'sarif'
           ? JSON.stringify(formatPolicyAsSarif(result), null, 2)
           : format === 'json'
-            ? JSON.stringify(result, null, 2)
+            ? jsonStringify(result)
             : formatPolicyText(result)
       );
       if (!result.passed) process.exitCode = 1;
     }
   } catch (error) {
-    const payload = { error: error instanceof Error ? error.message : String(error) };
-    process.stdout.write(
-      format === 'text' ? `Error: ${payload.error}` : JSON.stringify(payload, null, 2)
+    const isArgumentError = /Option --/.test(
+      error instanceof Error ? error.message : String(error)
     );
-    process.exitCode = 1;
+    const payload = isArgumentError
+      ? argumentErrorPayload(error instanceof Error ? error.message : String(error))
+      : {
+          error: error instanceof Error ? error.message : String(error),
+          errorInfo: {
+            code: 'CHECK_FAILED',
+            phase: 'check',
+            retryable: false,
+            details: null,
+          },
+        };
+    process.stdout.write(format === 'text' ? `Error: ${payload.error}` : jsonStringify(payload));
+    process.exitCode = isArgumentError ? 2 : 1;
   }
 } else if (command === 'diff') {
   if (!parsed.packageName) {

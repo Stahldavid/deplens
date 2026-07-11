@@ -195,6 +195,12 @@ describe('cache offline mode', () => {
       });
       expect(preview.entries.map((entry) => entry.reason).sort()).toEqual(['invalid', 'stale']);
       expect(preview.candidatesPreview).toHaveLength(2);
+      expect(preview.candidatesPagination).toMatchObject({
+        total: 2,
+        offset: 0,
+        returned: 2,
+        nextCursor: null,
+      });
       expect(() =>
         readFileSync(path.join(staleDir, 'node_modules', 'stale-pkg', 'package.json'))
       ).not.toThrow();
@@ -253,6 +259,85 @@ describe('cache offline mode', () => {
         remainingBytes: 100,
         limitSatisfied: true,
       });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('paginates prune candidate previews', () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-prune-page-'));
+    try {
+      for (let index = 0; index < 30; index += 1) {
+        writeLegacyCacheEntry(
+          cacheDir,
+          `stale-${index}@1.0.0`,
+          `stale-${index}`,
+          '1.0.0',
+          '2000-01-01T00:00:00.000Z'
+        );
+      }
+
+      const first = pruneCache({ cacheDir, maxAgeDays: 30, dryRun: true });
+      expect(first).toMatchObject({
+        candidates: 30,
+        wouldRemove: 30,
+        candidatesPagination: { total: 30, offset: 0, returned: 25, nextCursor: '25' },
+      });
+      expect(first.candidatesPreview).toHaveLength(25);
+      expect(first.entries).toHaveLength(25);
+
+      const second = pruneCache({
+        cacheDir,
+        maxAgeDays: 30,
+        dryRun: true,
+        previewCursor: '25',
+      });
+      expect(second.candidatesPreview).toHaveLength(5);
+      expect(second.candidatesPagination).toMatchObject({
+        total: 30,
+        offset: 25,
+        returned: 5,
+        nextCursor: null,
+      });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('replaces an incomplete CDN cache when npm mode is requested', async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-prefer-npm-'));
+    try {
+      const entryDir = writeLegacyCacheEntry(cacheDir, 'picocolors@1.0.0', 'picocolors', '1.0.0');
+      writeFileSync(
+        path.join(entryDir, '.deplens-cache.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          package: 'picocolors',
+          version: '1.0.0',
+          source: 'cdn',
+          cachedAt: '2026-01-01T00:00:00.000Z',
+        })
+      );
+      let npmCalled = false;
+      const result = await downloadVersion('picocolors', '1.0.0', {
+        cacheDir,
+        preferCdn: false,
+        npmRunner: async (args) => {
+          npmCalled = true;
+          const prefix = args[args.indexOf('--prefix') + 1];
+          const packageDir = path.join(prefix, 'node_modules', 'picocolors');
+          mkdirSync(packageDir, { recursive: true });
+          writeFileSync(
+            path.join(packageDir, 'package.json'),
+            JSON.stringify({ name: 'picocolors', version: '1.0.0' })
+          );
+          writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = {};\n');
+        },
+      });
+
+      expect(npmCalled).toBe(true);
+      expect(result.cached).toBe(false);
+      expect(result.metadata.source).toBe('npm');
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }

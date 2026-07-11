@@ -642,6 +642,13 @@ async function handleDiff(params, extra = {}) {
     to: result?.diff?.to?.version || jsonPayload?.to?.version || result?.to || to,
     output: requestedFormat === 'text' ? result?.output || null : null,
     summary,
+    identicalVersions: jsonPayload?.identicalVersions || result?.identicalVersions || false,
+    changeCount:
+      typeof jsonPayload?.changeCount === 'number'
+        ? jsonPayload.changeCount
+        : typeof result?.changeCount === 'number'
+          ? result.changeCount
+          : null,
     changes,
     symbols: jsonPayload?.symbols || result?.symbols || result?.diff?.symbols || null,
     sourceComparison: result?.diff?.sourceComparison || jsonPayload?.sourceComparison || null,

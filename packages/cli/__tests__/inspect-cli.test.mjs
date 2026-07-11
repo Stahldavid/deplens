@@ -60,6 +60,13 @@ describe('inspect CLI', () => {
     }
   });
 
+  it('includes the types section when --types is explicitly requested', () => {
+    const output = runCliJson(['zod', '--no-runtime', '--types', '--filter', 'ZodString']);
+
+    expect(output).toHaveProperty('types');
+    expect(output.symbols.some((symbol) => /zodstring/i.test(symbol.exportName))).toBe(true);
+  });
+
   it('supports equals-form values consistently across inspect options', () => {
     const output = runCliJson([
       'zod',
@@ -102,13 +109,13 @@ describe('inspect CLI', () => {
   it('filters runtime exports by requested kind', () => {
     const output = runCliJson(['zod', '--kind', 'class']);
 
-    expect(output.exports.total).toBe(output.exports.classes.length);
-    expect(output.exports.functions).toHaveLength(0);
-    expect(output.exports.objects).toHaveLength(0);
-    expect(output.exports.constants).toHaveLength(0);
+    expect(output.exports.total).toBe(0);
+    expect(output.exports).not.toHaveProperty('functions');
+    expect(output.exports).not.toHaveProperty('objects');
+    expect(output.exports).not.toHaveProperty('constants');
   });
 
-  it('exits non-zero when JSON output contains an error', () => {
+  it('returns zero changes when diffing identical exact versions', () => {
     const result = spawnSync(
       process.execPath,
       [cliPath, 'diff', 'zod', '--from', '3.22.0', '--to', '3.22.0', '--json'],
@@ -118,8 +125,12 @@ describe('inspect CLI', () => {
       }
     );
 
-    expect(result.status).toBe(1);
-    expect(JSON.parse(result.stdout).error).toContain('Both versions resolve to the same version');
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      identicalVersions: true,
+      changeCount: 0,
+      summary: { identicalVersions: true },
+    });
   });
 
   it('exits non-zero for unresolved inspect JSON payloads', () => {
@@ -133,7 +144,10 @@ describe('inspect CLI', () => {
     );
 
     expect(result.status).toBe(1);
-    expect(JSON.parse(result.stdout).package).toBeNull();
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      error: expect.any(String),
+      errorInfo: { code: expect.any(String), phase: 'inspect' },
+    });
   });
 
   it('preserves unresolved errors and exit status with --select', () => {
@@ -148,19 +162,23 @@ describe('inspect CLI', () => {
 
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      package: null,
+      error: expect.any(String),
+      errorInfo: { code: 'PACKAGE_NOT_FOUND' },
       warnings: expect.any(Array),
     });
   });
 
   it('rejects unknown options before command execution', () => {
-    const unknown = spawnSync(process.execPath, [cliPath, 'zod', '--formt', 'json'], {
+    const unknown = spawnSync(process.execPath, [cliPath, 'zod', '--definitely-bogus', '--json'], {
       cwd: repoRoot,
       encoding: 'utf8',
     });
 
-    expect(unknown.status).toBe(1);
-    expect(unknown.stderr).toContain('Unknown option: --formt');
+    expect(unknown.status).toBe(2);
+    expect(JSON.parse(unknown.stdout)).toMatchObject({
+      error: 'Unknown option: --definitely-bogus',
+      errorInfo: { code: 'INVALID_ARGUMENT', phase: 'arguments', retryable: false },
+    });
   }, 10000);
 
   it('rejects options with missing values before command execution', () => {
@@ -169,9 +187,31 @@ describe('inspect CLI', () => {
       encoding: 'utf8',
     });
 
-    expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain('Option --filter requires a value');
+    expect(missing.status).toBe(2);
+    expect(JSON.parse(missing.stdout)).toMatchObject({
+      error: 'Option --filter requires a value',
+      errorInfo: { code: 'INVALID_ARGUMENT' },
+    });
   }, 10000);
+
+  it('rejects invalid cursors, regexes, kinds, and depth values', () => {
+    for (const args of [
+      ['zod', '--cursor', 'nope', '--json'],
+      ['zod', '--filter', '/[/', '--json'],
+      ['zod', '--kind', 'nonsense', '--json'],
+      ['zod', '--depth', '99', '--json'],
+    ]) {
+      const result = spawnSync(process.execPath, [cliPath, ...args], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(2);
+      expect(JSON.parse(result.stdout).errorInfo).toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        phase: 'arguments',
+      });
+    }
+  });
 
   it('describes Rust and Go as detection-only languages', () => {
     const result = spawnSync(process.execPath, [cliPath, '--help'], {
@@ -196,6 +236,7 @@ describe('inspect CLI', () => {
     expect(help).toContain('--jsdoc-max-params');
     expect(help).toContain('--jsdoc-param-cursor');
     expect(help).toContain('--summary');
+    expect(help).toContain('--max-preview-entries');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 
@@ -205,7 +246,7 @@ describe('inspect CLI', () => {
       encoding: 'utf8',
     });
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stderr).toContain('Option --cache-dir requires a value');
   });
 
@@ -243,6 +284,7 @@ describe('inspect CLI', () => {
         maxSizeBytes: 1024,
         maxEntries: 2,
         wouldRemove: 0,
+        candidatesPagination: { returned: 0 },
         limitSatisfied: true,
       });
     } finally {

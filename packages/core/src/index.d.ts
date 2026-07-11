@@ -141,6 +141,9 @@ export interface CacheMaintenanceOptions {
   maxAgeDays?: number;
   maxEntries?: number;
   maxSizeBytes?: number;
+  previewMaxEntries?: number;
+  previewCursor?: string | number;
+  cursor?: string | number;
 }
 
 export interface CacheMaintenanceEntry {
@@ -185,6 +188,7 @@ export interface CachePruneResult extends CacheEnvelope {
   skippedLocked: number;
   entries: CacheMaintenanceEntry[];
   candidatesPreview: CacheMaintenanceEntry[];
+  candidatesPagination: Record<string, unknown>;
 }
 
 export function pinCache(

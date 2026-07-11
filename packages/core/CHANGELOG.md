@@ -1,5 +1,15 @@
 # @deplens/core
 
+## 1.0.7
+
+### Patch Changes
+
+- Add strict validation for cursors, regex filters, enum flags, numeric limits, and source-depth bounds so malformed agent calls fail instead of producing empty success payloads.
+
+  Compact inspect/diff JSON is now smaller by default: inspect pages return 50 symbols unless requested otherwise, omit null/false/empty fields, trim duplicated resolution paths, and summarize semantic diagnostics without repeating full TypeScript diagnostics on later diff pages.
+
+  Treat identical concrete diff versions as successful no-op results, return structured package-not-found errors, make `--types` include the `types` section in JSON, keep npm fetches from reusing incomplete CDN cache entries, paginate cache prune previews, and normalize Python path analysis around the target project/source summary.
+
 ## 1.0.6
 
 ### Patch Changes

@@ -36,6 +36,7 @@ export const OUTPUT_SCHEMAS = Object.freeze({
     schemaVersion: version(1),
     kind: kind('deplens-cache-stats'),
     entries: { type: 'number' },
+    pagination: { type: 'object' },
   }),
   'cache-clear-v1': schema('cache/clear/v1', ['schemaVersion', 'kind', 'removed'], {
     schemaVersion: version(1),
@@ -57,6 +58,8 @@ export const OUTPUT_SCHEMAS = Object.freeze({
     schemaVersion: version(1),
     kind: kind('deplens-cache-prune'),
     removed: { type: 'number' },
+    wouldRemove: { type: 'number' },
+    candidatesPreview: { type: 'array' },
   }),
   'project-snapshot-v1': schema(
     'project-snapshot/v1',

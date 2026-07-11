@@ -54,7 +54,18 @@ describe('runtime loading controls', () => {
       expect(structured.jsdoc.entries[0]).not.toHaveProperty('text');
       expect(structured.jsdoc.entries[0]).toMatchObject({
         tags: { param: ['prompt User input.'] },
-        parameterPagination: { total: 3, returned: 1, truncated: true },
+        parameterLimit: { total: 3, offset: 0, returned: 1, nextCursor: '1', truncated: true },
+        parameterPagination: { total: 3, offset: 0, returned: 1, nextCursor: '1', truncated: true },
+      });
+      const continued = await runInspect({
+        ...options,
+        jsdocQuery: { symbols: 'generateText', maxParams: 1, paramCursor: 1 },
+        format: 'object',
+        detail: 'compact',
+      });
+      expect(continued.jsdoc.entries[0]).toMatchObject({
+        tags: { param: ['model Model identifier.'] },
+        parameterLimit: { total: 3, offset: 1, returned: 1, nextCursor: '2', truncated: true },
       });
       expect(structured).not.toHaveProperty('symbols');
       expect(structured).not.toHaveProperty('types');

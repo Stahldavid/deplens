@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.6
+
+### Patch Changes
+
+- Expose strict package-only project diffs and resumable JSDoc parameter extraction through the MCP schemas.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.6
+
 ## 1.0.5
 
 ### Patch Changes

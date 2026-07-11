@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 1.0.6
+
+### Patch Changes
+
+- Add strict project package selection for automation, expose resumable JSDoc parameter limits with cursors, and make cache maintenance JSON more agent-friendly with summary/paginated stats plus dry-run `wouldRemove` previews.
+
 ## 1.0.5
 
 ### Patch Changes

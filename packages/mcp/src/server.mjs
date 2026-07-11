@@ -166,6 +166,7 @@ const JsdocQuerySchema = z
     mode: z.enum(['compact', 'full']).optional(),
     maxLen: z.number().int().nonnegative().optional(),
     maxParams: z.number().int().nonnegative().max(1000).optional(),
+    paramCursor: z.number().int().nonnegative().optional(),
     truncate: JsdocTruncateEnum.optional(),
   })
   .strict()
@@ -715,6 +716,7 @@ const projectInputShape = {
   maxChangesPerPackage: z.number().int().positive().max(1000).optional(),
   packageCursors: z.record(z.union([z.string(), z.number().int().nonnegative()])).optional(),
   packageOnly: z.array(z.string()).optional(),
+  strictPackageOnly: z.boolean().optional(),
   projectSnapshot: z.string().optional(),
   format: ProjectFormatEnum.optional(),
 };
@@ -729,6 +731,7 @@ const projectOutputShape = {
   changes: z.array(z.record(z.any())),
   warnings: z.array(z.string()),
   snapshot: z.record(z.any()).optional(),
+  packageSelection: z.record(z.any()).optional(),
   error: z.string().optional(),
   errorInfo: z.record(z.any()).optional(),
 };
@@ -868,7 +871,11 @@ async function handleProjectDiff(params, extra = {}) {
   });
   const text =
     params.format === 'json' ? JSON.stringify(report, null, 2) : formatProjectDiffText(report);
-  return toolResponse(report, truncateIfNeeded(text).text, report.summary.failedPackages > 0);
+  return toolResponse(
+    report,
+    truncateIfNeeded(text).text,
+    report.summary.failedPackages > 0 || Boolean(report.error)
+  );
 }
 
 async function handleCheck(params, extra = {}) {

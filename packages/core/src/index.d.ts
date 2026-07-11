@@ -104,7 +104,8 @@ export interface CacheStatsResult extends CacheEnvelope {
   size: number;
   sizeFormatted: string;
   exact: boolean;
-  packages: Array<Record<string, unknown>>;
+  pagination?: Record<string, unknown>;
+  packages?: Array<Record<string, unknown>>;
 }
 
 export interface CachePinResult {
@@ -121,7 +122,14 @@ export function clearCache(
   packageName?: string | null,
   options?: { cacheDir?: string }
 ): CacheClearResult;
-export function getCacheStats(options?: { exact?: boolean; cacheDir?: string }): CacheStatsResult;
+export function getCacheStats(options?: {
+  exact?: boolean;
+  cacheDir?: string;
+  summary?: boolean;
+  select?: string | string[];
+  maxEntries?: number;
+  cursor?: string | number;
+}): CacheStatsResult;
 export function getDefaultCacheDir(): string;
 
 export interface CacheMaintenanceOptions {
@@ -162,6 +170,7 @@ export interface CachePruneResult extends CacheEnvelope {
   cacheDir: string;
   scanned: number;
   candidates: number;
+  wouldRemove: number;
   removed: number;
   reclaimedBytes: number;
   candidateBytes: number;
@@ -175,6 +184,7 @@ export interface CachePruneResult extends CacheEnvelope {
   dryRun: boolean;
   skippedLocked: number;
   entries: CacheMaintenanceEntry[];
+  candidatesPreview: CacheMaintenanceEntry[];
 }
 
 export function pinCache(
@@ -353,6 +363,7 @@ export interface ProjectDiffOptions extends OperationOptions {
   maxChangesPerPackage?: number;
   packageCursors?: Record<string, string | number>;
   packageOnly?: string | string[];
+  strictPackageOnly?: boolean;
   projectSnapshot?: string;
   onProgress?: (progress: { completed: number; total: number; package: string }) => void;
   diffRunner?: (options: DiffOptions) => Promise<Record<string, unknown>>;

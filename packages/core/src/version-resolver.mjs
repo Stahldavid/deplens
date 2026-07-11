@@ -918,6 +918,7 @@ export function pruneCache(options = {}) {
     cacheDir,
     scanned: 0,
     candidates: 0,
+    wouldRemove: 0,
     removed: 0,
     reclaimedBytes: 0,
     candidateBytes: 0,
@@ -931,6 +932,7 @@ export function pruneCache(options = {}) {
     dryRun,
     skippedLocked: 0,
     entries: [],
+    candidatesPreview: [],
   };
   if (!fs.existsSync(cacheDir)) return result;
 
@@ -1015,13 +1017,16 @@ export function pruneCache(options = {}) {
       }
     }
     result.candidates += 1;
+    if (dryRun) result.wouldRemove += 1;
     result.candidateBytes += record.size;
-    result.entries.push({
+    const candidateEntry = {
       name: record.name,
       reason: record.reason,
       size: record.size,
       sizeFormatted: formatBytes(record.size),
-    });
+    };
+    result.entries.push(candidateEntry);
+    result.candidatesPreview.push(candidateEntry);
     if (!dryRun) {
       fs.rmSync(record.entryPath, { recursive: true, force: true });
       result.removed += 1;
@@ -1095,9 +1100,26 @@ export function clearCache(packageName = null, options = {}) {
  */
 export function getCacheStats(options = {}) {
   const { exact = false } = options;
+  const summaryOnly = Boolean(options.summary);
+  const select = new Set(
+    (Array.isArray(options.select)
+      ? options.select
+      : options.select
+        ? String(options.select).split(',')
+        : []
+    )
+      .map((value) => String(value).trim())
+      .filter(Boolean)
+  );
+  const includePackages = !summaryOnly && (select.size === 0 || select.has('packages'));
+  const maxEntries = Number.isFinite(Number(options.maxEntries))
+    ? Math.max(0, Math.floor(Number(options.maxEntries)))
+    : null;
+  const cursor = Number.parseInt(String(options.cursor || '0'), 10);
+  const offset = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
   const cacheDir = resolveCacheDir(options.cacheDir);
   if (!fs.existsSync(cacheDir)) {
-    return {
+    const result = {
       schemaVersion: 1,
       kind: 'deplens-cache-stats',
       cacheDir,
@@ -1105,9 +1127,11 @@ export function getCacheStats(options = {}) {
       unknownEntries: 0,
       size: 0,
       sizeFormatted: '0 B',
-      packages: [],
+      pagination: { total: 0, offset: 0, returned: 0, nextCursor: null },
       exact: true,
     };
+    if (includePackages) result.packages = [];
+    return result;
   }
 
   const entries = fs.readdirSync(cacheDir);
@@ -1142,6 +1166,11 @@ export function getCacheStats(options = {}) {
     }
   }
 
+  const sortedPackages = packages.sort((left, right) => left.name.localeCompare(right.name));
+  const totalPackages = sortedPackages.length;
+  const pagePackages = includePackages
+    ? sortedPackages.slice(offset, maxEntries === null ? undefined : offset + maxEntries)
+    : [];
   const unknownEntries = packages.filter((pkg) => pkg.sizeUnknown).length;
   const sizeFormatted =
     unknownEntries === 0
@@ -1150,7 +1179,7 @@ export function getCacheStats(options = {}) {
         ? `${formatBytes(totalSize)} known + ${unknownEntries} unknown`
         : 'unknown';
 
-  return {
+  const result = {
     schemaVersion: 1,
     kind: 'deplens-cache-stats',
     cacheDir,
@@ -1159,8 +1188,18 @@ export function getCacheStats(options = {}) {
     size: totalSize,
     sizeFormatted,
     exact: packages.every((pkg) => pkg.sizeExact),
-    packages,
+    pagination: {
+      total: totalPackages,
+      offset: includePackages ? offset : 0,
+      returned: pagePackages.length,
+      nextCursor:
+        includePackages && maxEntries !== null && offset + pagePackages.length < totalPackages
+          ? String(offset + pagePackages.length)
+          : null,
+    },
   };
+  if (includePackages) result.packages = pagePackages;
+  return result;
 }
 
 function getDirSize(dirPath) {

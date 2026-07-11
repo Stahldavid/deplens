@@ -1,5 +1,14 @@
 # @deplens/cli
 
+## 1.0.8
+
+### Patch Changes
+
+- Add `--strict-package-only`, `--jsdoc-param-cursor`, and compact cache stats controls (`--summary`, `--max-entries`, `--cursor`) for cleaner CI and agent automation.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.6
+
 ## 1.0.7
 
 ### Patch Changes

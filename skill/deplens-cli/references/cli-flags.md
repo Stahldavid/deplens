@@ -65,7 +65,8 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 | `--jsdoc-tags-exclude t1,t2,…`              | csv                                 | —                                    | Exclude these tag names.                                  |
 | `--jsdoc-truncate none\|sentence\|word`     | enum                                | `word`                               | How to truncate long summaries.                           |
 | `--jsdoc-max-len N`                         | int                                 | (mode default)                       | Max chars per summary.                                    |
-| `--jsdoc-max-params N`                      | int                                 | unlimited                            | Cap `@param` tags and emit `parameterPagination`.         |
+| `--jsdoc-max-params N`                      | int                                 | unlimited                            | Cap `@param` tags and emit parameter limit metadata.      |
+| `--jsdoc-param-cursor N`                    | int                                 | 0                                    | Continue a truncated `@param` list from offset N.         |
 
 ### Source code analysis
 
@@ -150,6 +151,7 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | `--max-changes-per-package N`               | Changes returned per package (default 10). `--max-changes` is an alias.   |
 | `--package-cursor PKG=N`                    | Resume one package page; repeat for multiple packages.                    |
 | `--package-only PKG`                        | Return and analyze only named packages; repeatable/CSV.                   |
+| `--strict-package-only`                     | Exit non-zero when no requested `--package-only` package changed.         |
 | `--project-snapshot FILE`                   | Reuse fingerprinted compact API analysis between calls.                   |
 | `--write-baseline`                          | Write a versioned `.deplens-baseline.json`.                               |
 | `--baseline FILE`                           | Baseline used by `deplens check`.                                         |
@@ -165,6 +167,8 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 deplens cache              # alias for cache stats
 deplens cache stats        # fast summary using cached metadata
 deplens cache stats --exact # recalculate recursive directory sizes
+deplens cache stats --summary # omit package list
+deplens cache stats --max-entries 25 --cursor 25 # page package metadata
 deplens cache clear        # clear all cached versions
 deplens cache clear <pkg>  # clear cache for one package
 deplens cache migrate      # normalize legacy tag aliases and metadata
@@ -180,9 +184,11 @@ Cache maintenance accepts `--cache-dir DIR`, `--dry-run`, and `--keep-aliases`.
 uses a 90-day default when `--max-age-days` is omitted.
 `--max-size` accepts B/KB/MB/GB/TB suffixes. Size and entry limits evict the least recently used
 unlocked entries according to `lastUsedAt` and report `limitSatisfied` in JSON.
+Dry-run prune JSON keeps `removed: 0` and adds `wouldRemove` plus `candidatesPreview`.
 
 Fast stats do not walk every cached package. Entries without metadata may report
 `unknown` size until a future exact stats run or cache refresh records size data.
+Use `cache stats --summary` or `--max-entries N --cursor C` to keep package metadata compact.
 JSON cache commands return versioned `deplens-cache-stats`, `deplens-cache-clear`,
 `deplens-cache-pin`, `deplens-cache-migrate`, or `deplens-cache-prune` envelopes.
 
@@ -363,4 +369,7 @@ contains `package`, `summary`, `changes`, `semanticCompatibility`, and:
 ```
 
 Use `--package-cursor package-name=35` to fetch the next page for only that package.
-Structured `jsdoc.entries` omit the renderer-only `text` duplicate.
+Add `--package-only package-name` to omit unrelated packages on continuation. With
+`--strict-package-only`, an unmatched selection returns a structured error and exit code 1.
+Structured `jsdoc.entries` omit the renderer-only `text` duplicate. Parameter-heavy entries expose
+`parameterLimit` and compatibility `parameterPagination` with `nextCursor`.

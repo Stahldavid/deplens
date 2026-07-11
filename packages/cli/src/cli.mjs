@@ -220,6 +220,12 @@ function parseInspectArgs(argv) {
     const parsed = parseInt(argv[jsdocMaxParamsIndex + 1], 10);
     if (!isNaN(parsed) && parsed >= 0) jsdocMaxParams = parsed;
   }
+  let jsdocParamCursor = null;
+  const jsdocParamCursorIndex = argv.indexOf('--jsdoc-param-cursor');
+  if (jsdocParamCursorIndex !== -1 && argv[jsdocParamCursorIndex + 1]) {
+    const parsed = parseInt(argv[jsdocParamCursorIndex + 1], 10);
+    if (!isNaN(parsed) && parsed >= 0) jsdocParamCursor = parsed;
+  }
 
   const filterIndex = argv.indexOf('--filter');
   if (filterIndex !== -1 && argv[filterIndex + 1]) {
@@ -274,7 +280,8 @@ function parseInspectArgs(argv) {
     jsdocTagsExclude ||
     jsdocTruncate ||
     jsdocMaxLen !== null ||
-    jsdocMaxParams !== null
+    jsdocMaxParams !== null ||
+    jsdocParamCursor !== null
   ) {
     const symbols = jsdocSymbols
       ? jsdocSymbols
@@ -307,6 +314,7 @@ function parseInspectArgs(argv) {
       mode: jsdoc === 'compact' || jsdoc === 'full' ? jsdoc : undefined,
       maxLen: jsdocMaxLen ?? undefined,
       maxParams: jsdocMaxParams ?? undefined,
+      paramCursor: jsdocParamCursor ?? undefined,
       truncate: jsdocTruncate ?? undefined,
     };
   }
@@ -461,7 +469,10 @@ function usage() {
       '  --cache-dir DIR       Override cache directory for maintenance commands\n' +
       '  --max-age-days N      Remove entries older than N days (prune; default: 90)\n' +
       '  --max-size SIZE       Enforce LRU size cap during prune (for example 2GB)\n' +
-      '  --max-entries N       Enforce LRU entry-count cap during prune\n' +
+      '  --max-entries N       Limit stats pages or enforce LRU entry-count cap during prune\n' +
+      '  --cursor VALUE        Resume cache stats package pagination\n' +
+      '  --summary             Return cache stats without the package list\n' +
+      '  --select LIST         Select cache stats sections, for example packages\n' +
       '  --dry-run             Preview cache migration/prune without modifying files\n' +
       '  --keep-aliases        Keep tag/range cache aliases during maintenance\n' +
       '  --json                Output cache stats as JSON\n\n' +
@@ -507,6 +518,7 @@ function usage() {
       '  --jsdoc-truncate MODE  none|sentence|word\n' +
       '  --jsdoc-max-len N      Maximum JSDoc length per symbol\n' +
       '  --jsdoc-max-params N   Maximum @param tags per symbol\n' +
+      '  --jsdoc-param-cursor N Continue @param tags from offset N\n' +
       '  --detail compact|full  Inspect JSON detail (default: compact)\n' +
       '  --select LIST          Select JSON sections (CSV/repeatable/= form)\n' +
       '  --cursor VALUE         Resume symbol pagination\n' +
@@ -550,6 +562,7 @@ function usage() {
       '  --max-changes-per-package N  Changes returned per enriched package (default: 10)\n' +
       '  --package-cursor PKG=N  Resume changes for one package (repeatable)\n' +
       '  --package-only PKG     Return and analyze only selected packages (repeatable)\n' +
+      '  --strict-package-only  Exit non-zero when --package-only matches no changed packages\n' +
       '  --project-snapshot FILE  Reuse compact API analysis across cursor requests\n' +
       '  --detail compact|full  API enrichment detail (default: compact)\n' +
       '  --format text|json|sarif\n'
@@ -624,6 +637,7 @@ const VALUE_OPTIONS = new Set([
   '--jsdoc-truncate',
   '--jsdoc-max-len',
   '--jsdoc-max-params',
+  '--jsdoc-param-cursor',
   '--filter',
   '--resolve-from',
   '--remote-version',
@@ -696,6 +710,8 @@ const FLAG_OPTIONS = new Set([
   '--no-api',
   '--sarif',
   '--profile',
+  '--strict-package-only',
+  '--summary',
   '--help',
   '--version',
   '-h',
@@ -851,6 +867,12 @@ if (command === 'cache') {
     const stats = getCacheStats({
       cacheDir,
       exact: argv.includes('--exact') && !argv.includes('--fast'),
+      summary: argv.includes('--summary'),
+      select: commaList(argumentValues(argv, '--select')),
+      cursor: argumentValue(argv, '--cursor'),
+      ...(Number.isFinite(maxEntriesValue)
+        ? { maxEntries: Math.max(0, Math.floor(maxEntriesValue)) }
+        : {}),
     });
     if (argv.includes('--json')) {
       console.log(JSON.stringify(stats, null, 2));
@@ -1065,6 +1087,7 @@ if (command === 'project-diff') {
         : 10,
       packageCursors,
       packageOnly,
+      strictPackageOnly: argv.includes('--strict-package-only'),
       projectSnapshot: argumentValue(argv, '--project-snapshot'),
       profile: argv.includes('--profile'),
     });
@@ -1072,6 +1095,7 @@ if (command === 'project-diff') {
       format === 'json' ? JSON.stringify(report, null, 2) : formatProjectDiffText(report)
     );
     if (report.summary.failedPackages > 0) process.exitCode = 1;
+    if (report.error) process.exitCode = 1;
   } catch (error) {
     const payload = { error: error instanceof Error ? error.message : String(error) };
     process.stdout.write(

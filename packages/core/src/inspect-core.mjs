@@ -856,6 +856,11 @@ function formatJsdocEntry(name, doc, options) {
   const includeTags = options.tags?.include || null;
   const excludeTags = options.tags?.exclude || null;
   const maxParams = Number.isInteger(options.maxParams) ? Math.max(0, options.maxParams) : null;
+  const paramOffset = Number.isInteger(options.paramCursor)
+    ? Math.max(0, options.paramCursor)
+    : Number.isInteger(options.paramOffset)
+      ? Math.max(0, options.paramOffset)
+      : 0;
 
   const summary = truncateSummary(doc.summary || '', mode, maxLen, truncateMode);
   const tags = doc.tags || {};
@@ -880,10 +885,13 @@ function formatJsdocEntry(name, doc, options) {
 
   if (wantParams) {
     if (tags.param) {
-      const params = maxParams === null ? tags.param : tags.param.slice(0, maxParams);
+      const params =
+        maxParams === null
+          ? tags.param.slice(paramOffset)
+          : tags.param.slice(paramOffset, paramOffset + maxParams);
       if (params.length > 0) addTag('param', params);
-      if (params.length < tags.param.length) {
-        tagLines.push(`... ${tags.param.length - params.length} more @param`);
+      if (paramOffset + params.length < tags.param.length) {
+        tagLines.push(`... ${tags.param.length - paramOffset - params.length} more @param`);
       }
     }
   }
@@ -924,6 +932,12 @@ function selectJsdocTags(tags, options) {
         : ['summary', 'tags'];
   const include = options.tags?.include || null;
   const exclude = options.tags?.exclude || null;
+  const maxParams = Number.isInteger(options.maxParams) ? Math.max(0, options.maxParams) : null;
+  const paramOffset = Number.isInteger(options.paramCursor)
+    ? Math.max(0, options.paramCursor)
+    : Number.isInteger(options.paramOffset)
+      ? Math.max(0, options.paramOffset)
+      : 0;
 
   const selected = Object.fromEntries(
     Object.entries(tags || {}).filter(([tagName]) => {
@@ -938,8 +952,11 @@ function selectJsdocTags(tags, options) {
       return true;
     })
   );
-  if (Array.isArray(selected.param) && Number.isInteger(options.maxParams)) {
-    selected.param = selected.param.slice(0, Math.max(0, options.maxParams));
+  if (Array.isArray(selected.param)) {
+    selected.param =
+      maxParams === null
+        ? selected.param.slice(paramOffset)
+        : selected.param.slice(paramOffset, paramOffset + maxParams);
   }
   return selected;
 }
@@ -964,19 +981,34 @@ function buildJsdocPayload(typeInfo, options) {
       const parameterTotal =
         paramsSelected && Array.isArray(doc.tags?.param) ? doc.tags.param.length : 0;
       const parameterReturned = Array.isArray(tags.param) ? tags.param.length : 0;
+      const parameterOffset =
+        Number.isInteger(options.paramCursor) || Number.isInteger(options.paramOffset)
+          ? Math.max(0, Number(options.paramCursor ?? options.paramOffset))
+          : 0;
+      const parameterNextCursor =
+        parameterOffset + parameterReturned < parameterTotal
+          ? String(parameterOffset + parameterReturned)
+          : null;
+      const parameterLimit =
+        Number.isInteger(options.maxParams) && parameterReturned < parameterTotal
+          ? {
+              total: parameterTotal,
+              offset: parameterOffset,
+              returned: parameterReturned,
+              nextCursor: parameterNextCursor,
+              truncated: true,
+            }
+          : null;
       return {
         name,
         summary: sections.includes('summary')
           ? truncateSummary(doc.summary || '', mode, options.maxLen, options.truncate || 'word')
           : '',
         tags,
-        ...(Number.isInteger(options.maxParams) && parameterReturned < parameterTotal
+        ...(parameterLimit
           ? {
-              parameterPagination: {
-                total: parameterTotal,
-                returned: parameterReturned,
-                truncated: true,
-              },
+              parameterLimit,
+              parameterPagination: parameterLimit,
             }
           : {}),
         text: formatJsdocEntry(name, doc, { ...options, mode, sections }),
@@ -1932,12 +1964,15 @@ export async function runInspectCore(options) {
           if (jsonOutput) {
             jsonOutput.jsdoc = {
               ...jsdocPayload,
-              entries: jsdocPayload.entries.map(({ name, summary, tags, parameterPagination }) => ({
-                name,
-                summary,
-                tags,
-                ...(parameterPagination ? { parameterPagination } : {}),
-              })),
+              entries: jsdocPayload.entries.map(
+                ({ name, summary, tags, parameterLimit, parameterPagination }) => ({
+                  name,
+                  summary,
+                  tags,
+                  ...(parameterLimit ? { parameterLimit } : {}),
+                  ...(parameterPagination ? { parameterPagination } : {}),
+                })
+              ),
             };
           }
           log(`\nJSDoc: (${jsdocPayload.entries.length})`);

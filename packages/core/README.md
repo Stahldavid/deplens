@@ -59,6 +59,7 @@ JSDoc options:
   - `mode`: `compact` | `full`
   - `maxLen`: number
   - `maxParams`: number
+  - `paramCursor`: number
   - `truncate`: `none` | `sentence` | `word`
 
 Example: JSDoc focused on params/returns
@@ -76,6 +77,7 @@ await runInspect({
     truncate: 'sentence',
     maxLen: 220,
     maxParams: 5,
+    paramCursor: 0,
   },
 });
 ```
@@ -92,14 +94,19 @@ Enriched package API results are compact by default and expose per-package `pagi
 `maxChangesPerPackage` (default 10) and `packageCursors` to page large upgrades independently.
 Use `packageOnly` to avoid unrelated enrichment and `projectSnapshot` to persist canonical compact
 analysis across calls; snapshots are fingerprinted against versions and analysis options.
+Set `strictPackageOnly: true` to mark an unmatched package-only request as a structured project
+diff error for automation.
 `maxChanges` remains an alias for the per-package limit. The report includes `detailLevel`; pass
 `detail: 'full'` to retain the rich `runDiff` result. Source analysis is focused by default and
 only includes symbols when selected. Structured JSDoc omits the renderer-only `text` duplicate;
-limited params expose `parameterPagination`.
+limited params expose `parameterLimit` and compatibility `parameterPagination` metadata with
+`nextCursor`.
 
 Cache pruning accepts `maxSizeBytes` and `maxEntries`, using `lastUsedAt` for LRU order while
-skipping active lock entries. Semantic compatibility separates isolated nominal identity noise
-from actionable assignability diagnostics.
+skipping active lock entries. Dry-run prune results expose `wouldRemove` and
+`candidatesPreview`; cache stats can omit packages with `summary: true` or page them with
+`maxEntries` and `cursor`. Semantic compatibility separates isolated nominal identity noise from
+actionable assignability diagnostics.
 Fresh downloads populate size metadata from staging without calculating the optional integrity hash.
 
 ## Notes

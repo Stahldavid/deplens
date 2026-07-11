@@ -442,6 +442,21 @@ export async function runProjectDiff(options = {}) {
     const missing = [...packageOnly].filter((packageName) => !available.has(packageName));
     if (missing.length > 0)
       report.warnings.push(`Requested packages not changed: ${missing.join(', ')}`);
+    report.packageSelection = {
+      requested: [...packageOnly],
+      matched: report.changes.map((change) => change.package),
+      missing,
+    };
+    if (options.strictPackageOnly && report.changes.length === 0) {
+      report.error = 'Requested packages not changed';
+      report.errorInfo = {
+        code: 'PACKAGE_ONLY_NOT_FOUND',
+        phase: 'project-diff',
+        retryable: false,
+        requested: [...packageOnly],
+      };
+      return report;
+    }
   }
   const diffRunner = options.diffRunner || defaultDiffRunner;
   const maxChangesPerPackage = Math.max(

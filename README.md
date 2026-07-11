@@ -115,6 +115,7 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --jsdoc-truncate none|sentence|word  Truncation for long summaries
 --jsdoc-max-len <N>           Maximum JSDoc length per symbol
 --jsdoc-max-params <N>        Maximum @param tags per symbol
+--jsdoc-param-cursor <N>      Continue truncated @param tags from offset N
 ```
 
 ### Diff flags
@@ -156,6 +157,7 @@ deplens project-diff --from HEAD~1 --to working --max-changes-per-package 10 --j
 deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json --json
 deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json \
   --package-only @clerk/shared --package-cursor @clerk/shared=10 --json
+deplens project-diff --from HEAD~1 --to working --package-only missing --strict-package-only --json
 deplens project-diff --from-lock old-lock.json --to-lock package-lock.json --no-api
 deplens project-diff --from-lock old-pnpm-lock.yaml --to-lock pnpm-lock.yaml --no-api
 deplens project-diff --from HEAD~1 --to working --detail full --json
@@ -170,6 +172,8 @@ later cursor requests can be served without repeating semantic analysis; its fin
 automatically rejects stale versions, conditions, or analysis modes. The top-level `detailLevel`
 records the selected projection. Use `--detail full` for the legacy rich `runDiff` object,
 including `output` and internal analysis snapshots.
+Use `--strict-package-only` in CI when an unmatched `--package-only` should be a structured
+non-zero result instead of a warning.
 
 Create a baseline once, then enforce it in CI. `check` exits non-zero when the configured
 threshold is crossed and can emit SARIF for GitHub code scanning.
@@ -197,6 +201,8 @@ Optional `.deplensrc.json` / `deplens.config.json`:
 ```bash
 deplens cache stats              # Fast cache statistics from metadata
 deplens cache stats --exact      # Recalculate recursive sizes
+deplens cache stats --summary    # Omit package list
+deplens cache stats --max-entries 25 --cursor 25 # Page package metadata
 deplens cache clear [package]    # Clear all or specific package cache
 deplens cache migrate --exact    # Move legacy aliases to exact versions and rebuild metadata
 deplens cache prune --dry-run    # Preview stale, alias, and invalid entries
@@ -215,6 +221,9 @@ Successful cache reads update `lastUsedAt`; size/count limits evict the least re
 used unlocked entries and report whether the requested limit could be satisfied.
 New downloads calculate size metadata once from their staging directory, while old unknown
 entries remain lazy until `cache stats --exact` or `cache migrate --exact` is requested.
+`cache stats --summary` omits package lists, and `--max-entries`/`--cursor` page package
+metadata for agent-sized responses. Cache prune dry-runs expose both `removed: 0` and
+`wouldRemove` plus `candidatesPreview` so automation can distinguish preview from mutation.
 
 Compact inspect JSON returns only `staticExports.total` by default. Select
 `staticExports` explicitly to page names, and follow its nested `pagination` object.
@@ -224,7 +233,8 @@ separate `runtimeLanguage` and `sourceLanguage` fields.
 Structured JSDoc entries contain canonical `name`, `summary`, and `tags` fields; the rendered
 `text` form is kept only in human-readable output to avoid duplicating documentation in JSON.
 Use `--jsdoc-max-params N` to cap `@param` tags. Truncated entries include
-`parameterPagination: { total, returned, truncated }` so omission is never silent.
+`parameterLimit` / `parameterPagination` with `total`, `offset`, `returned`, `nextCursor`, and
+`truncated` so omission is never silent.
 `--analyze-source` is itself a focused request and omits symbols unless they are explicitly
 selected with `--select sourceAnalysis,languageAnalysis,symbols`.
 

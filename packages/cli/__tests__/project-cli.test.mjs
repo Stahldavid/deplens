@@ -70,6 +70,42 @@ describe('project CLI workflows', () => {
     }
   });
 
+  it('exits non-zero when strict package-only matches no changed packages', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-strict-project-cli-'));
+    try {
+      const before = path.join(root, 'before-lock.json');
+      const after = path.join(root, 'after-lock.json');
+      writeLock(before, '3.22.4');
+      writeLock(after, '4.3.6');
+
+      const result = spawnSync(
+        process.execPath,
+        [
+          CLI,
+          'project-diff',
+          '--from-lock',
+          before,
+          '--to-lock',
+          after,
+          '--no-api',
+          '--package-only',
+          'missing-pkg',
+          '--strict-package-only',
+          '--json',
+        ],
+        { cwd: root, encoding: 'utf8' }
+      );
+
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        error: 'Requested packages not changed',
+        errorInfo: { code: 'PACKAGE_ONLY_NOT_FOUND' },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('writes a baseline and fails a policy check on later changes', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-check-cli-'));
     try {

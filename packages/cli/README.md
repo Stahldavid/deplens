@@ -38,7 +38,8 @@ deplens ai --types \
   --jsdoc-sections summary,params,returns \
   --jsdoc-tags param,returns \
   --jsdoc-truncate sentence \
-  --jsdoc-max-len 220
+  --jsdoc-max-len 220 \
+  --jsdoc-max-params 5
 
 # Diff package versions
 
@@ -82,10 +83,14 @@ it defaults to 10 changes per package. Use `--max-changes-per-package N` (or the
 `--package-only PKG` to omit unrelated packages. `--project-snapshot FILE` reuses canonical
 compact analysis across invocations and rejects stale snapshots by fingerprint. The envelope
 exposes `detailLevel`; use `--detail full` for the complete per-package diff object.
+Use `--strict-package-only` when CI should fail if a selected package is not present in the
+changed direct dependency set.
 
 All cache commands support versioned JSON envelopes and honor `--cache-dir`.
 Use `cache prune --max-size 2GB` or `--max-entries 100` to enforce LRU limits. Successful
-reads refresh `lastUsedAt`.
+reads refresh `lastUsedAt`. Use `cache stats --summary` to omit packages, or
+`cache stats --max-entries N --cursor C` to page the package list. Dry-run prune results include
+`wouldRemove` and `candidatesPreview` in addition to `removed: 0`.
 
 - `--analyze-source` — analyze source complexity
 - `--source-max-files <n>` — max source files to analyze
@@ -120,6 +125,7 @@ JSDoc:
 - `--jsdoc-truncate none|sentence|word`
 - `--jsdoc-max-len <N>`
 - `--jsdoc-max-params <N>`
+- `--jsdoc-param-cursor <N>`
 
 ## Requirements
 

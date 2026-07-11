@@ -191,8 +191,11 @@ describe('inspect CLI', () => {
     expect(help).toContain('--max-changes-per-package');
     expect(help).toContain('--package-cursor');
     expect(help).toContain('--package-only');
+    expect(help).toContain('--strict-package-only');
     expect(help).toContain('--project-snapshot');
     expect(help).toContain('--jsdoc-max-params');
+    expect(help).toContain('--jsdoc-param-cursor');
+    expect(help).toContain('--summary');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 
@@ -227,6 +230,7 @@ describe('inspect CLI', () => {
         schemaVersion: 1,
         kind: 'deplens-cache-stats',
         cacheDir,
+        pagination: { total: 0, returned: 0 },
       });
       expect(cleared).toMatchObject({
         schemaVersion: 1,
@@ -238,6 +242,7 @@ describe('inspect CLI', () => {
         kind: 'deplens-cache-prune',
         maxSizeBytes: 1024,
         maxEntries: 2,
+        wouldRemove: 0,
         limitSatisfied: true,
       });
     } finally {

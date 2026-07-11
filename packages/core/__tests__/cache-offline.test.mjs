@@ -189,10 +189,12 @@ describe('cache offline mode', () => {
         schemaVersion: 1,
         kind: 'deplens-cache-prune',
         removed: 0,
+        wouldRemove: 2,
         candidates: 2,
         dryRun: true,
       });
       expect(preview.entries.map((entry) => entry.reason).sort()).toEqual(['invalid', 'stale']);
+      expect(preview.candidatesPreview).toHaveLength(2);
       expect(() =>
         readFileSync(path.join(staleDir, 'node_modules', 'stale-pkg', 'package.json'))
       ).not.toThrow();
@@ -251,6 +253,47 @@ describe('cache offline mode', () => {
         remainingBytes: 100,
         limitSatisfied: true,
       });
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('paginates and summarizes cache stats package lists', () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'deplens-cache-stats-page-'));
+    try {
+      for (const name of ['alpha', 'beta', 'gamma']) {
+        const entryDir = writeLegacyCacheEntry(cacheDir, `${name}@1.0.0`, name, '1.0.0');
+        writeFileSync(
+          path.join(entryDir, '.deplens-cache.json'),
+          JSON.stringify({
+            schemaVersion: 1,
+            package: name,
+            version: '1.0.0',
+            size: 10,
+          })
+        );
+      }
+
+      const summary = getCacheStats({ cacheDir, summary: true });
+      expect(summary).toMatchObject({
+        kind: 'deplens-cache-stats',
+        entries: 3,
+        pagination: { total: 3, returned: 0, nextCursor: null },
+      });
+      expect(summary).not.toHaveProperty('packages');
+
+      const firstPage = getCacheStats({ cacheDir, maxEntries: 2 });
+      expect(firstPage.packages.map((pkg) => pkg.name)).toEqual(['alpha@1.0.0', 'beta@1.0.0']);
+      expect(firstPage.pagination).toMatchObject({
+        total: 3,
+        offset: 0,
+        returned: 2,
+        nextCursor: '2',
+      });
+
+      const secondPage = getCacheStats({ cacheDir, maxEntries: 2, cursor: '2' });
+      expect(secondPage.packages.map((pkg) => pkg.name)).toEqual(['gamma@1.0.0']);
+      expect(secondPage.pagination).toMatchObject({ offset: 2, returned: 1, nextCursor: null });
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }

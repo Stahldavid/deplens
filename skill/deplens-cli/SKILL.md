@@ -139,6 +139,7 @@ deplens project-diff --from HEAD~1 --to working --max-changes-per-package 10 --j
 deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json --json
 deplens project-diff --from HEAD~1 --to working --project-snapshot .deplens-project.json \
   --package-only @clerk/shared --package-cursor @clerk/shared=10 --json
+deplens project-diff --from HEAD~1 --to working --package-only missing --strict-package-only --json
 deplens project-diff --from HEAD~1 --to working --detail full --json
 deplens check --write-baseline --baseline .deplens-baseline.json
 deplens check --baseline .deplens-baseline.json --fail-on breaking --format sarif
@@ -153,6 +154,8 @@ API enrichment keeps only `package`, `summary`, `changes`, `semanticCompatibilit
 `--package-only PKG` so continuation omits every unrelated package. For repeated cursor calls,
 write `--project-snapshot FILE` on the first call and reuse the same file; DepLens fingerprints
 versions and analysis options and will not reuse stale results.
+Use `--strict-package-only` when an unmatched package selector should be a non-zero structured
+error for CI or automation.
 Use `--detail full` only when the complete internal diff is required.
 
 ### 9. Inspect a package that isn't installed
@@ -239,7 +242,8 @@ JSDoc-only requests omit symbol/export inventories unless selected. Structured e
 renderer-only `text` duplicate and keep `name`, `summary`, and `tags`. Direct `@deplens/core` calls without projection retain the
 legacy schema v1 payload for compatibility; the CLI JSON contract is schema v2.
 Use `--jsdoc-max-params N` for parameter-heavy APIs; truncated entries expose
-`parameterPagination` with exact total and returned counts.
+`parameterLimit` and compatibility `parameterPagination` with exact total, offset, returned count,
+and `nextCursor`. Continue with `--jsdoc-param-cursor N`.
 
 Selection never removes package identity, resolution, metadata, warnings, or structured errors;
 those fields remain available for reliable agent and CI error handling.
@@ -267,8 +271,9 @@ If a response is going to be enormous (e.g. inspecting a huge package without fi
 - **`@types/<pkg>` not picked up.** This only happens automatically when the target package itself has no `types`/`typings`/exports-defined `.d.ts`. If types still come back empty, re-run with `--types` and check the `warnings[]` in JSON output.
 - **`--remote` first run is slow.** It hits the npm registry / CDN; subsequent calls hit the cache. `deplens cache stats` shows what's cached; `deplens cache clear [pkg?]` purges it.
 - **Cache sizes can be `unknown`.** `deplens cache stats` is fast by default and avoids recursively walking large package caches. Use `deplens cache stats --exact` when you need precise sizes.
+- **Large cache stats.** Use `deplens cache stats --summary` to omit package entries, or `deplens cache stats --max-entries 25 --cursor 25` to page package metadata.
 - **Legacy cache entries.** Use `deplens cache migrate --exact` to move tag aliases to exact versions and rebuild metadata. Preview cleanup with `deplens cache prune --dry-run`; pruning defaults to entries older than 90 days plus invalid/alias entries.
-- **Large caches.** Run `deplens cache prune --max-size 2GB --dry-run` to preview an LRU size cap or `--max-entries 100` to keep the most recently used entries. Successful cache reads refresh `lastUsedAt`; active locks are never removed.
+- **Large caches.** Run `deplens cache prune --max-size 2GB --dry-run` to preview an LRU size cap or `--max-entries 100` to keep the most recently used entries. Dry-run JSON keeps `removed: 0` and adds `wouldRemove` plus `candidatesPreview`. Successful cache reads refresh `lastUsedAt`; active locks are never removed.
 - **JSDoc requires `.d.ts` parsing.** `--jsdoc-output section` / `inline` / `only` all run the `.d.ts` parser internally. If a package has no shipped types and no `@types/<pkg>` package, JSDoc will be empty.
 - **stdout discipline.** In `--json` mode, stdout is pure JSON and errors go to stderr — safe to pipe into `jq` or another parser. In default text mode, decorations make parsing unreliable; switch to `--json`.
 - **Lockfile support.** `project-diff` and `check` accept npm `package-lock.json` v2/v3 and pnpm lockfiles with importers (pnpm v6+). Pass the actual path through `--lockfile`, `--from-lock`, or `--to-lock`.

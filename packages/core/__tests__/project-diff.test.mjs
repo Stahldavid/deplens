@@ -284,4 +284,33 @@ describe('project diff', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('reports a structured error when strict package-only matches nothing', async () => {
+    const from = createProjectSnapshot(lockfile('1.0.0', { zod: '3.22.4' }));
+    const to = createProjectSnapshot(lockfile('1.0.1', { zod: '4.3.6' }));
+    const diffRunner = vi.fn();
+    const report = await runProjectDiff({
+      from,
+      to,
+      packageOnly: ['missing-pkg'],
+      strictPackageOnly: true,
+      diffRunner,
+    });
+
+    expect(diffRunner).not.toHaveBeenCalled();
+    expect(report).toMatchObject({
+      error: 'Requested packages not changed',
+      errorInfo: {
+        code: 'PACKAGE_ONLY_NOT_FOUND',
+        phase: 'project-diff',
+        retryable: false,
+        requested: ['missing-pkg'],
+      },
+      packageSelection: {
+        requested: ['missing-pkg'],
+        matched: [],
+        missing: ['missing-pkg'],
+      },
+    });
+  });
 });

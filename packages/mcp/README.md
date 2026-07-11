@@ -76,7 +76,7 @@ Inspect an installed (or remotely downloaded) npm package.
 | `rootDir`           | string                                                               | Working directory (default: `$DEPLENS_ROOT` or `process.cwd()`)                  |
 | `jsdoc`             | `'off'\|'compact'\|'full'`                                           | JSDoc verbosity mode                                                             |
 | `jsdocOutput`       | `'off'\|'section'\|'inline'\|'only'`                                 | Where to render JSDoc                                                            |
-| `jsdocQuery`        | object                                                               | Fine-grained JSDoc extraction, including `maxParams`                             |
+| `jsdocQuery`        | object                                                               | Fine-grained JSDoc extraction, including `maxParams` and `paramCursor`           |
 | `analyzeSource`     | boolean                                                              | Analyze JS/TS/Python/Java source for implementation details + complexity         |
 | `sourceMaxFiles`    | number (1–500)                                                       | Max source files to analyze (default: 5)                                         |
 | `sourceIncludeBody` | boolean                                                              | Include function body snippets                                                   |
@@ -102,7 +102,8 @@ Inspect an installed (or remotely downloaded) npm package.
       "symbols": "generateText",
       "sections": ["summary", "params", "returns"],
       "tags": { "include": ["param", "returns"] },
-      "mode": "compact"
+      "mode": "compact",
+      "maxParams": 5
     }
   }
 }
@@ -135,12 +136,13 @@ Compare two versions of an npm package.
 
 `deplens_project_diff` accepts `from`, `to`, `rootDir`, `lockfile`, `analyze`,
 `includeTransitive`, `detail`, `maxChangesPerPackage`, `packageCursors`, `packageOnly`,
-`projectSnapshot`, `conditions`, and
+`strictPackageOnly`, `projectSnapshot`, `conditions`, and
 timeout/cache controls. `from` and `to` can be Git refs, lockfile paths, or `working`. API
 enrichment defaults to `detail: "compact"`, retaining package, summary, changes, semantic
 compatibility, and per-package pagination. The default page size is 10; use `packageCursors`
 to continue selected packages, `packageOnly` to omit unrelated work, and `projectSnapshot` to
-reuse fingerprinted compact analysis. The result exposes `detailLevel`; use `detail: "full"`
+reuse fingerprinted compact analysis. Use `strictPackageOnly` when an unmatched package filter
+should mark the MCP result as an error. The result exposes `detailLevel`; use `detail: "full"`
 for the rich per-package diff object.
 
 `deplens_check` accepts a baseline path plus optional `config` and `failOn`. It returns a

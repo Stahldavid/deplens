@@ -211,6 +211,66 @@ function signaturesForSymbol(symbol, declarations, checker) {
   });
 }
 
+function signatureFromTypeSignature(signature, checker, location) {
+  const parameters = signature.getParameters().map((parameter) => {
+    const parameterDeclaration =
+      parameter.valueDeclaration || parameter.declarations?.[0] || location;
+    const parameterType = checker.getTypeOfSymbolAtLocation(parameter, parameterDeclaration);
+    return {
+      name: parameter.getName(),
+      type: typeText(checker, parameterType, parameterDeclaration),
+      optional: Boolean(
+        parameter.flags & ts.SymbolFlags.Optional || parameterDeclaration.questionToken
+      ),
+      rest: Boolean(parameterDeclaration.dotDotDotToken),
+      default: null,
+    };
+  });
+  return {
+    params: parameters.map(formatParameter).join(', '),
+    parameters,
+    returnType: typeText(checker, checker.getReturnTypeOfSignature(signature), location),
+    typeParameters: [],
+  };
+}
+
+function addExportEquals(typeInfo, sourceFile, checker) {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals !== true) continue;
+    const expression = statement.expression;
+    const exportName = ts.isIdentifier(expression) ? expression.text : 'default';
+    const expressionSymbol = checker.getSymbolAtLocation(expression);
+    const expressionType = checker.getTypeAtLocation(expression);
+    setSafeRecord(typeInfo.variables, 'default', {
+      type: typeText(checker, expressionType, expression),
+      ...(exportName !== 'default' ? { localName: exportName } : {}),
+    });
+
+    for (const property of expressionType.getProperties()) {
+      const propertyName = property.getName();
+      if (!propertyName || propertyName === 'prototype') continue;
+      const declaration = property.valueDeclaration || property.declarations?.[0] || expression;
+      const propertyType = checker.getTypeOfSymbolAtLocation(property, declaration);
+      const signatures = propertyType
+        .getCallSignatures()
+        .map((signature) => signatureFromTypeSignature(signature, checker, declaration));
+      if (signatures.length > 0) {
+        setSafeRecord(typeInfo.functions, propertyName, {
+          ...signatures[0],
+          overloads: signatures,
+        });
+      } else {
+        setSafeRecord(typeInfo.variables, propertyName, {
+          type: typeText(checker, propertyType, declaration),
+        });
+      }
+    }
+
+    const doc = expressionSymbol ? jsdocForSymbol(expressionSymbol, checker) : null;
+    if (doc) setSafeRecord(typeInfo.jsdoc, 'default', doc);
+  }
+}
+
 function publicMember(member) {
   return !member.modifiers?.some(
     (modifier) =>
@@ -531,6 +591,7 @@ export function parseDtsFileWithMetadata(dtsPath, filterList = null) {
     }
   }
   addSyntacticDefaults(typeInfo, sourceFile, checker, filterList);
+  addExportEquals(typeInfo, sourceFile, checker);
 
   const dependencies = program
     .getSourceFiles()

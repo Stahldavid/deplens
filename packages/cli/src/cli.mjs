@@ -617,7 +617,7 @@ function usage() {
       '  --offline              Use cached remote packages only\n' +
       '  --prefer-cdn          Use lightweight CDN download instead of npm install\n' +
       '  --prefer-npm          Force npm install (default)\n' +
-      '  --max-exports N        Max exports to show (default: 100)\n' +
+      '  --max-exports N        Max exports to show (text default: 100, compact JSON default: 25)\n' +
       '  --max-props N          Max props per object (default: 10)\n' +
       '  --max-examples N       Max examples to show (default: 10)\n' +
       '  --analyze-source       Analyze source code (JS/TS/Python/Java)\n' +

@@ -1,6 +1,7 @@
 const DEFAULT_COMPACT_SECTIONS = new Set([
   'package',
   'version',
+  'pkgDir',
   'resolution',
   'staticExports',
   'exports',
@@ -13,6 +14,7 @@ const DEFAULT_COMPACT_SECTIONS = new Set([
 const REQUIRED_ENVELOPE_SECTIONS = [
   'package',
   'version',
+  'pkgDir',
   'resolution',
   'meta',
   'warnings',

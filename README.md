@@ -390,8 +390,9 @@ The JSON response includes a `resolution` block to explain where DepLens resolve
 #### `deplens_diff`
 
 Compare two versions of a package. Useful for upgrade planning and identifying breaking changes.
-Compact semantic results include up to ten diagnostics responsible for
-`semanticCompatible: false`; the total and truncation state remain explicit.
+Compact semantic results include up to three diagnostics responsible for
+`semanticCompatible: false`; the total and truncation state remain explicit, and long messages
+carry `messageTruncated: true`.
 Nominal incompatibilities caused only by isolated `unique symbol` or private-class identities
 are counted under `ignoredDiagnosticCount` instead of failing assignability. Full detail keeps
 the ignored diagnostic records for auditing.

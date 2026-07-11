@@ -126,8 +126,8 @@ Returns: breaking changes, warnings, additions, removals, optional changelog exc
 
 Large JSON diffs are cursor-paginated. Use `--max-changes N --cursor VALUE` to continue.
 Semantic TypeScript assignability is enabled by default; `--no-semantic` is the fast fallback.
-When semantic compatibility is false, compact JSON includes up to ten causal diagnostics plus
-`diagnosticCount` and `diagnosticsTruncated`.
+When semantic compatibility is false, compact JSON includes up to three causal diagnostics plus
+`diagnosticCount` and `diagnosticsTruncated`; long messages include `messageTruncated: true`.
 Nominal identity mismatches caused only by isolated `unique symbol` or private-class declarations
 are reported through `ignoredDiagnosticCount` instead of making the package incompatible.
 

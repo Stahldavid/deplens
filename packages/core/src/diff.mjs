@@ -41,11 +41,12 @@ function serializeChange(change, verbose) {
 function compactDiagnostic(diagnostic) {
   if (!diagnostic || typeof diagnostic !== 'object') return diagnostic;
   const message = String(diagnostic.message || diagnostic.messageText || diagnostic.detail || '');
+  const messageTruncated = message.length > 240;
   return {
     ...(diagnostic.code != null ? { code: diagnostic.code } : {}),
     ...(diagnostic.reason ? { reason: diagnostic.reason } : {}),
-    ...(message ? { message: message.length > 240 ? `${message.slice(0, 237)}...` : message } : {}),
-    ...(diagnostic.file ? { file: diagnostic.file } : {}),
+    ...(message ? { message: messageTruncated ? `${message.slice(0, 237)}...` : message } : {}),
+    ...(messageTruncated ? { messageTruncated: true } : {}),
     ...(diagnostic.line != null ? { line: diagnostic.line } : {}),
   };
 }

@@ -237,6 +237,7 @@ describe('inspect CLI', () => {
     expect(help).toContain('--jsdoc-param-cursor');
     expect(help).toContain('--summary');
     expect(help).toContain('--max-preview-entries');
+    expect(help).toContain('text default: 100, compact JSON default: 25');
     expect(help).not.toContain('Analyze source code (JS/TS/Python/Java/Rust/Go)');
   });
 

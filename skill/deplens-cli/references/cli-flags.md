@@ -22,14 +22,14 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 
 ### Filtering and search
 
-| Flag                 | Type      | Default | Effect                                                                                         |
-| -------------------- | --------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `--filter VALUE`     | string    | —       | Case-insensitive substring match on export names. Use `/regex/` (mandatory slashes) for regex. |
-| `--search QUERY`     | string    | —       | Semantic search (token matching + JSDoc) over export names. Has built-in synonym expansion.    |
-| `--kind f,c,o,k,i,t` | csv       | —       | Restrict by kind: `function`, `class`, `object`, `constant`, `interface`, `type`.              |
-| `--max-exports N`    | int       | 100     | Cap on the number of exports rendered/returned.                                                |
-| `--max-props N`      | int       | 10      | Cap on nested object props rendered when `--depth>0`.                                          |
-| `--depth N`          | int (0-5) | 1       | Object inspection depth.                                                                       |
+| Flag                 | Type      | Default                      | Effect                                                                                         |
+| -------------------- | --------- | ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--filter VALUE`     | string    | —                            | Case-insensitive substring match on export names. Use `/regex/` (mandatory slashes) for regex. |
+| `--search QUERY`     | string    | —                            | Semantic search (token matching + JSDoc) over export names. Has built-in synonym expansion.    |
+| `--kind f,c,o,k,i,t` | csv       | —                            | Restrict by kind: `function`, `class`, `object`, `constant`, `interface`, `type`.              |
+| `--max-exports N`    | int       | text: 100 / compact JSON: 25 | Cap on the number of exports rendered/returned.                                                |
+| `--max-props N`      | int       | 10                           | Cap on nested object props rendered when `--depth>0`.                                          |
+| `--depth N`          | int (0-5) | 1                            | Object inspection depth.                                                                       |
 
 ### Types
 

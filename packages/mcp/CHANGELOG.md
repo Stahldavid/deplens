@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.8
+
+### Patch Changes
+
+- Consume the `@deplens/core` patch for CommonJS `export =` static symbols, compact `pkgDir`, parse-cache invalidation, and safer compact semantic diagnostics.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.8
+
 ## 1.0.7
 
 ### Patch Changes

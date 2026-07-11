@@ -267,4 +267,31 @@ describe('parseDtsFile', () => {
       fs.rmSync(pkgDir, { recursive: true, force: true });
     }
   });
+
+  it('maps CommonJS export equals declarations to static symbols', () => {
+    const pkgDir = path.join(import.meta.dirname, 'fixtures', 'export-equals');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    try {
+      fs.writeFileSync(
+        path.join(pkgDir, 'index.d.ts'),
+        [
+          'interface Colors {',
+          '  isColorSupported: boolean;',
+          '  red(input: string | number): string;',
+          '}',
+          'declare const picocolors: Colors & { createColors(enabled?: boolean): Colors };',
+          'export = picocolors;',
+        ].join('\n')
+      );
+
+      const result = parseDtsFile(path.join(pkgDir, 'index.d.ts'), null);
+
+      expect(result.variables.default).toMatchObject({ localName: 'picocolors' });
+      expect(result.variables.isColorSupported.type).toBe('boolean');
+      expect(result.functions.red.returnType).toBe('string');
+      expect(result.functions.createColors.params).toBe('enabled?: boolean');
+    } finally {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+  });
 });

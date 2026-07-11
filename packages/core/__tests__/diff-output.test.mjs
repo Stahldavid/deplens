@@ -90,7 +90,7 @@ describe('compact diff JSON', () => {
   it('exposes the diagnostics responsible for semantic incompatibility in compact output', () => {
     const diagnostics = Array.from({ length: 12 }, (_, index) => ({
       code: 2322,
-      message: `Type mismatch ${index}`,
+      message: index === 0 ? `Type mismatch ${'x'.repeat(300)}` : `Type mismatch ${index}`,
       file: `check-${index}.ts`,
     }));
     const compact = serializeDiffForJson({
@@ -108,9 +108,14 @@ describe('compact diff JSON', () => {
     expect(compact.semanticCompatibility).toMatchObject({
       compatible: false,
       diagnosticCount: 12,
-      diagnostics: diagnostics.slice(0, 3),
       diagnosticsTruncated: true,
     });
+    expect(compact.semanticCompatibility.diagnostics).toHaveLength(3);
+    expect(compact.semanticCompatibility.diagnostics[0]).toMatchObject({
+      code: 2322,
+      messageTruncated: true,
+    });
+    expect(compact.semanticCompatibility.diagnostics[0]).not.toHaveProperty('file');
     const secondPage = serializeDiffForJson(
       {
         from: { name: 'demo', version: '1.0.0' },

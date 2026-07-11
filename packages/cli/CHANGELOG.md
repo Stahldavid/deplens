@@ -1,5 +1,14 @@
 # @deplens/cli
 
+## 1.0.10
+
+### Patch Changes
+
+- Document that `--max-exports` defaults differ between text and compact JSON, and ship the `@deplens/core` fixes for CommonJS `export =` static symbols, compact `pkgDir`, and safer semantic diagnostics.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.8
+
 ## 1.0.9
 
 ### Patch Changes

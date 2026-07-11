@@ -1,5 +1,13 @@
 # @deplens/core
 
+## 1.0.8
+
+### Patch Changes
+
+- Parse CommonJS TypeScript `export =` declarations as static API symbols, including callable object properties, so packages such as `picocolors` no longer look empty in static/no-runtime mode.
+
+  Keep `pkgDir` in compact inspect envelopes, invalidate the `.d.ts` parse cache for the improved parser, and make compact semantic diagnostics safer by omitting temporary file paths while marking truncated messages with `messageTruncated: true`.
+
 ## 1.0.7
 
 ### Patch Changes

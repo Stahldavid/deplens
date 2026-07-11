@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## 2026-07-11 — `@deplens/core@1.0.8`, `@deplens/cli@1.0.10`, `@deplens/mcp@1.0.8`
+
+### Static CommonJS types and compact contract polish
+
+**Fixed:**
+
+- TypeScript CommonJS packages using `export =`, including `picocolors`, now
+  produce static type symbols without requiring runtime imports.
+- Compact inspect JSON keeps `pkgDir` so agents can reliably locate the analyzed
+  package directory.
+- Compact semantic diagnostics no longer expose temporary file paths; long
+  messages now include `messageTruncated: true`.
+- The `.d.ts` parse cache version was bumped so existing caches pick up the
+  improved parser.
+- CLI help now distinguishes `--max-exports` defaults for text output and
+  compact JSON.
+
+---
+
 ## 2026-07-11 — `@deplens/core@1.0.7`, `@deplens/cli@1.0.9`, `@deplens/mcp@1.0.7`
 
 ### Agent ergonomics and strict automation contracts

@@ -6,6 +6,7 @@ describe('inspect output projection', () => {
     schemaVersion: 1,
     package: 'demo',
     version: '1.0.0',
+    pkgDir: '/tmp/demo',
     symbols: [
       { exportName: 'a', facets: ['types'], types: { signature: 'a(): void' } },
       { exportName: 'b', facets: ['types'], types: { signature: 'b(): void' } },
@@ -26,6 +27,7 @@ describe('inspect output projection', () => {
 
     expect(projected.schemaVersion).toBe(2);
     expect(projected.detailLevel).toBe('compact');
+    expect(projected.pkgDir).toBe('/tmp/demo');
     expect(projected.symbols).toHaveLength(2);
     expect(projected.pagination).toMatchObject({ total: 3, returned: 2, nextCursor: '2' });
     expect(projected).not.toHaveProperty('types');

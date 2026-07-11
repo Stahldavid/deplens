@@ -58,10 +58,14 @@ export async function runInspect(options) {
         : rawOutput
       : capturedResult;
 
-  if (options?.analyzeSource && jsonOutput?.pkgDir) {
+  const absoluteTarget =
+    options?.target && path.isAbsolute(String(options.target)) ? String(options.target) : null;
+  const sourceRoot = jsonOutput?.pkgDir || absoluteTarget;
+
+  if (options?.analyzeSource && sourceRoot) {
     throwIfAborted(options?.signal, 'source-analysis');
     const sourceResult = await runSourceAnalysis({
-      pkgDir: jsonOutput.pkgDir,
+      pkgDir: sourceRoot,
       filterRaw: options.filter || null,
       sourceMaxFiles: options.sourceMaxFiles || 100,
       sourceIncludeBody: options.sourceIncludeBody || false,
@@ -96,9 +100,8 @@ export async function runInspect(options) {
         ? { error: sourceResult.languageAnalysis.error }
         : {}),
     };
-    if (options.language && path.isAbsolute(String(options.target || ''))) {
-      jsonOutput.package =
-        readPythonProjectName(String(options.target)) || path.basename(String(options.target));
+    if (options.language && absoluteTarget) {
+      jsonOutput.package = readPythonProjectName(absoluteTarget) || path.basename(absoluteTarget);
     }
   }
 

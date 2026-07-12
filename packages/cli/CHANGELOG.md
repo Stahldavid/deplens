@@ -1,5 +1,14 @@
 # @deplens/cli
 
+## 1.0.11
+
+### Patch Changes
+
+- Correct local Python project resolution and avoid duplicate source-analysis subprocesses.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.9
+
 ## 1.0.10
 
 ### Patch Changes

@@ -199,6 +199,9 @@ For Python, the current implementation is environment-aware:
 - It falls back to `uv run --project <dir> python` when a `pyproject.toml` or `uv.lock` exists and `uv` is available.
 - If neither exists, it falls back to the active system Python (`py`, `python3`, `python`).
 - It parses Python with the real `ast` module rather than regex, so methods, imports, decorators, return annotations, and complexity are structurally extracted.
+- Local path targets keep `pkgDir` anchored to the requested project root. The importable package
+  directory is exposed as `resolution.moduleDir`; `src/` layouts are preferred over helper packages
+  such as `tests/`.
 
 For Java, source analysis uses a best-effort built-in parser for package/import/class/interface/enum/method extraction.
 

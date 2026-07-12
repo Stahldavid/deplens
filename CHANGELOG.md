@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## 2026-07-12 — `@deplens/core@1.0.9`, `@deplens/cli@1.0.11`, `@deplens/mcp@1.0.9`
+
+### Deterministic Python project resolution
+
+**Fixed:**
+
+- Local absolute and relative Python targets now keep `pkgDir` at the requested
+  project root instead of inheriting a parent Node workspace directory.
+- Importable modules are exposed separately as `resolution.moduleDir`, and
+  `src/` layouts take precedence over test/support packages such as `tests/`.
+- Orchestrated CLI inspections no longer run Python source analysis twice,
+  reducing subprocess pressure and improving behavior under parallel load.
+
+---
+
 ## 2026-07-11 — `@deplens/core@1.0.8`, `@deplens/cli@1.0.10`, `@deplens/mcp@1.0.8`
 
 ### Static CommonJS types and compact contract polish

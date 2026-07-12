@@ -31,6 +31,10 @@ describe('runSourceAnalysis', () => {
     });
 
     expect(result.package).toBe('demo-pkg');
+    expect(path.resolve(result.pkgDir)).toBe(path.resolve(projectDir));
+    expect(path.resolve(result.resolution.moduleDir)).toBe(
+      path.resolve(projectDir, 'src', 'demo_pkg')
+    );
     expect(result.sourceAnalysis.files).toBeGreaterThanOrEqual(2);
     expect(result.sourceAnalysis.files).toBeLessThanOrEqual(3);
     expect(result.languageAnalysis).toMatchObject({

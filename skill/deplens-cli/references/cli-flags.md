@@ -77,7 +77,7 @@ Positional `[filtro]` is shorthand for `--filter`. The default subcommand is `in
 | `--source-max-files N`                                      | int  | 5       | Max source files to analyze.                                                                 |
 | `--source-include-body`                                     | flag | off     | Include function body snippets in source analysis.                                           |
 
-Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then the system Python runtime. Java source analysis uses a best-effort built-in parser.
+Python source analysis prefers `.venv` / `venv`, then `uv run --project`, then the system Python runtime. Local Python paths keep `pkgDir` at the requested project root and expose the selected import package as `resolution.moduleDir`; `src/` packages take precedence over test/support packages. Java source analysis uses a best-effort built-in parser.
 JS/TS source analysis recognizes ESM exports, default exported functions, and common CommonJS assignment patterns such as `exports.foo`, `module.exports.foo`, and `module.exports = { foo() {} }`.
 
 ### Resolution
@@ -321,6 +321,7 @@ Optional extension fields (only when relevant flags are passed):
 - `sourceAnalysis: { files: number, summary: { totalFunctions, totalClasses, avgComplexity, … } }`
 - `languageAnalysis: { language, runtimeLanguage, sourceLanguage, files: number, summary: { … } }`
 - `pkgDir: "/abs/path/to/package/root"` (always populated for chaining with other tooling)
+- `resolution.moduleDir: "/abs/path/to/import/package"` (local Python targets when different from `pkgDir`)
 
 ### `diff` payload
 

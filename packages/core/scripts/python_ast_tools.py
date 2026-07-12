@@ -370,7 +370,8 @@ def read_pyproject_metadata(project_root: Path):
 
 def find_local_package_dir(project_root: Path, preferred_name: str | None = None):
     normalized = preferred_name.replace("-", "_") if preferred_name else None
-    search_roots = [project_root, project_root / "src"]
+    ignored_names = {"tests", "test", "examples", "docs", "scripts", "tools"}
+    search_roots = [project_root / "src", project_root]
     for search_root in search_roots:
         if not search_root.exists() or not search_root.is_dir():
             continue
@@ -379,7 +380,11 @@ def find_local_package_dir(project_root: Path, preferred_name: str | None = None
             if preferred.is_dir() and (preferred / "__init__.py").exists():
                 return preferred
         for child in sorted(search_root.iterdir(), key=lambda item: item.name):
-            if child.is_dir() and (child / "__init__.py").exists():
+            if (
+                child.name not in ignored_names
+                and child.is_dir()
+                and (child / "__init__.py").exists()
+            ):
                 return child
     return project_root if (project_root / "__init__.py").exists() else None
 
@@ -392,26 +397,27 @@ def resolve_local_target(target: str, cwd: Path):
         return None
 
     if target_path.is_file():
-        pkg_dir = target_path.parent
-        project_root = pkg_dir
+        module_dir = target_path.parent
+        project_root = module_dir
         resolved = str(target_path)
     else:
         project_root = target_path
         metadata = read_pyproject_metadata(project_root)
-        pkg_dir = find_local_package_dir(project_root, metadata.get("name"))
-        if pkg_dir is None:
-            pkg_dir = project_root
-        init_file = pkg_dir / "__init__.py"
-        resolved = str(init_file if init_file.exists() else pkg_dir)
+        module_dir = find_local_package_dir(project_root, metadata.get("name"))
+        if module_dir is None:
+            module_dir = project_root
+        init_file = module_dir / "__init__.py"
+        resolved = str(init_file if init_file.exists() else module_dir)
 
     metadata = read_pyproject_metadata(project_root)
     return {
         "resolved": resolved,
-        "pkgDir": str(pkg_dir.resolve()),
-        "package": metadata.get("name") or pkg_dir.name,
+        "pkgDir": str(project_root.resolve()),
+        "moduleDir": str(module_dir.resolve()),
+        "package": metadata.get("name") or project_root.name,
         "version": metadata.get("version"),
         "description": metadata.get("description"),
-        "module": pkg_dir.name,
+        "module": module_dir.name,
         "distribution": metadata.get("name"),
         "pythonExecutable": sys.executable,
         "source": "local-path",
@@ -476,6 +482,7 @@ def resolve_installed_target(target: str):
     return {
         "resolved": resolved,
         "pkgDir": str(pkg_dir),
+        "moduleDir": str(pkg_dir),
         "package": dist_name or target,
         "version": version,
         "description": description,

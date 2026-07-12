@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import analyzer from '../src/analyze-python.mjs';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 const { analyzePythonPackage, analyzePythonFile, resolvePythonPackage } = analyzer;
 
@@ -145,7 +146,34 @@ describe('resolvePythonPackage', () => {
     expect(result.error).toBeUndefined();
     expect(result.package).toBe('demo-pkg');
     expect(result.version).toBe('0.1.0');
-    expect(result.pkgDir.replace(/\\/g, '/')).toContain('/python_project/src/demo_pkg');
+    expect(result.pkgDir.replace(/\\/g, '/')).toMatch(/\/python_project$/);
+    expect(result.moduleDir.replace(/\\/g, '/')).toContain('/python_project/src/demo_pkg');
     expect(result.source).toBe('local-path');
+  });
+
+  it('resolves a relative project target without selecting tests as the package', () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'deplens-python-resolution-'));
+    const project = path.join(parent, 'livekit-agent-python');
+    const moduleDir = path.join(project, 'src', 'livekit_agent');
+
+    try {
+      fs.mkdirSync(moduleDir, { recursive: true });
+      fs.mkdirSync(path.join(project, 'tests'), { recursive: true });
+      fs.writeFileSync(
+        path.join(project, 'pyproject.toml'),
+        '[project]\nname = "livekit-agent-python"\nversion = "1.2.3"\n'
+      );
+      fs.writeFileSync(path.join(moduleDir, '__init__.py'), 'def run(): pass\n');
+      fs.writeFileSync(path.join(project, 'tests', '__init__.py'), 'def test_helper(): pass\n');
+
+      const result = resolvePythonPackage('livekit-agent-python', { resolveFrom: parent });
+
+      expect(result.error).toBeUndefined();
+      expect(path.resolve(result.pkgDir)).toBe(path.resolve(project));
+      expect(path.resolve(result.moduleDir)).toBe(path.resolve(moduleDir));
+      expect(path.resolve(result.resolved)).toBe(path.resolve(moduleDir, '__init__.py'));
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
   });
 });

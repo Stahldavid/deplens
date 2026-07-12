@@ -1,5 +1,14 @@
 # @deplens/mcp
 
+## 1.0.9
+
+### Patch Changes
+
+- Consume the `@deplens/core` patch for deterministic local Python project roots, import package selection, and single-pass source analysis.
+
+- Updated dependencies []:
+  - @deplens/core@1.0.9
+
 ## 1.0.8
 
 ### Patch Changes

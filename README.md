@@ -118,6 +118,11 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --jsdoc-param-cursor <N>      Continue truncated @param tags from offset N
 ```
 
+For local Python targets, `pkgDir` is the project root requested on the command line.
+The importable package directory is reported separately as `resolution.moduleDir`; `src/`
+layouts are preferred and test/support packages are excluded from automatic entrypoint selection.
+The orchestrated CLI runs Python source analysis once per inspection to avoid duplicate subprocesses.
+
 ### Diff flags
 
 ```bash

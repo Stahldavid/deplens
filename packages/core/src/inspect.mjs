@@ -37,6 +37,7 @@ export async function runInspect(options) {
   let capturedResult = null;
   const rawOutput = await runInspectCore({
     ...options,
+    deferSourceAnalysis: Boolean(options?.analyzeSource),
     ...(format !== 'json' && format !== 'object' && shouldSaveHistory
       ? { captureResult: (result) => (capturedResult = result) }
       : {}),

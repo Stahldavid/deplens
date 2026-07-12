@@ -1253,7 +1253,22 @@ export async function runInspectCore(options) {
       }
     }
   }
-  const resolution = await resolveTargetModule(target, baseCwd, resolveFrom, explicitResolveFrom);
+  const preferredPythonResolution =
+    !remote && shouldTryPythonResolution
+      ? resolvePythonPackage(target, {
+          resolveFrom: resolveFrom || baseCwd || process.cwd(),
+        })
+      : null;
+  const hasPreferredPythonResolution = Boolean(
+    preferredPythonResolution?.resolved && preferredPythonResolution?.pkgDir
+  );
+  const resolution = hasPreferredPythonResolution
+    ? {
+        resolved: null,
+        resolveCwd: resolveFrom || baseCwd || process.cwd(),
+        resolver: 'python',
+      }
+    : await resolveTargetModule(target, baseCwd, resolveFrom, explicitResolveFrom);
   const resolveCwd = resolution.resolveCwd || resolveFrom || baseCwd;
   const require = createRequire(resolveCwd ? path.join(resolveCwd, 'noop.js') : import.meta.url);
   const resolvedPath = resolution.resolved;
@@ -1295,9 +1310,11 @@ export async function runInspectCore(options) {
   try {
     if (!resolution.resolved) {
       if (shouldTryPythonResolution) {
-        const pythonResolution = resolvePythonPackage(target, {
-          resolveFrom: resolveFrom || baseCwd || process.cwd(),
-        });
+        const pythonResolution =
+          preferredPythonResolution ||
+          resolvePythonPackage(target, {
+            resolveFrom: resolveFrom || baseCwd || process.cwd(),
+          });
 
         if (pythonResolution?.resolved && pythonResolution?.pkgDir) {
           detectedLang = 'python';
@@ -1313,6 +1330,7 @@ export async function runInspectCore(options) {
               resolveCwd: resolveCwd || resolveFrom || baseCwd || null,
               resolved: pythonResolution.resolved || null,
               entrypointPath: pythonResolution.resolved || null,
+              moduleDir: pythonResolution.moduleDir || pythonResolution.pkgDir,
               entrypointExists: pythonResolution.resolved
                 ? fs.existsSync(pythonResolution.resolved)
                 : false,
@@ -1332,7 +1350,7 @@ export async function runInspectCore(options) {
             log(`   Description: ${pythonResolution.description}`);
           }
 
-          if (options?.analyzeSource) {
+          if (options?.analyzeSource && !options?.deferSourceAnalysis) {
             languageAnalysis = analyzePythonPackage(pythonResolution.pkgDir, {
               filter: filterRaw,
               maxFiles: options?.sourceMaxFiles || 100,

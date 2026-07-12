@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 1.0.9
+
+### Patch Changes
+
+- Keep local Python `pkgDir` anchored to the requested project root, expose the selected import package through `resolution.moduleDir`, prefer `src/` layouts over test/support packages, and avoid duplicate Python analysis in orchestrated inspections.
+
 ## 1.0.8
 
 ### Patch Changes

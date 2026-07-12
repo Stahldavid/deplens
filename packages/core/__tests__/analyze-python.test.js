@@ -169,9 +169,11 @@ describe('resolvePythonPackage', () => {
       const result = resolvePythonPackage('livekit-agent-python', { resolveFrom: parent });
 
       expect(result.error).toBeUndefined();
-      expect(path.resolve(result.pkgDir)).toBe(path.resolve(project));
-      expect(path.resolve(result.moduleDir)).toBe(path.resolve(moduleDir));
-      expect(path.resolve(result.resolved)).toBe(path.resolve(moduleDir, '__init__.py'));
+      expect(fs.realpathSync(result.pkgDir)).toBe(fs.realpathSync(project));
+      expect(fs.realpathSync(result.moduleDir)).toBe(fs.realpathSync(moduleDir));
+      expect(fs.realpathSync(result.resolved)).toBe(
+        fs.realpathSync(path.join(moduleDir, '__init__.py'))
+      );
     } finally {
       fs.rmSync(parent, { recursive: true, force: true });
     }

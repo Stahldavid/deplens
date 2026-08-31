@@ -57,7 +57,7 @@ jobs:
       id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # changesets needs full history to compute diffs
 
@@ -116,7 +116,7 @@ jobs:
       id-token: write # OIDC for npm Trusted Publisher + provenance
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

@@ -86,6 +86,7 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 | ------------------------------- | ------ | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `--resolve-from DIR`            | path   | cwd                   | Base directory for Node module resolution. Useful when targeting a sibling workspace.             |
 | `--remote`                      | flag   | off                   | Download the package into `~/.deplens-cache/versions/` and inspect that copy.                     |
+| `--offline` | flag | off | Cached packages only; remote inspect requires an explicit exact version. Missing content fails; cache metadata may still be written. |
 | `--remote-version V`            | string | `latest`              | Version to download (only with `--remote`).                                                       |
 | `--no-runtime`                  | flag   | off                   | Do not import/require the package entrypoint; use static package/type data only.                  |
 | `--runtime`                     | flag   | local on / remote off | Force runtime import for remote inspections. Local inspect imports runtime unless `--no-runtime`. |
@@ -120,6 +121,7 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 | Flag                            | Type   | Default        | Effect                                                               |
 | ------------------------------- | ------ | -------------- | -------------------------------------------------------------------- |
+| `--offline` | flag | off | Cached exact versions only (except `--from installed`); reject tags/ranges and fail on missing cache. |
 | `--from VERSION`                | string | `installed`    | Source version. Accepts a concrete semver, `installed`, or `latest`. |
 | `--to VERSION`                  | string | `latest`       | Target version. Same accepted values.                                |
 | `--filter VALUE`                | string | —              | Substring / `/regex/` filter on export names.                        |

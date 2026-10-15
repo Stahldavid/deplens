@@ -1,5 +1,13 @@
 # @deplens/mcp
 
+## 1.0.10
+
+### Patch Changes
+
+- [#16](https://github.com/Stahldavid/deplens/pull/16) [`1bf94c3`](https://github.com/Stahldavid/deplens/commit/1bf94c3a6613c5368c73094c3db268f4df3424f0) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Replace fast-glob with tinyglobby for workspace package discovery while retaining workspace glob behavior, and refresh the MCP SDK dependency.
+- Updated dependencies [[`1bf94c3`](https://github.com/Stahldavid/deplens/commit/1bf94c3a6613c5368c73094c3db268f4df3424f0)]:
+  - @deplens/core@1.0.10
+
 ## 1.0.9
 
 ### Patch Changes

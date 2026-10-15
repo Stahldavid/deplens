@@ -5,11 +5,11 @@ name: Publish to npm
 # 1. push to main          → Changesets flow:
 #      - If pending changesets (.changeset/*.md) exist, open/update a
 #        "Version Packages" PR that bumps versions + writes CHANGELOG.
-#      - If no pending changesets, run `npx changeset publish` which
-#        publishes every workspace whose package.json version isn't on
-#        npm yet (idempotent: already-published versions are skipped).
+#      - If no pending changesets, do nothing. Main never publishes npm.
+#        After merging a Version Packages PR, publication requires one
+#        of the explicit release paths below.
 #
-# 2. tag push (core-v*/cli-v*/mcp-v*)  → legacy manual fallback:
+# 2. tag push (core-v*/cli-v*/mcp-v*)  → explicit single-package release:
 #        Publish only that one package (parsed from the tag name).
 #        Useful for hotfixes or for republishing a single package.
 #
@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Job 1 — Changesets flow on push to main
+  # Job 1 — Version PR only on push to main
   # --------------------------------------------------------------------------
   changesets:
     name: Changesets release
@@ -78,33 +78,27 @@ jobs:
       - name: Run release quality gates
         run: npm run quality
 
-      - name: Create Release PR or Publish
+      - name: Create Version PR
         id: changesets
         uses: changesets/action@v1
         with:
           version: npm run version-packages
-          publish: npm run release
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
-          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN deliberately not set — npm CLI falls back to OIDC
-          # when no auth token is provided and id-token: write is granted.
 
       - name: Summarize outcome
         if: always()
         run: |
-          if [[ "${{ steps.changesets.outputs.published }}" == "true" ]]; then
-            echo "::notice::Published packages: ${{ steps.changesets.outputs.publishedPackages }}"
-          elif [[ "${{ steps.changesets.outputs.hasChangesets }}" == "true" ]]; then
-            echo "::notice::Pending changesets — 'Version Packages' PR opened/updated. Merge it to publish."
+          if [[ "${{ steps.changesets.outputs.hasChangesets }}" == "true" ]]; then
+            echo "::notice::Pending changesets — 'Version Packages' PR opened/updated. Publishing requires an explicit release tag or manual dispatch."
           else
-            echo "::notice::No pending changesets and nothing to publish. Up to date."
+            echo "::notice::No pending changesets. Main does not publish npm packages."
           fi
 
   # --------------------------------------------------------------------------
-  # Job 2 — Manual / tag-driven single-package publish (legacy fallback)
+  # Job 2 — Explicit manual / tag-driven single-package publish
   # --------------------------------------------------------------------------
   manual-publish:
     name: Manual publish (single package)

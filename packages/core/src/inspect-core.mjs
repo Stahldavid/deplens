@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import fg from 'fast-glob';
+import { glob } from 'tinyglobby';
 import { resolve as importMetaResolve } from 'import-meta-resolve';
 import { detectLanguage } from './language-detector.mjs';
 import { analyzePythonPackage, resolvePythonPackage } from './analyze-python.mjs';
@@ -81,7 +81,7 @@ async function listWorkspacePackageDirs(rootDir, workspaces, targetPackage) {
               dot: false,
             })
           )
-        : await fg(globPattern, {
+        : await glob(globPattern, {
             cwd: rootDir,
             onlyFiles: true,
             dot: false,

@@ -15,7 +15,9 @@ it.each([
 ])(
   'resolves a dependency installed only in a selected workspace: %j',
   async (workspaces, symlink) => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'deplens-workspace-security-'));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'deplens-workspace-security-'))
+    );
     roots.push(root);
     const write = (relative, data) => {
       const dest = path.join(root, relative);

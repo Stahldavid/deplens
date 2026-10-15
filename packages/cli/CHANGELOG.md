@@ -1,5 +1,12 @@
 # @deplens/cli
 
+## 1.0.12
+
+### Patch Changes
+
+- Updated dependencies [[`1bf94c3`](https://github.com/Stahldavid/deplens/commit/1bf94c3a6613c5368c73094c3db268f4df3424f0)]:
+  - @deplens/core@1.0.10
+
 ## 1.0.11
 
 ### Patch Changes

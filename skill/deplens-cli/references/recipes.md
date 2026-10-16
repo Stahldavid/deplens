@@ -378,7 +378,6 @@ The CLI returns an explicit warning when either language is requested.
 `--analyze-source` is a focused compact request and omits symbol/export inventories by default.
 Add `--select sourceAnalysis,languageAnalysis,symbols` when source-linked symbols are required.
 
-
 ## Common gotchas
 
 - **Wrong package resolves.** DepLens uses Node's resolver from `cwd`. If `node_modules/<pkg>` is in a parent dir but not the current one, pass `--resolve-from <dir>` pointing at a folder that does have access to it (typically the workspace root). Inside a monorepo, also consider `cd`-ing into the workspace whose `node_modules` exposes the target.

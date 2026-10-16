@@ -18,15 +18,15 @@ Use for questions about an existing package API, signature, README, JSDoc, sourc
 
 ## Choose a workflow
 
-| Question | Start with | Read when needed |
-| --- | --- | --- |
-| Installed exports/signatures | `deplens PKG --no-runtime --types --no-auto-generate-types --json` | [Inspect flags](references/cli-flags.md#deplens-inspect-flags) |
-| One README/JSDoc/example | `--docs-sections`, `--jsdoc-output only` or `--examples` | [Recipes](references/recipes.md) |
-| Package not installed | `deplens PKG --remote --remote-version X.Y.Z --json` after the fetch gate | [Remote workflow](references/recipes.md#9-inspect-a-package-that-isnt-installed) |
-| Two versions | `deplens diff PKG --from X --to Y --json` | [Diff flags](references/cli-flags.md#deplens-diff-flags) |
-| Project lockfiles/policy | `deplens project-diff --from REF --to working --no-api --json` | [Project workflows](references/recipes.md#8-compare-a-project-and-enforce-a-baseline) |
-| Source structure | `--analyze-source` with bounded files | [Source and language limits](references/recipes.md#11-source-code-analysis-js--ts--python--java) |
-| Cache/history | Read operation effects first | [Cache](references/cli-flags.md#cache-subcommands), [history](references/cli-flags.md#history-subcommands) |
+| Question                     | Start with                                                                | Read when needed                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Installed exports/signatures | `deplens PKG --no-runtime --types --no-auto-generate-types --json`        | [Inspect flags](references/cli-flags.md#deplens-inspect-flags)                                             |
+| One README/JSDoc/example     | `--docs-sections`, `--jsdoc-output only` or `--examples`                  | [Recipes](references/recipes.md)                                                                           |
+| Package not installed        | `deplens PKG --remote --remote-version X.Y.Z --json` after the fetch gate | [Remote workflow](references/recipes.md#9-inspect-a-package-that-isnt-installed)                           |
+| Two versions                 | `deplens diff PKG --from X --to Y --json`                                 | [Diff flags](references/cli-flags.md#deplens-diff-flags)                                                   |
+| Project lockfiles/policy     | `deplens project-diff --from REF --to working --no-api --json`            | [Project workflows](references/recipes.md#8-compare-a-project-and-enforce-a-baseline)                      |
+| Source structure             | `--analyze-source` with bounded files                                     | [Source and language limits](references/recipes.md#11-source-code-analysis-js--ts--python--java)           |
+| Cache/history                | Read operation effects first                                              | [Cache](references/cli-flags.md#cache-subcommands), [history](references/cli-flags.md#history-subcommands) |
 
 Read [workflow details and gotchas](references/recipes.md#cli-workflow-details) for the selected operation. This version supports JS/TS/Python/Java source analysis; Rust/Go detection returns an unsupported-analysis warning. Do not infer features or published versions from another checkout.
 

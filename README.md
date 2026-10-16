@@ -30,13 +30,13 @@ Installation changes the environment; `npx` may download the CLI. Agents should 
 
 ## Execution modes and effects
 
-| Operation | Effects to account for |
-| --- | --- |
-| Local inspect | Resolves from `cwd` or `--resolve-from`; imports entrypoints by default. `--no-runtime` skips that import for static metadata/type inspection. |
-| Remote inspect / diff | Static by default; `--runtime` opts into package code execution. Fetching writes a cache and may contact registry/CDN. npm install with lifecycle scripts disabled is the default fetcher; `--prefer-cdn` tries archives and falls back to npm if unavailable. Neither adds dependencies to the inspected project. |
-| Offline remote / diff | `--offline` uses cached packages. Remote inspect needs an exact `--remote-version`; diff needs exact versions except `--from installed`. Missing content fails; cache reads can update `lastUsedAt`. Offline is not a no-write guarantee. |
-| Project lockfiles | `--no-api` skips registry/cache API enrichment. Direct dependencies are the default; transitive changes are explicit. |
-| Optional writes / subprocesses | Type generation can invoke a dts-gen subprocess and write declarations; Python analysis can invoke a venv or `uv run --project`. Baselines, snapshots and history write files. Cache pin/migrate/prune/clear change stored data; cleanup is a separate task. |
+| Operation                      | Effects to account for                                                                                                                                                                                                                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Local inspect                  | Resolves from `cwd` or `--resolve-from`; imports entrypoints by default. `--no-runtime` skips that import for static metadata/type inspection.                                                                                                                                                                     |
+| Remote inspect / diff          | Static by default; `--runtime` opts into package code execution. Fetching writes a cache and may contact registry/CDN. npm install with lifecycle scripts disabled is the default fetcher; `--prefer-cdn` tries archives and falls back to npm if unavailable. Neither adds dependencies to the inspected project. |
+| Offline remote / diff          | `--offline` uses cached packages. Remote inspect needs an exact `--remote-version`; diff needs exact versions except `--from installed`. Missing content fails; cache reads can update `lastUsedAt`. Offline is not a no-write guarantee.                                                                          |
+| Project lockfiles              | `--no-api` skips registry/cache API enrichment. Direct dependencies are the default; transitive changes are explicit.                                                                                                                                                                                              |
+| Optional writes / subprocesses | Type generation can invoke a dts-gen subprocess and write declarations; Python analysis can invoke a venv or `uv run --project`. Baselines, snapshots and history write files. Cache pin/migrate/prune/clear change stored data; cleanup is a separate task.                                                       |
 
 See [CLI skill gates](skill/deplens-cli/SKILL.md#before-running) and the [flag reference](skill/deplens-cli/references/cli-flags.md) before selecting these modes.
 

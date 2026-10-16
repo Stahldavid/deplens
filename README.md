@@ -1,6 +1,6 @@
 # DepLens
 
-Dependency/API oracle for Node.js and TypeScript. DepLens inspects **what is actually installed**: runtime exports, type signatures, and JSDoc pulled from `.d.ts` files, without relying on the internet.
+Dependency/API oracle for Node.js and TypeScript. DepLens inspects **what is actually installed**: runtime exports, plus type signatures and JSDoc from the resolved `.d.ts` files. Installed files can be inspected locally; remote versions and upgrade comparisons can use the npm registry, downloads and a shared cache.
 
 Use it to reduce API hallucination, verify exports, and quickly answer “does this symbol exist in my project?”
 
@@ -25,6 +25,20 @@ npm i -D @deplens/cli
 # or
 npx --yes @deplens/cli --help
 ```
+
+Installation changes the environment; `npx` may download the CLI. Agents should first locate an existing binary and record its version. Package versions in this checkout are not proof of npm publication.
+
+## Execution modes and effects
+
+| Operation                      | Effects to account for                                                                                                                                                                                                                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Local inspect                  | Resolves from `cwd` or `--resolve-from`; imports entrypoints by default. `--no-runtime` skips that import for static metadata/type inspection.                                                                                                                                                                     |
+| Remote inspect / diff          | Static by default; `--runtime` opts into package code execution. Fetching writes a cache and may contact registry/CDN. npm install with lifecycle scripts disabled is the default fetcher; `--prefer-cdn` tries archives and falls back to npm if unavailable. Neither adds dependencies to the inspected project. |
+| Offline remote / diff          | `--offline` uses cached packages. Remote inspect needs an exact `--remote-version`; diff needs exact versions except `--from installed`. Missing content fails; cache reads can update `lastUsedAt`. Offline is not a no-write guarantee.                                                                          |
+| Project lockfiles              | `--no-api` skips registry/cache API enrichment. Direct dependencies are the default; transitive changes are explicit.                                                                                                                                                                                              |
+| Optional writes / subprocesses | Type generation can invoke a dts-gen subprocess and write declarations; Python analysis can invoke a venv or `uv run --project`. Baselines, snapshots and history write files. Cache pin/migrate/prune/clear change stored data; cleanup is a separate task.                                                       |
+
+See [CLI skill gates](skill/deplens-cli/SKILL.md#before-running) and the [flag reference](skill/deplens-cli/references/cli-flags.md) before selecting these modes.
 
 ## Quickstart
 
@@ -71,8 +85,9 @@ deplens history [list|show <pkg@v>|compare <pkg> <v1> <v2>|clear [pkg]]
 --kind <k1,k2>                Filter by kind (function,class,object,constant)
 --depth <0-5>                 Object inspection depth (default: 1)
 --resolve-from <dir>          Base directory for module resolution (workspaces)
---remote                      Download package to cache (no install required)
+--remote                      Fetch into cache (npm install by default; not the project)
 --remote-version <v>          Version for remote download (default: latest)
+--offline                     Cached exact versions only; missing cache fails
 --no-runtime                  Skip importing/requiring the package entrypoint
 --runtime                     Force runtime import (remote inspect defaults static)
 --prefer-cdn                  Prefer lightweight CDN download
@@ -277,7 +292,7 @@ Inspect local package (types + search):
 deplens zod --types --search validate --filter parse
 ```
 
-Inspect remotely (no install) as JSON:
+Inspect a remote version into the cache as JSON (registry/download access):
 
 ```bash
 deplens zod --remote --remote-version latest --format json --filter parse
@@ -424,6 +439,14 @@ const output = await runInspect({
 
 console.log(output);
 ```
+
+## Repository verification and fixes
+
+Use manifests and lockfile from the selected checkout; this root declares `npm@11.9.0`.
+
+- `npm run lint:check` and `npm run format:check` check without applying fixes. `npm run lint` uses `--fix`; `npm run format` uses `--write`.
+- `test:cli` runs tests and then inspects installed zod through the CLI. `quality` adds coverage, registry access through `npm audit`, and `npm pack --dry-run`; it is not a read-only documentation check.
+- Choose validation for the changed contract. Prose normally needs diff, links and semantic review; it does not require the full suite or `quality`. Release/publish changes the external registry and requires its own authorized scope.
 
 ## Requirements
 

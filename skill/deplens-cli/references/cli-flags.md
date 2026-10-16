@@ -82,14 +82,15 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 ### Resolution
 
-| Flag                            | Type   | Default               | Effect                                                                                            |
-| ------------------------------- | ------ | --------------------- | ------------------------------------------------------------------------------------------------- |
-| `--resolve-from DIR`            | path   | cwd                   | Base directory for Node module resolution. Useful when targeting a sibling workspace.             |
-| `--remote`                      | flag   | off                   | Download the package into `~/.deplens-cache/versions/` and inspect that copy.                     |
-| `--remote-version V`            | string | `latest`              | Version to download (only with `--remote`).                                                       |
-| `--no-runtime`                  | flag   | off                   | Do not import/require the package entrypoint; use static package/type data only.                  |
-| `--runtime`                     | flag   | local on / remote off | Force runtime import for remote inspections. Local inspect imports runtime unless `--no-runtime`. |
-| `--prefer-cdn` / `--prefer-npm` | flag   | `--prefer-npm`        | Use CDN tarball (jsdelivr/unpkg) vs `npm install`. CDN is faster; npm is canonical.               |
+| Flag                            | Type   | Default               | Effect                                                                                                                               |
+| ------------------------------- | ------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--resolve-from DIR`            | path   | cwd                   | Base directory for Node module resolution. Useful when targeting a sibling workspace.                                                |
+| `--remote`                      | flag   | off                   | Download the package into `~/.deplens-cache/versions/` and inspect that copy.                                                        |
+| `--offline`                     | flag   | off                   | Cached packages only; remote inspect requires an explicit exact version. Missing content fails; cache metadata may still be written. |
+| `--remote-version V`            | string | `latest`              | Version to download (only with `--remote`).                                                                                          |
+| `--no-runtime`                  | flag   | off                   | Do not import/require the package entrypoint; use static package/type data only.                                                     |
+| `--runtime`                     | flag   | local on / remote off | Force runtime import for remote inspections. Local inspect imports runtime unless `--no-runtime`.                                    |
+| `--prefer-cdn` / `--prefer-npm` | flag   | `--prefer-npm`        | Use CDN tarball (jsdelivr/unpkg) vs `npm install`. CDN is faster; npm is canonical.                                                  |
 
 ### Output
 
@@ -118,25 +119,26 @@ JS/TS source analysis recognizes ESM exports, default exported functions, and co
 
 ## `deplens diff` flags
 
-| Flag                            | Type   | Default        | Effect                                                               |
-| ------------------------------- | ------ | -------------- | -------------------------------------------------------------------- |
-| `--from VERSION`                | string | `installed`    | Source version. Accepts a concrete semver, `installed`, or `latest`. |
-| `--to VERSION`                  | string | `latest`       | Target version. Same accepted values.                                |
-| `--filter VALUE`                | string | —              | Substring / `/regex/` filter on export names.                        |
-| `--format text\|json`           | enum   | `text`         | Output format.                                                       |
-| `--json`                        | flag   | off            | Shorthand for `--format json`.                                       |
-| `--include-source`              | flag   | off            | Compare per-symbol source complexity between versions.               |
-| `--no-runtime`                  | flag   | implicit       | Keep diff on static package/type data only.                          |
-| `--runtime`                     | flag   | off            | Import downloaded package entrypoints while diffing.                 |
-| `--no-changelog`                | flag   | off (parse on) | Skip `CHANGELOG.md` parsing (much faster on huge changelogs).        |
-| `--verbose`                     | flag   | off            | Show detailed per-symbol changes.                                    |
-| `--no-color`                    | flag   | off            | Disable ANSI color codes in text output.                             |
-| `--project-dir DIR`             | path   | cwd            | Working directory used when `--from installed`.                      |
-| `--prefer-cdn` / `--prefer-npm` | flag   | `--prefer-npm` | Same as inspect's CDN preference.                                    |
-| `--max-changes N`               | int    | 100            | Changes per compact JSON page.                                       |
-| `--cursor VALUE`                | string | `0`            | Resume compact change pagination.                                    |
-| `--conditions LIST`             | list   | Node defaults  | Compare one conditional-export surface.                              |
-| `--no-semantic`                 | flag   | off            | Skip TypeScript assignability validation.                            |
+| Flag                            | Type   | Default        | Effect                                                                                                |
+| ------------------------------- | ------ | -------------- | ----------------------------------------------------------------------------------------------------- |
+| `--offline`                     | flag   | off            | Cached exact versions only (except `--from installed`); reject tags/ranges and fail on missing cache. |
+| `--from VERSION`                | string | `installed`    | Source version. Accepts a concrete semver, `installed`, or `latest`.                                  |
+| `--to VERSION`                  | string | `latest`       | Target version. Same accepted values.                                                                 |
+| `--filter VALUE`                | string | —              | Substring / `/regex/` filter on export names.                                                         |
+| `--format text\|json`           | enum   | `text`         | Output format.                                                                                        |
+| `--json`                        | flag   | off            | Shorthand for `--format json`.                                                                        |
+| `--include-source`              | flag   | off            | Compare per-symbol source complexity between versions.                                                |
+| `--no-runtime`                  | flag   | implicit       | Keep diff on static package/type data only.                                                           |
+| `--runtime`                     | flag   | off            | Import downloaded package entrypoints while diffing.                                                  |
+| `--no-changelog`                | flag   | off (parse on) | Skip `CHANGELOG.md` parsing (much faster on huge changelogs).                                         |
+| `--verbose`                     | flag   | off            | Show detailed per-symbol changes.                                                                     |
+| `--no-color`                    | flag   | off            | Disable ANSI color codes in text output.                                                              |
+| `--project-dir DIR`             | path   | cwd            | Working directory used when `--from installed`.                                                       |
+| `--prefer-cdn` / `--prefer-npm` | flag   | `--prefer-npm` | Same as inspect's CDN preference.                                                                     |
+| `--max-changes N`               | int    | 100            | Changes per compact JSON page.                                                                        |
+| `--cursor VALUE`                | string | `0`            | Resume compact change pagination.                                                                     |
+| `--conditions LIST`             | list   | Node defaults  | Compare one conditional-export surface.                                                               |
+| `--no-semantic`                 | flag   | off            | Skip TypeScript assignability validation.                                                             |
 
 ## Project diff and policy flags
 

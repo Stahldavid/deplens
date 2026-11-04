@@ -123,15 +123,12 @@ deplens lodash --search "deep merge"
 
 Token-matches the query (with synonym expansion: `validate ↔ parse`, `auth ↔ token`, etc.) against export names and JSDoc; falls back to fuzzy token scoring if no types are available.
 
-### 11. Source-code analysis (JS / TS / Python / Java / Rust / C++ / XAML)
+### 11. Source-code analysis (JS / TS / Python / Java)
 
 ```bash
 deplens zod --analyze-source --source-max-files 5
 deplens some-python-pkg --analyze-source --language python
 deplens some-java-pkg --analyze-source --language java
-deplens ./rust-crate --analyze-source --language rust
-deplens ./cpp-project --analyze-source --language cpp
-deplens ./wpf-app --analyze-source --language xaml
 ```
 
 Walks the package's source files and reports function/class counts, complexity (approximate cyclomatic), imports, and body snippets when requested.
@@ -151,19 +148,8 @@ For Python, the current implementation is environment-aware:
 
 For Java, source analysis uses a best-effort built-in parser for package/import/class/interface/enum/method extraction.
 
-Rust analysis reads `Cargo.toml` and uses a structural AST backend without compiling or executing
-the crate. It reports declared dependencies/features plus functions, methods, structs, enums,
-traits, visibility, attributes, imports, and complexity.
-
-C++ analysis accepts `cpp`, `c++`, and `cxx`. It structurally parses headers and implementation
-files, and reads CMake/vcpkg/Conan declarations without configuring or building the project. It
-reports namespaces, types, functions, methods, templates, members, includes, visibility, linkage,
-and complexity. Header-based public API is a structural heuristic, not ABI or semantic validation.
-
-XAML analysis uses a non-instantiating XML parser and rejects DTDs. It reports project dialect,
-elements, names, resources, bindings, resource references, events, namespace mappings, and declared
-NuGet references. It does not claim code-behind or framework-type validation. Go remains
-detection-only and returns an explicit unsupported-analysis warning.
+Rust and Go package layouts are detected, but implementation analysis is not yet available on this branch. C++ and XAML are not accepted `--language` values here; verify a newer executable contract before using examples from another checkout.
+The CLI returns an explicit warning when either language is requested.
 `--analyze-source` is a focused compact request and omits symbol/export inventories by default.
 Add `--select sourceAnalysis,languageAnalysis,symbols` when source-linked symbols are required.
 

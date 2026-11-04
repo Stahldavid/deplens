@@ -39,5 +39,13 @@
     "eslint": "^10.2.1",
     "prettier": "^3.8.3",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "eslint": {
+      "minimatch": "^11.0.4"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.4"
+    }
   }
 }

@@ -54,6 +54,43 @@ describe('DepLens MCP server', () => {
     );
   });
 
+  it('preserves cursor map and open result schemas for MCP clients', async () => {
+    const { tools } = await client.listTools();
+    const project = tools.find((tool) => tool.name === 'deplens_project_diff');
+    expect(project.inputSchema.properties.packageCursors).toMatchObject({
+      type: 'object',
+      additionalProperties: {
+        anyOf: expect.arrayContaining([
+          { type: 'string' },
+          expect.objectContaining({ type: 'integer', minimum: 0 }),
+        ]),
+      },
+    });
+    expect(project.outputSchema.properties.summary).toMatchObject({
+      type: 'object',
+      additionalProperties: {},
+    });
+    expect(tools.find((tool) => tool.name === 'deplens_inspect').inputSchema.required).toEqual([
+      'target',
+    ]);
+  });
+
+  it('rejects malformed cursor maps and unknown nested options before running tools', async () => {
+    const cursors = await client.callTool({
+      name: 'deplens_project_diff',
+      arguments: { packageCursors: { zod: -1 } },
+    });
+    expect(cursors.isError).toBe(true);
+    expect(cursors.content[0].text).toContain('packageCursors');
+
+    const jsdoc = await client.callTool({
+      name: 'deplens_inspect',
+      arguments: { target: 'zod', jsdocQuery: { unknownOption: true } },
+    });
+    expect(jsdoc.isError).toBe(true);
+    expect(jsdoc.content[0].text).toContain('unknownOption');
+  });
+
   it('runs doctor and project lockfile diff as structured tools', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'deplens-mcp-project-'));
     try {
@@ -76,7 +113,14 @@ describe('DepLens MCP server', () => {
       });
       const project = await client.callTool({
         name: 'deplens_project_diff',
-        arguments: { from: before, to: after, rootDir: root, analyze: false, format: 'object' },
+        arguments: {
+          from: before,
+          to: after,
+          rootDir: root,
+          analyze: false,
+          format: 'object',
+          packageCursors: { zod: 0, semver: '0' },
+        },
       });
 
       expect(doctor.isError).not.toBe(true);

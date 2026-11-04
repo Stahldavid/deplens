@@ -1,5 +1,11 @@
 # @deplens/core
 
+## 1.0.11
+
+### Patch Changes
+
+- Publish the reviewed dependency/tooling maintenance and refreshed agent guidance while preserving package inspection contracts.
+
 ## 1.0.10
 
 ### Patch Changes

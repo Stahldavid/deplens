@@ -1,5 +1,13 @@
 # @deplens/cli
 
+## 1.0.13
+
+### Patch Changes
+
+- Publish the compatible core release and verified export-kind filtering, with refreshed CLI skill guidance.
+- Updated dependencies []:
+  - @deplens/core@1.0.11
+
 ## 1.0.12
 
 ### Patch Changes

@@ -1,3 +1,7 @@
+# Recipe execution boundaries
+
+Select a recipe only for the current question. The entrypoint governs setup/effects: use an existing versioned executable, and keep fetching, cache writes, imports, type generation, baselines and cleanup within the authorized task. Remote inspection can install into a staging cache without adding a dependency to the inspected project; it is not a no-install/no-network promise. Do not execute cache-clear examples as automatic recovery.
+
 # DepLens CLI — Recipes
 
 End-to-end workflows that combine multiple flags to answer specific kinds of questions. Each recipe lists the user-facing question, the exact command, what it returns, and how to interpret the output.
@@ -108,9 +112,9 @@ deplens prisma --docs-sections Installation,Quick,"Getting started" --json
 
 ---
 
-## Inspect a package without installing it
+## Inspect a package in cache without adding it to the project
 
-**Question:** "What's in `bun` 1.2 without running `npm install`?"
+**Question:** "What's in `bun` 1.2 without adding it to my project?"
 
 ```bash
 deplens bun --remote --remote-version 1.2.0 --types --kind function,class --json

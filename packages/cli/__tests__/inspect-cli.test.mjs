@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'child_process';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -107,12 +107,36 @@ describe('inspect CLI', () => {
   });
 
   it('filters runtime exports by requested kind', () => {
-    const output = runCliJson(['zod', '--kind', 'class']);
+    const root = mkdtempSync(path.join(tmpdir(), 'deplens-cli-kinds-'));
+    try {
+      const packageDir = path.join(root, 'node_modules', 'mixed-exports');
+      mkdirSync(packageDir, { recursive: true });
+      writeFileSync(
+        path.join(packageDir, 'package.json'),
+        JSON.stringify({
+          name: 'mixed-exports',
+          version: '1.0.0',
+          type: 'module',
+          main: 'index.js',
+        })
+      );
+      writeFileSync(
+        path.join(packageDir, 'index.js'),
+        'export class Example {}\nexport function helper() {}\nexport const settings = {};\nexport const value = 1;\n'
+      );
+      const output = runCliJson([
+        'mixed-exports',
+        '--resolve-from',
+        root,
+        '--kind',
+        'class',
+        '--no-auto-generate-types',
+      ]);
 
-    expect(output.exports.total).toBe(0);
-    expect(output.exports).not.toHaveProperty('functions');
-    expect(output.exports).not.toHaveProperty('objects');
-    expect(output.exports).not.toHaveProperty('constants');
+      expect(output.exports).toEqual({ total: 1, classes: ['Example'] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('returns zero changes when diffing identical exact versions', () => {

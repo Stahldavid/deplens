@@ -1,3 +1,7 @@
+# Execution scope
+
+Read only the selected command section. Examples use an existing executable and do not authorize installation, package execution, network calls or cache maintenance. `--no-runtime` disables entrypoint imports, not every subprocess/write; `--no-auto-generate-types` avoids declaration generation. Use exact versions and verify installed support before relying on offline options.
+
 # DepLens CLI — Full Flag Reference
 
 This document enumerates every flag of `deplens inspect` (default subcommand) and `deplens diff`, plus the cache/history subcommands, environment variables, and JSON output schema. Pair with the main [SKILL.md](../SKILL.md) workflows.

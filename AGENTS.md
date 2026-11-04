@@ -1,5 +1,17 @@
 # DepLens repository guidance
 
+This npm-workspaces project contains `@deplens/core`, CLI and MCP packages. Use the selected checkout's manifests, lockfile and source entrypoints; a newer source capability does not prove the global executable is updated. Preserve existing changes and the task's package/version baseline.
+
+For package inspection workflows read [the CLI skill](skill/deplens-cli/SKILL.md); for contributor checks read [.github/CI_LOCAL.md](.github/CI_LOCAL.md). Load references by operation, not the whole command manual.
+
+For prose-only edits, review the diff and affected links. For code changes use lint:check, test:types and tests of the affected workspace; lint writes fixes. Expand testing for affected contracts or failures, and complete required CI/release gates. Root CLI helpers and corpus tests may access registries; quality also includes dependency audit and pack. Do not run those effects merely to inspect documentation or imply that local validation proves publication.
+
+Inspect can import package code; remote operations fetch/cache, type generation can write, Python analysis may invoke uv, and baselines/snapshots are writes. Keep these effects explicit in workflows. Do not install global latest, change credentials, clear caches, overwrite baselines or publish as automatic recovery.
+
+The maintained skill source is `skill/deplens-cli/`, including references. Distribute that folder deliberately to selected consumers; installed skills and plugin caches are separate from source and need their own discovery evidence.
+
+# DepLens repository guidance
+
 ## Code Review Rules
 
 ### Public API and CLI compatibility
